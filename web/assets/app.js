@@ -157,15 +157,41 @@ const FEMALE_HINTS = [
   "google हिन्दी", "google తెలుగు", "google uk english female", "google us english"
 ];
 
+/* ---- 3 selectable voices for Anaga ----
+   Each maps to a (best-effort) different female system voice and a distinct
+   pitch/cadence, so they sound clearly different even on systems with one voice. */
+const VOICES = [
+  { id: "aria",  name: "Aria",  style: "Warm & friendly",     pitch: 1.06, rate: 0.97,
+    hints: ["samantha", "aria", "veena", "heera", "google us english", "zira", "female"] },
+  { id: "kiara", name: "Kiara", style: "Crisp & professional", pitch: 0.98, rate: 1.07,
+    hints: ["jenny", "zira", "kalpana", "google uk english female", "tessa", "catherine", "female"] },
+  { id: "meher", name: "Meher", style: "Soft & calm",          pitch: 1.18, rate: 0.9,
+    hints: ["fiona", "victoria", "swara", "raveena", "moira", "google हिन्दी", "female"] }
+];
+let selectedVoiceId = (function () {
+  try { return localStorage.getItem("vaak_voice") || "aria"; } catch (e) { return "aria"; }
+})();
+function currentVoice() { return VOICES.find(v => v.id === selectedVoiceId) || VOICES[0]; }
+function setSelectedVoice(id) {
+  selectedVoiceId = id;
+  try { localStorage.setItem("vaak_voice", id); } catch (e) {}
+}
+
 const synth = window.speechSynthesis;
 let voices = [];
 function loadVoices() { voices = (synth && synth.getVoices()) || []; }
 if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
 
-function pickVoice(lang) {
+/* pick a voice for a language, preferring the selected preset's voice hints */
+function pickVoice(lang, hints) {
   const base = lang.split("-")[0];
   const byLang = voices.filter(v => v.lang && (v.lang === lang || v.lang.replace("_", "-").startsWith(base)));
-  const isFemale = v => FEMALE_HINTS.some(h => v.name.toLowerCase().includes(h));
+  const match = list => v => list.some(h => v.name.toLowerCase().includes(h));
+  if (hints && hints.length) {
+    const pref = byLang.find(match(hints)) || (byLang.length ? null : voices.find(match(hints)));
+    if (pref) return pref;
+  }
+  const isFemale = match(FEMALE_HINTS);
   return (
     byLang.find(isFemale) || byLang[0] ||
     voices.filter(v => v.lang && v.lang.startsWith("en")).find(isFemale) ||
@@ -173,19 +199,20 @@ function pickVoice(lang) {
   );
 }
 
-/* speakText(text, lang, { onstart, onend }) -> returns chosen voice (or null) */
+/* speakText(text, lang, { onstart, onend, voice }) -> returns chosen voice (or null) */
 function speakText(text, lang, opts = {}) {
   if (!synth) {
     /* no TTS engine — don't stall the conversation; continue after a short beat */
     setTimeout(() => opts.onend && opts.onend(), 400);
     return null;
   }
+  const preset = opts.voice || currentVoice();
   const u = new SpeechSynthesisUtterance(text);
-  const v = pickVoice(lang);
+  const v = pickVoice(lang, preset.hints);
   if (v) u.voice = v;
   u.lang = (v && v.lang) || lang;
-  u.pitch = 1.08;
-  u.rate = 0.97;
+  u.pitch = preset.pitch;
+  u.rate = preset.rate;
   if (opts.onstart) u.onstart = opts.onstart;
   /* fire onend exactly once, even if the browser drops the speech 'end' event
      (a common cause of a stalled call) — a watchdog guarantees progress. */
@@ -246,6 +273,21 @@ if (demoEl) {
     play();
   });
   window.addEventListener("beforeunload", () => synth.cancel());
+})();
+
+/* ---------------- voice picker (3 selectable AI voices) ---------------- */
+(function voicePicker() {
+  const picker = document.getElementById("voice-picker");
+  if (!picker) return;
+  const cards = [...picker.querySelectorAll(".voice-card")];
+  const refresh = () => cards.forEach(c => c.classList.toggle("is-active", c.dataset.voice === selectedVoiceId));
+  refresh();
+  cards.forEach(card => card.addEventListener("click", () => {
+    setSelectedVoice(card.dataset.voice);
+    refresh();
+    /* preview the chosen voice */
+    if (synth) speakText("Hi, I'm Anaga, your AI voice agent. How can I help you today?", "en-IN", { voice: currentVoice() });
+  }));
 })();
 
 /* ===================================================================
