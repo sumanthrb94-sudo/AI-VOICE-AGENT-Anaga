@@ -11,6 +11,18 @@ A self-contained, zero-build home screen for the Vaak AI project.
 | `assets/app.js` | Renders the agent fleet + metrics and drives the Playbook overlay |
 | `assets/playbook-data.js` | The Playbook content — edit this to change the guide |
 
+## Anaga's voices (3 selectable)
+
+Pick **Aria / Kiara / Meher** in the hero — used by both "Hear Anaga" and the call.
+
+- **With a Sarvam key (recommended):** set `SARVAM_API_KEY` (+ optional `TTS_PROVIDER=sarvam`,
+  `SARVAM_TTS_MODEL=bulbul:v2`) in Vercel. The `/api/tts` function then synthesizes real,
+  distinct, lifelike **Sarvam Bulbul** voices (Aria→Anushka, Kiara→Manisha, Meher→Vidya),
+  identical on every device. The key stays server-side. The picker shows "🟢 Sarvam Bulbul".
+- **Without a key:** falls back to the browser's built-in voices — bound to distinct installed
+  voices where possible, plus strong pitch/pace contrast. The picker honestly shows which device
+  voice each maps to (browser TTS quality/voices vary by device).
+
 ## Talk to Anaga (live two-way call demo)
 
 The hero's green **Talk to Anaga — live call demo** button opens a call screen that

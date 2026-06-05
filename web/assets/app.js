@@ -163,11 +163,11 @@ const FEMALE_HINTS = [
    when the device only exposes one TTS voice — the common reason "all three
    sound the same". `hints` is only a soft preference. */
 const VOICES = [
-  { id: "aria",  name: "Aria",  style: "Warm & bright",  idx: 0, pitch: 1.15, rate: 1.0,
+  { id: "aria",  name: "Aria",  style: "Warm & bright",  idx: 0, pitch: 1.15, rate: 1.0,  sarvam: "anushka",
     hints: ["samantha", "aria", "veena", "heera", "google us english", "zira"] },
-  { id: "kiara", name: "Kiara", style: "Low & crisp",    idx: 1, pitch: 0.8,  rate: 1.12,
+  { id: "kiara", name: "Kiara", style: "Low & crisp",    idx: 1, pitch: 0.8,  rate: 1.12, sarvam: "manisha",
     hints: ["google uk english female", "kalpana", "tessa", "catherine", "serena", "fiona"] },
-  { id: "meher", name: "Meher", style: "High & gentle",  idx: 2, pitch: 1.5,  rate: 0.85,
+  { id: "meher", name: "Meher", style: "High & gentle",  idx: 2, pitch: 1.5,  rate: 0.85, sarvam: "vidya",
     hints: ["victoria", "swara", "raveena", "moira", "karen", "nicky"] }
 ];
 let selectedVoiceId = (function () {
@@ -220,14 +220,53 @@ function voiceLabel(v) {
   return v ? v.name.replace(/^(Google|Microsoft)\s+/i, "").replace(/\s*\(.*\)$/, "") : "default";
 }
 
-/* speakText(text, lang, { onstart, onend, voice }) -> returns chosen voice (or null) */
-function speakText(text, lang, opts = {}) {
-  if (!synth) {
-    /* no TTS engine — don't stall the conversation; continue after a short beat */
-    setTimeout(() => opts.onend && opts.onend(), 400);
-    return null;
+/* ---- Cloud TTS (Sarvam Bulbul) — real, distinct, lifelike voices via /api/tts.
+   Server holds the key; we fetch base64 audio and play it. Falls back to the
+   browser voice when the endpoint/key isn't available. ---- */
+const CloudTTS = (function () {
+  let available = null;            // null=unknown, true, false
+  let audio = null;
+  const cache = {};                // `${speaker}|${lang}|${text}` -> dataURL (repeat lines, e.g. greeting)
+  function probe() {
+    return fetch("/api/tts").then(r => r.ok ? r.json() : { available: false })
+      .then(d => { available = !!(d && d.available); return available; })
+      .catch(() => { available = false; return false; });
   }
-  const preset = opts.voice || currentVoice();
+  function isOn() { return available === true; }
+  function stop() { if (audio) { try { audio.pause(); } catch (e) {} audio.onended = audio.onerror = null; audio = null; } }
+  function play(src, opts, fallback) {
+    stop();
+    audio = new Audio(src);
+    let done = false;
+    const finish = () => { if (done) return; done = true; opts.onend && opts.onend(); };
+    if (opts.onstart) audio.onplay = opts.onstart;
+    audio.onended = finish;
+    audio.onerror = () => { if (!done) { done = true; fallback(); } };
+    audio.play().catch(() => { if (!done) { done = true; fallback(); } });
+  }
+  function speak(text, lang, preset, opts, fallback) {
+    const speaker = preset.sarvam || "anushka";
+    const key = speaker + "|" + (lang || "en-IN") + "|" + text;
+    if (cache[key]) return play(cache[key], opts, fallback);
+    fetch("/api/tts", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, lang: lang || "en-IN", speaker })
+    })
+      .then(r => { if (!r.ok) throw new Error("tts_" + r.status); return r.json(); })
+      .then(d => {
+        if (!d || !d.audio) throw new Error("no_audio");
+        const src = "data:" + (d.mime || "audio/wav") + ";base64," + d.audio;
+        cache[key] = src;
+        play(src, opts, fallback);
+      })
+      .catch(() => { available = false; fallback(); });   // degrade to browser voice
+  }
+  return { probe, isOn, speak, stop };
+})();
+
+/* browser Web Speech path (fallback / no key) */
+function browserSpeak(text, lang, preset, opts) {
+  if (!synth) { setTimeout(() => opts.onend && opts.onend(), 400); return null; }
   const u = new SpeechSynthesisUtterance(text);
   const v = resolveVoiceForPreset(preset, lang);
   if (v) u.voice = v;
@@ -235,8 +274,6 @@ function speakText(text, lang, opts = {}) {
   u.pitch = preset.pitch;
   u.rate = preset.rate;
   if (opts.onstart) u.onstart = opts.onstart;
-  /* fire onend exactly once, even if the browser drops the speech 'end' event
-     (a common cause of a stalled call) — a watchdog guarantees progress. */
   let done = false;
   const finish = () => { if (done) return; done = true; clearTimeout(wd); opts.onend && opts.onend(); };
   u.onend = finish;
@@ -247,6 +284,20 @@ function speakText(text, lang, opts = {}) {
   const wd = setTimeout(finish, ms);
   return v;
 }
+
+/* speakText(text, lang, { onstart, onend, voice }) — Sarvam cloud voice when
+   available, else the browser voice. Returns the resolved preset/voice. */
+function speakText(text, lang, opts = {}) {
+  const preset = opts.voice || currentVoice();
+  if (synth) synth.cancel();
+  CloudTTS.stop();
+  if (CloudTTS.isOn()) {
+    CloudTTS.speak(text, lang, preset, opts, () => browserSpeak(text, lang, preset, opts));
+    return preset;
+  }
+  return browserSpeak(text, lang, preset, opts);
+}
+CloudTTS.probe();   // detect cloud voices once on load
 
 let curLang = "en-IN"; // controlled by the language pills (sample); call demo runs in en-IN
 
@@ -314,18 +365,26 @@ if (demoEl) {
       if (m) c.title = m.v ? "Uses your device voice: " + voiceLabel(m.v) : "Uses your device's default voice";
     });
     if (!note) return;
+    /* cloud voices (Sarvam Bulbul) — real, distinct, lifelike */
+    if (CloudTTS.isOn()) {
+      const sp = VOICES.map(p => p.sarvam);
+      note.innerHTML = "🟢 <b>Sarvam Bulbul</b> cloud voices — Aria: " + sp[0] +
+        " · Kiara: " + sp[1] + " · Meher: " + sp[2] + " (distinct &amp; lifelike).";
+      return;
+    }
     const names = map.map(m => voiceLabel(m.v));
     const distinct = new Set(names.map(n => n.toLowerCase())).size;
     if (!voices.length) { note.textContent = ""; return; }
     note.textContent = distinct >= 2
       ? "On your device → Aria: " + names[0] + " · Kiara: " + names[1] + " · Meher: " + names[2]
-      : "Your device exposes one TTS voice (" + names[0] + "), so the three differ by pitch & pace. For 3 distinct natural voices, deploy with a cloud voice (Sarvam/ElevenLabs).";
+      : "Your device exposes one TTS voice (" + names[0] + "), so the three differ by pitch & pace. For 3 distinct natural voices, connect Sarvam (set SARVAM_API_KEY).";
   }
 
   refresh();
   updateNote();
   if (synth) synth.addEventListener && synth.addEventListener("voiceschanged", updateNote);
-  setTimeout(updateNote, 600);   // voices often load a beat after first paint
+  setTimeout(updateNote, 600);    // voices often load a beat after first paint
+  setTimeout(updateNote, 1600);   // and after the cloud-TTS capability probe resolves
 
   cards.forEach(card => card.addEventListener("click", () => {
     setSelectedVoice(card.dataset.voice);
@@ -834,6 +893,7 @@ if (demoEl) {
     active = false; listening = false;
     if (recog) try { recog.abort(); } catch (e) {}
     synth && synth.cancel();
+    CloudTTS.stop();
     setMic(false);
     setStatus(reason, null);
     if (endBtn) endBtn.textContent = "✕ Close";
@@ -1007,7 +1067,7 @@ if (demoEl) {
 })();
 
 /* stop any speech when the Playbook opens */
-openBtn.addEventListener("click", () => { if (synth) synth.cancel(); });
+openBtn.addEventListener("click", () => { if (synth) synth.cancel(); CloudTTS.stop(); });
 
 /* ===================================================================
    SETTINGS — "Connect Gemini" (bring-your-own-key, stored in this browser)
