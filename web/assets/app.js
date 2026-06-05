@@ -617,11 +617,28 @@ if (demoEl) {
     return ({ en: "English", hi: "Hindi", te: "Telugu", ta: "Tamil", kn: "Kannada", mr: "Marathi", bn: "Bengali" })[base] || base;
   }
 
+  /* Mobile browsers only allow speech to start from a user gesture. Speaking a
+     near-silent utterance inside the tap "unlocks" TTS for the rest of the call. */
+  function primeAudio() {
+    if (!synth) return;
+    try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; synth.cancel(); synth.speak(u); } catch (e) {}
+  }
+
+  /* getUserMedia can hang on mobile (prior denial, OS quirks). Never let it
+     stall the call — race it against a timeout so the greeting always proceeds. */
+  function requestMicSafe() {
+    return Promise.race([
+      requestMic(),
+      new Promise(res => setTimeout(() => res(false), 6000))
+    ]);
+  }
+
   function startCall() {
     resetCall();
     active = true;
     overlay.hidden = false;
     document.body.style.overflow = "hidden";
+    primeAudio();                    // unlock audio within the tap (mobile)
 
     /* language for this call comes from the active hero language pill */
     const activePill = document.querySelector('#voice-demo .lang-pill.is-active');
@@ -631,7 +648,7 @@ if (demoEl) {
     if (recog) recog.lang = callLang;
 
     setStatus("Connecting…", null);
-    requestMic().then(granted => {
+    requestMicSafe().then(granted => {
       if (!active) return;            // closed while the prompt was open
       micAllowed = granted;
       configureMicButton(granted);
