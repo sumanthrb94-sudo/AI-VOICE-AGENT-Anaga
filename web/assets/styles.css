@@ -728,3 +728,17 @@ body {
   flex-basis: 100%; width: 100%; text-align: center; max-width: 560px;
   color: var(--ink-faint); font-size: 11.5px; margin: 4px auto 0; line-height: 1.4;
 }
+
+/* in-call voice indicator (tap to cycle voices) */
+.call__voice {
+  margin-left: auto; font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 600;
+  color: var(--saffron-2); background: rgba(255,138,61,.1);
+  border: 1px solid rgba(255,138,61,.28); border-radius: 100px; padding: 6px 12px;
+  cursor: pointer; transition: .18s var(--ease); white-space: nowrap;
+}
+.call__voice:hover { background: rgba(255,138,61,.2); color: var(--ink); border-color: var(--saffron); }
+.call__voice.flash { animation: vflash .5s var(--ease); }
+@keyframes vflash { 0% { transform: scale(1); } 40% { transform: scale(1.12); background: rgba(255,138,61,.35); } 100% { transform: scale(1); } }
+/* voice chip pushes the right-side group; brain + end sit tight next to it */
+.call__top .call__voice ~ .call__brain { margin-left: 8px; }
+.call__top .call__voice ~ .call__end { margin-left: 8px; }

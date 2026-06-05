@@ -414,6 +414,23 @@ if (demoEl) {
   const noticeEl   = document.getElementById("call-notice");
   const reviewEl   = document.getElementById("call-review");
   const endBtn     = document.getElementById("call-end");
+  const voiceChip  = document.getElementById("call-voice");
+
+  /* show which voice is talking (and the Sarvam speaker when cloud is on);
+     tap to cycle through the 3 voices mid-call (applies from the next line). */
+  function updateCallVoice() {
+    if (!voiceChip) return;
+    const p = currentVoice();
+    const cloud = window.CloudTTS && CloudTTS.isOn();
+    voiceChip.textContent = "🎙 " + p.name + (cloud ? " · " + p.sarvam : "");
+    voiceChip.title = "Voice: " + p.name + (cloud ? " (Sarvam " + p.sarvam + ")" : "") + " — tap to change";
+  }
+  if (voiceChip) voiceChip.addEventListener("click", () => {
+    const ids = VOICES.map(v => v.id);
+    setSelectedVoice(ids[(ids.indexOf(selectedVoiceId) + 1) % ids.length]);
+    updateCallVoice();
+    voiceChip.classList.remove("flash"); void voiceChip.offsetWidth; voiceChip.classList.add("flash");
+  });
 
   /* backend endpoints (relative — work behind the same origin / Vercel functions) */
   const TURN_URL    = "/api/anaga/turn";
@@ -826,6 +843,8 @@ if (demoEl) {
     overlay.hidden = false;
     document.body.style.overflow = "hidden";
     primeAudio();                    // unlock audio within the tap (mobile)
+    updateCallVoice();
+    setTimeout(updateCallVoice, 1600);   // reflect cloud speaker once the probe resolves
 
     /* language for this call comes from the active hero language pill.
        "auto" → detect the caller's language on the fly with on-device AI. */
