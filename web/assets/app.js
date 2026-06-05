@@ -158,15 +158,17 @@ const FEMALE_HINTS = [
 ];
 
 /* ---- 3 selectable voices for Anaga ----
-   Each maps to a (best-effort) different female system voice and a distinct
-   pitch/cadence, so they sound clearly different even on systems with one voice. */
+   `idx` binds each preset to a DIFFERENT installed voice (when the device has
+   several). Strong, well-separated pitch/rate make them clearly distinct even
+   when the device only exposes one TTS voice — the common reason "all three
+   sound the same". `hints` is only a soft preference. */
 const VOICES = [
-  { id: "aria",  name: "Aria",  style: "Warm & friendly",     pitch: 1.06, rate: 0.97,
-    hints: ["samantha", "aria", "veena", "heera", "google us english", "zira", "female"] },
-  { id: "kiara", name: "Kiara", style: "Crisp & professional", pitch: 0.98, rate: 1.07,
-    hints: ["jenny", "zira", "kalpana", "google uk english female", "tessa", "catherine", "female"] },
-  { id: "meher", name: "Meher", style: "Soft & calm",          pitch: 1.18, rate: 0.9,
-    hints: ["fiona", "victoria", "swara", "raveena", "moira", "google हिन्दी", "female"] }
+  { id: "aria",  name: "Aria",  style: "Warm & bright",  idx: 0, pitch: 1.15, rate: 1.0,
+    hints: ["samantha", "aria", "veena", "heera", "google us english", "zira"] },
+  { id: "kiara", name: "Kiara", style: "Low & crisp",    idx: 1, pitch: 0.8,  rate: 1.12,
+    hints: ["google uk english female", "kalpana", "tessa", "catherine", "serena", "fiona"] },
+  { id: "meher", name: "Meher", style: "High & gentle",  idx: 2, pitch: 1.5,  rate: 0.85,
+    hints: ["victoria", "swara", "raveena", "moira", "karen", "nicky"] }
 ];
 let selectedVoiceId = (function () {
   try { return localStorage.getItem("vaak_voice") || "aria"; } catch (e) { return "aria"; }
@@ -182,21 +184,40 @@ let voices = [];
 function loadVoices() { voices = (synth && synth.getVoices()) || []; }
 if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
 
-/* pick a voice for a language, preferring the selected preset's voice hints */
-function pickVoice(lang, hints) {
-  const base = lang.split("-")[0];
-  const byLang = voices.filter(v => v.lang && (v.lang === lang || v.lang.replace("_", "-").startsWith(base)));
-  const match = list => v => list.some(h => v.name.toLowerCase().includes(h));
-  if (hints && hints.length) {
-    const pref = byLang.find(match(hints)) || (byLang.length ? null : voices.find(match(hints)));
-    if (pref) return pref;
+/* a de-duplicated, quality-ranked list of voices for a language base */
+function rankedVoices(base) {
+  if (!voices.length) loadVoices();
+  const female = v => FEMALE_HINTS.some(h => v.name.toLowerCase().includes(h));
+  const lang = v => v.lang && v.lang.toLowerCase().replace("_", "-").startsWith(base);
+  const en   = v => v.lang && v.lang.toLowerCase().startsWith("en");
+  const buckets = [
+    voices.filter(v => lang(v) && female(v)),
+    voices.filter(v => lang(v) && !female(v)),
+    voices.filter(v => !lang(v) && en(v) && female(v)),
+    voices.filter(v => !lang(v) && en(v)),
+    voices.slice()
+  ];
+  const seen = new Set(), out = [];
+  for (const b of buckets) for (const v of b) {
+    const k = v.voiceURI || v.name;
+    if (!seen.has(k)) { seen.add(k); out.push(v); }
   }
-  const isFemale = match(FEMALE_HINTS);
-  return (
-    byLang.find(isFemale) || byLang[0] ||
-    voices.filter(v => v.lang && v.lang.startsWith("en")).find(isFemale) ||
-    voices.find(isFemale) || null
-  );
+  return out;
+}
+
+/* bind a preset to a concrete, DISTINCT installed voice (by index) */
+function resolveVoiceForPreset(preset, lang) {
+  const base = (lang || "en-IN").split("-")[0].toLowerCase();
+  const ranked = rankedVoices(base);
+  if (!ranked.length) return null;
+  const byHint = ranked.find(v => preset.hints.some(h => v.name.toLowerCase().includes(h)));
+  /* distinctness first: give each preset a different voice when possible,
+     else fall back to its hinted voice, else the first available. */
+  return ranked[preset.idx] || byHint || ranked[ranked.length - 1] || ranked[0];
+}
+
+function voiceLabel(v) {
+  return v ? v.name.replace(/^(Google|Microsoft)\s+/i, "").replace(/\s*\(.*\)$/, "") : "default";
 }
 
 /* speakText(text, lang, { onstart, onend, voice }) -> returns chosen voice (or null) */
@@ -208,7 +229,7 @@ function speakText(text, lang, opts = {}) {
   }
   const preset = opts.voice || currentVoice();
   const u = new SpeechSynthesisUtterance(text);
-  const v = pickVoice(lang, preset.hints);
+  const v = resolveVoiceForPreset(preset, lang);
   if (v) u.voice = v;
   u.lang = (v && v.lang) || lang;
   u.pitch = preset.pitch;
@@ -280,12 +301,35 @@ if (demoEl) {
   const picker = document.getElementById("voice-picker");
   if (!picker) return;
   const cards = [...picker.querySelectorAll(".voice-card")];
+  const note = document.getElementById("voice-resolved");
   const refresh = () => cards.forEach(c => c.classList.toggle("is-active", c.dataset.voice === selectedVoiceId));
+
+  /* show which real installed voice each preset resolves to (transparency:
+     proves they differ, or reveals a 1-voice device honestly). */
+  function updateNote() {
+    if (!voices.length) loadVoices();
+    const map = VOICES.map(p => ({ p, v: resolveVoiceForPreset(p, "en-IN") }));
+    cards.forEach(c => {
+      const m = map.find(x => x.p.id === c.dataset.voice);
+      if (m) c.title = m.v ? "Uses your device voice: " + voiceLabel(m.v) : "Uses your device's default voice";
+    });
+    if (!note) return;
+    const names = map.map(m => voiceLabel(m.v));
+    const distinct = new Set(names.map(n => n.toLowerCase())).size;
+    if (!voices.length) { note.textContent = ""; return; }
+    note.textContent = distinct >= 2
+      ? "On your device → Aria: " + names[0] + " · Kiara: " + names[1] + " · Meher: " + names[2]
+      : "Your device exposes one TTS voice (" + names[0] + "), so the three differ by pitch & pace. For 3 distinct natural voices, deploy with a cloud voice (Sarvam/ElevenLabs).";
+  }
+
   refresh();
+  updateNote();
+  if (synth) synth.addEventListener && synth.addEventListener("voiceschanged", updateNote);
+  setTimeout(updateNote, 600);   // voices often load a beat after first paint
+
   cards.forEach(card => card.addEventListener("click", () => {
     setSelectedVoice(card.dataset.voice);
     refresh();
-    /* preview the chosen voice */
     if (synth) speakText("Hi, I'm Anaga, your AI voice agent. How can I help you today?", "en-IN", { voice: currentVoice() });
   }));
 })();
