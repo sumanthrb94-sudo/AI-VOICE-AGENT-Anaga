@@ -40,14 +40,41 @@ project from an empty repo to a ₹100 Cr company:
 All content is sourced from `docs/BUSINESS_PLAN.md`, `engineering/MULTI_AGENT_SPEC.md`,
 `docs/COMPLIANCE.md`, and `docs/FINANCIAL_MODEL_NOTES.md`.
 
-## Run it
+## Run it locally
 
-No build step. Either open `index.html` directly, or serve the folder:
+Quick look (app, voice demo, and Playbook all work; the nav's doc links need the build):
 
 ```bash
-cd web && python3 -m http.server 8000
-# then open http://localhost:8000
+cd web && python3 -m http.server 8000   # open http://localhost:8000
+```
+
+Full site exactly as deployed (assembles docs + spec into `public/`):
+
+```bash
+bash scripts/build-static.sh
+cd public && python3 -m http.server 8000
 ```
 
 Keyboard: `←` / `→` move between phases, `Esc` closes the overlay.
-Deep-link straight into the guide with `index.html#playbook`.
+Deep-link straight into the guide with `#playbook`.
+
+## Deploy to Vercel
+
+The repo is Vercel-ready via `vercel.json` (build → `public/`, no framework needed).
+
+**Option A — dashboard:** Import the GitHub repo at vercel.com. Vercel reads `vercel.json`
+automatically (Build Command `bash scripts/build-static.sh`, Output Directory `public`).
+Leave the Framework Preset as **Other**. Deploy.
+
+**Option B — CLI:**
+
+```bash
+npm i -g vercel
+vercel        # preview deploy
+vercel --prod # production deploy
+```
+
+> ⚠️ **Confidential docs go public.** `build-static.sh` copies `BUSINESS_PLAN.md` and
+> `FINANCIAL_MODEL_NOTES.md` into the deploy so the nav links resolve — these are marked
+> *Confidential*. To keep them off a public URL, comment out those two `cp` lines in
+> `scripts/build-static.sh` (the nav links will then 404, or remove the links in `index.html`).
