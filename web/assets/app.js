@@ -8,7 +8,7 @@ const FLEET = [
   { wp: "WP-0", badge: ["base", "Foundation"], name: "Compliance foundation & repo bootstrap", desc: "Legal-to-dial + clean repo skeleton, CI, registration tracker.", dep: "none" },
   { wp: "WP-1", badge: ["base", "Spike"], name: "Framework decision (ADR)", desc: "Pipecat vs self-hosted Bolna — decided by one real Sarvam+LLM+Plivo call each.", dep: "WP-0" },
   { wp: "WP-2", badge: ["base", "Orchestrator"], name: "Orchestrator", desc: "Spawn/track caller agents, balance load, warm human handoff.", dep: "WP-1" },
-  { wp: "WP-3", badge: ["core", "The soul"], name: "Caller-agent pipeline", desc: "Streaming STT→LLM→TTS, turn-taking, barge-in, code-mixed calls. Over-invest here.", dep: "WP-1" },
+  { wp: "WP-3", badge: ["core", "The soul"], name: "Anaga — caller-agent pipeline", desc: "Anaga's voice: streaming STT→LLM→TTS, female Sarvam voice, turn-taking, barge-in, code-mixed calls. Over-invest here.", dep: "WP-1" },
   { wp: "WP-4", badge: ["base", "Adapters"], name: "Provider abstraction", desc: "Swap STT/LLM/TTS/telephony via config. No vendor SDK in business logic.", dep: "WP-1" },
   { wp: "WP-5", badge: ["moat", "The moat"], name: "Compliance agent", desc: "DND scrub, disclosure, opt-out, retention, audit log. Fails closed.", dep: "WP-0, WP-2" },
   { wp: "WP-6", badge: ["base", "Backend"], name: "Backend (.NET) + tools", desc: "book_site_visit, book_callback, send_whatsapp, CRM, calendar, suppression.", dep: "WP-0" },

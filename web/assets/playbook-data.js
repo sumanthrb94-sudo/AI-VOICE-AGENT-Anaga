@@ -67,13 +67,14 @@ window.PLAYBOOK = [
     ],
     steps: [
       {
-        h: "Caller-agent pipeline — over-invest here (WP-3)",
-        p: "Production streaming STT→LLM→TTS with excellent turn-taking. This WP is the product's soul.",
+        h: "Anaga — caller-agent pipeline, over-invest here (WP-3)",
+        p: "Give the agent her identity: Anaga, a warm female voice. Production streaming STT→LLM→TTS with excellent turn-taking. This WP is the product's soul.",
         list: [
+          "Anaga's persona + female voice live as versioned config in caller-agent/flows/anaga.persona.json — name, tone, Sarvam female speaker, disclosure lines.",
           "Stream every stage; target time-to-first-audio <500ms p50, alarm >1.2s.",
           "Tune VAD + endpointing; ship barge-in/interruption and backchanneling.",
-          "Load flow + prompt from caller-agent/flows/ as versioned data — never hard-code conversation.",
-          "Done when it holds a natural Telugu/Hindi/English code-mixed call with false-interruption rate under target."
+          "Load flow + prompt from caller-agent/flows/ as data — never hard-code conversation; swap her voice via config only (WP-4).",
+          "Done when Anaga holds a natural Telugu/Hindi/English code-mixed call with false-interruption rate under target."
         ],
         tags: [["WP-3 · critical path", ""], ["Natural call", "proof"]]
       },

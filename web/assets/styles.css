@@ -109,6 +109,45 @@ body {
   color: var(--saffron-2); margin-bottom: 26px;
 }
 .hero__kicker em { color: var(--ink-faint); font-style: italic; text-transform: none; letter-spacing: 0; }
+
+/* Anaga identity chip */
+.agent-chip {
+  display: inline-flex; align-items: center; gap: 12px;
+  margin-bottom: 28px; padding: 8px 16px 8px 8px;
+  background: linear-gradient(135deg, rgba(255,138,61,.1), rgba(255,176,102,.04));
+  border: 1px solid #4a331a;
+  border-radius: 100px; box-shadow: inset 0 0 0 1px rgba(255,176,102,.08);
+}
+.agent-chip__avatar {
+  width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
+  display: grid; place-items: center;
+  background: radial-gradient(circle at 35% 30%, var(--saffron-2), var(--saffron) 60%, #b9551d);
+  box-shadow: 0 0 0 3px rgba(255,138,61,.18);
+}
+.agent-chip__wave { display: flex; align-items: center; gap: 2.5px; height: 16px; }
+.agent-chip__wave i {
+  width: 2.5px; border-radius: 2px; background: #2a1606;
+  animation: vwave 1s ease-in-out infinite;
+}
+.agent-chip__wave i:nth-child(1) { height: 6px;  animation-delay: 0s;    }
+.agent-chip__wave i:nth-child(2) { height: 13px; animation-delay: .15s;  }
+.agent-chip__wave i:nth-child(3) { height: 9px;  animation-delay: .3s;   }
+.agent-chip__wave i:nth-child(4) { height: 15px; animation-delay: .45s;  }
+.agent-chip__wave i:nth-child(5) { height: 7px;  animation-delay: .6s;   }
+@keyframes vwave { 0%,100% { transform: scaleY(.45); } 50% { transform: scaleY(1); } }
+.agent-chip__text { display: flex; flex-direction: column; line-height: 1.25; text-align: left; }
+.agent-chip__text b { font-family: 'Sora', sans-serif; font-size: 14px; font-weight: 700; }
+.agent-chip__text em { font-style: normal; font-size: 11.5px; color: var(--saffron-2); }
+.agent-chip__live {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-left: 4px; padding: 4px 12px; border-radius: 100px;
+  font-size: 11px; color: var(--ink-dim);
+  background: rgba(70,211,154,.1); border: 1px solid rgba(70,211,154,.22);
+}
+.agent-chip__live .dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+  animation: pulse 2.4s infinite;
+}
 .hero__title {
   font-family: 'Sora', sans-serif; font-weight: 800;
   font-size: clamp(38px, 7vw, 72px); line-height: 1.04; letter-spacing: -1.5px;

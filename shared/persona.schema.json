@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Vaak caller-agent persona",
+  "description": "Versioned persona + voice config for a caller agent. Data, not code (MULTI_AGENT_SPEC §1.5). Voice is provider-abstracted (WP-4); compliance disclosure is enforced by WP-5 and fails closed.",
+  "type": "object",
+  "required": ["id", "version", "displayName", "persona", "voice", "disclosure"],
+  "properties": {
+    "id": { "type": "string" },
+    "version": { "type": "string" },
+    "displayName": { "type": "string" },
+    "meaning": { "type": "string" },
+    "persona": {
+      "type": "object",
+      "required": ["gender", "tone"],
+      "properties": {
+        "gender": { "enum": ["female", "male", "neutral"] },
+        "tone": { "type": "array", "items": { "type": "string" } },
+        "register": { "type": "string" }
+      }
+    },
+    "voice": {
+      "type": "object",
+      "required": ["gender", "provider", "languages"],
+      "properties": {
+        "gender": { "enum": ["female", "male", "neutral"] },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "speaker": { "type": "string" },
+        "pitch": { "type": "number" },
+        "pace": { "type": "number" },
+        "languages": { "type": "array", "items": { "type": "string" } },
+        "codeMixed": { "type": "boolean" }
+      }
+    },
+    "disclosure": {
+      "type": "object",
+      "required": ["required", "skippable"],
+      "properties": {
+        "required": { "const": true },
+        "skippable": { "const": false }
+      }
+    }
+  }
+}
