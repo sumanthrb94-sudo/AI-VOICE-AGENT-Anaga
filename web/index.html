@@ -61,6 +61,16 @@
       <p class="voice-demo__note" id="voice-note">Plays her opening line using a female voice from your browser/OS.</p>
     </div>
 
+    <!-- Live two-way call demo: your mic → Anaga listens & responds -->
+    <div class="call-cta">
+      <button class="btn btn--call" id="start-call">
+        <span class="btn--call__ring" aria-hidden="true"></span>
+        <span class="btn--call__ico" aria-hidden="true">📞</span>
+        <span class="btn--call__label">Talk to Anaga — live call demo</span>
+      </button>
+      <p class="call-cta__hint">Uses your microphone. Chrome or Edge recommended · you can also type · demo runs in English.</p>
+    </div>
+
     <h1 class="hero__title">
       The voice-AI sales layer<br />for <span class="grad">Bharat</span>.
     </h1>
@@ -140,6 +150,39 @@
 
       <!-- content -->
       <div class="playbook__body" id="playbook-body"><!-- injected --></div>
+    </div>
+  </div>
+
+  <!-- ===================== LIVE CALL OVERLAY ===================== -->
+  <div class="call" id="call" role="dialog" aria-modal="true" aria-labelledby="call-title" hidden>
+    <div class="call__scrim" data-call-close></div>
+    <div class="call__panel" role="document">
+      <header class="call__top">
+        <div class="call__id">
+          <span class="call__avatar" id="call-avatar" aria-hidden="true">
+            <span class="call__rings"><i></i><i></i></span>
+            <span class="call__wave"><i></i><i></i><i></i><i></i><i></i></span>
+          </span>
+          <div class="call__who">
+            <b id="call-title">Anaga</b>
+            <span class="call__status" id="call-status">Connecting…</span>
+          </div>
+        </div>
+        <button class="call__end" id="call-end" data-call-close>✕ End call</button>
+      </header>
+
+      <div class="call__transcript" id="call-transcript"><!-- bubbles injected --></div>
+
+      <div class="call__controls">
+        <button class="call__mic" id="call-mic" aria-pressed="false">
+          <span class="call__mic-ico" aria-hidden="true">🎤</span>
+          <span class="call__mic-label">Tap to speak</span>
+        </button>
+        <form class="call__textform" id="call-textform" autocomplete="off">
+          <input id="call-textinput" type="text" placeholder="…or type your reply and press Enter" aria-label="Type your reply" />
+          <button type="submit" aria-label="Send">➤</button>
+        </form>
+      </div>
     </div>
   </div>
 

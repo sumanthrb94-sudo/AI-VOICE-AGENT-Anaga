@@ -11,7 +11,27 @@ A self-contained, zero-build home screen for the Vaak AI project.
 | `assets/app.js` | Renders the agent fleet + metrics and drives the Playbook overlay |
 | `assets/playbook-data.js` | The Playbook content — edit this to change the guide |
 
-## Hear Anaga (live voice demo)
+## Talk to Anaga (live two-way call demo)
+
+The hero's green **Talk to Anaga — live call demo** button opens a call screen that
+actually listens and responds:
+
+- Your **microphone** → browser **SpeechRecognition** (STT) → a real-estate qualification
+  **dialogue engine** → Anaga **speaks back** with her female voice (TTS).
+- She runs the real beachhead script: discloses she's an AI, gets consent, qualifies
+  (purpose → budget → configuration → timeline), and **books a site visit** — and if you say
+  "not interested" / "remove me", she records an **opt-out** and ends (the compliance behaviour).
+- A live transcript shows both sides; the avatar pulses while she speaks vs. listens.
+- **No mic? No problem** — type your replies in the box. Chrome/Edge give the full voice
+  experience (SpeechRecognition isn't available in all browsers).
+- Demo runs in English for reliability; the dialogue mirrors the versioned source flow at
+  `caller-agent/flows/real-estate-qualify.flow.json`.
+
+> This is a front-end simulation (rule-based, on-device). The production caller agent (WP-3)
+> uses Sarvam STT/TTS + an LLM over this same flow, with the compliance gate (WP-5) enforcing
+> disclosure and opt-out, fail-closed.
+
+## Hear Anaga (sample line)
 
 The hero has a **Hear Anaga** button with English / हिंदी / తెలుగు pills. It speaks her
 opening disclosure line in the browser via the **Web Speech API** — no API keys, no backend.
