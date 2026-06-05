@@ -296,6 +296,14 @@ if (demoEl) {
   let micAllowed = false;         // whether getUserMedia granted
   let micCapable = false;         // recog supported AND mic granted → can actually listen
 
+  /* spoken language for THIS call (driven by the hero language pills).
+     When non-English and Chrome's on-device translator is available, Anaga's
+     English brain output is translated to callBase for speaking, and the
+     caller's speech is translated back to English for the rule engine. */
+  let callLang = "en-IN";
+  let callBase = "en";
+  let translateOn = false;
+
   /* ---- intent helpers ---- */
   const has = (t, re) => re.test(t);
   const affirmative = t => has(t, /\b(yes|yeah|yep|yup|sure|ok|okay|fine|haan|ha|please|go ahead|sounds good|why not|definitely|of course|alright|interested)\b/i);
@@ -402,31 +410,40 @@ if (demoEl) {
   function clearNotice() { if (noticeEl) { noticeEl.hidden = true; noticeEl.textContent = ""; } }
 
   /* ---- speaking & listening ---- */
-  /* speak a line and decide what to do when Anaga finishes.
-     onDone(endInfo|null): endInfo = { reason, optout } when the call should end. */
-  function speakLine(line, endInfo, onDone) {
-    addBubble("anaga", line);
-    history.push({ role: "agent", text: line });
+  /* speak `display` (already in the caller's language) in `ttsLang`, record
+     `histText` (English) for review/LLM, then continue or end the call. */
+  function speakLine(display, endInfo, opts) {
+    opts = opts || {};
+    addBubble("anaga", display);
+    history.push({ role: "agent", text: opts.histText || display });
     setMic(false);
     setStatus("Anaga is speaking…", "is-speaking");
-    speakText(line, CALL_LANG, {
+    speakText(display, opts.lang || CALL_LANG, {
       onend: () => {
         if (endInfo) return finishCall(endInfo);
-        if (onDone) onDone();
-        else startListening();
+        (opts.onDone || startListening)();
       }
     });
+  }
+
+  /* Deliver an ENGLISH line from the brain — translate to the caller's
+     language first when translation is on (the second of the two passes). */
+  function deliver(englishLine, endInfo) {
+    if (!translateOn) { speakLine(englishLine, endInfo); return; }
+    setStatus("Anaga is speaking…", "is-speaking");
+    TranslateKit.out(englishLine, callBase)
+      .then(tr => speakLine(tr || englishLine, endInfo, { lang: callLang, histText: englishLine }))
+      .catch(() => speakLine(englishLine, endInfo, { lang: callLang, histText: englishLine }));
   }
 
   /* offline path: speak a FLOW step (mirrors the versioned flow JSON) */
   function sayStep(id) {
     const step = FLOW[id];
     stepId = id;
-    const line = step.say();
     const endInfo = step.end
       ? { reason: step.optout ? "Opt-out recorded · call ended" : "Call ended", optout: !!step.optout }
       : null;
-    speakLine(line, endInfo);
+    deliver(step.say(), endInfo);
   }
 
   function startListening() {
@@ -447,13 +464,21 @@ if (demoEl) {
     if (!text) { startListening(); return; }
     processing = true;
     clearInterim();
-    addBubble("you", text);
-    history.push({ role: "user", text });
+    addBubble("you", text);                 // show what the caller actually said (their language)
     setStatus("Anaga is thinking…", null);
 
-    /* Once we know the brain is offline, never hit the network again this call. */
-    if (brainMode === "offline") { setTimeout(nextOfflineTurn, 350); return; }
-    nextLiveTurn();
+    /* translate the caller's speech to English (first pass) so the rule engine /
+       LLM see English; the displayed bubble keeps the original language. */
+    const advance = (englishText) => {
+      history.push({ role: "user", text: englishText });
+      if (brainMode === "offline") { setTimeout(nextOfflineTurn, 350); return; }
+      nextLiveTurn();
+    };
+    if (translateOn) {
+      TranslateKit.in(text, callBase).then(en => advance(en || text)).catch(() => advance(text));
+    } else {
+      advance(text);
+    }
   }
 
   /* offline rule-engine turn (also the fallback used the moment the backend fails) */
@@ -495,7 +520,7 @@ if (demoEl) {
           ? { reason: data.disposition === "opt-out" ? "Opt-out recorded · call ended" : "Call ended",
               optout: data.disposition === "opt-out" }
           : null;
-        speakLine(line, endInfo);
+        deliver(line, endInfo);
       })
       .catch(() => {
         if (!active) return;
@@ -588,11 +613,23 @@ if (demoEl) {
     clearNotice();
   }
 
+  function langLabel(base) {
+    return ({ en: "English", hi: "Hindi", te: "Telugu", ta: "Tamil", kn: "Kannada", mr: "Marathi", bn: "Bengali" })[base] || base;
+  }
+
   function startCall() {
     resetCall();
     active = true;
     overlay.hidden = false;
     document.body.style.overflow = "hidden";
+
+    /* language for this call comes from the active hero language pill */
+    const activePill = document.querySelector('#voice-demo .lang-pill.is-active');
+    callLang = (activePill && activePill.dataset.lang) || "en-IN";
+    callBase = callLang.split("-")[0];
+    translateOn = false;
+    if (recog) recog.lang = callLang;
+
     setStatus("Connecting…", null);
     requestMic().then(granted => {
       if (!active) return;            // closed while the prompt was open
@@ -603,8 +640,31 @@ if (demoEl) {
       } else if (!granted) {
         addBubble("anaga", "(Microphone access wasn't granted — no problem, you can type your replies below.)");
       }
-      setStatus("Connecting…", null);
-      setTimeout(() => { if (active) sayStep("greet"); }, 450);
+
+      const begin = () => { if (active) sayStep("greet"); };
+
+      if (callBase === "en") { setTimeout(begin, 450); return; }
+
+      /* non-English: prepare Chrome's on-device translator (the two passes) */
+      const reqLabel = langLabel(callBase);
+      if (!window.TranslateKit || !TranslateKit.available()) {
+        callLang = "en-IN"; callBase = "en"; if (recog) recog.lang = "en-IN";
+        showNotice("🌐 On-device translation needs Chrome 138+ (or Edge) — running this call in English. You can still type.");
+        setTimeout(begin, 350);
+        return;
+      }
+      setStatus("Preparing " + reqLabel + " on your device…", null);
+      TranslateKit.prep(callBase).then(ok => {
+        if (!active) return;
+        translateOn = ok;
+        if (ok) {
+          addBubble("anaga", "🌐 We'll talk in " + reqLabel + " — translated on your device, no API.");
+        } else {
+          callLang = "en-IN"; callBase = "en"; if (recog) recog.lang = "en-IN";
+          showNotice("🌐 The on-device " + reqLabel + " model isn't available here — running in English. You can still type.");
+        }
+        setTimeout(begin, 350);
+      }).catch(() => { translateOn = false; callBase = "en"; callLang = "en-IN"; if (recog) recog.lang = "en-IN"; setTimeout(begin, 350); });
     });
   }
 
