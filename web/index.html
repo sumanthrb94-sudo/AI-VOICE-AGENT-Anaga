@@ -68,7 +68,7 @@
         <span class="btn--call__ico" aria-hidden="true">📞</span>
         <span class="btn--call__label">Talk to Anaga — live call demo</span>
       </button>
-      <p class="call-cta__hint">Uses your microphone. Chrome or Edge recommended · you can also type · demo runs in English.</p>
+      <p class="call-cta__hint">Asks for microphone permission first. Chrome or Edge recommended · you can also type · demo runs in English.</p>
     </div>
 
     <h1 class="hero__title">
@@ -168,10 +168,17 @@
             <span class="call__status" id="call-status">Connecting…</span>
           </div>
         </div>
-        <button class="call__end" id="call-end" data-call-close>✕ End call</button>
+        <span class="call__brain" id="call-brain" hidden aria-live="polite"></span>
+        <button class="call__end" id="call-end">✕ End call</button>
       </header>
 
       <div class="call__transcript" id="call-transcript"><!-- bubbles injected --></div>
+
+      <!-- inline notice (e.g. microphone blocked) -->
+      <div class="call__notice" id="call-notice" role="status" aria-live="polite" hidden></div>
+
+      <!-- post-call review card (summary + internal comment) -->
+      <div class="call__review" id="call-review" hidden><!-- injected by app.js --></div>
 
       <div class="call__controls">
         <button class="call__mic" id="call-mic" aria-pressed="false">

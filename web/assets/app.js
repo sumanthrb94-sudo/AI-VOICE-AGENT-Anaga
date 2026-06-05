@@ -254,6 +254,15 @@ if (demoEl) {
   const micBtn     = document.getElementById("call-mic");
   const textForm   = document.getElementById("call-textform");
   const textInput  = document.getElementById("call-textinput");
+  const brainEl    = document.getElementById("call-brain");
+  const noticeEl   = document.getElementById("call-notice");
+  const reviewEl   = document.getElementById("call-review");
+  const endBtn     = document.getElementById("call-end");
+
+  /* backend endpoints (relative — work behind the same origin / Vercel functions) */
+  const TURN_URL    = "/api/anaga/turn";
+  const SUMMARY_URL = "/api/anaga/summary";
+  const CALL_LANG   = "en-IN";
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const recog = SR ? new SR() : null;
@@ -265,6 +274,16 @@ if (demoEl) {
   let processing = false;
   let active = false;
   let interimEl = null;
+
+  /* full conversation transcript sent to the backend brain */
+  let history = [];               // [{ role:"agent"|"user", text }]
+  let lastDisposition = "qualifying";
+
+  /* which brain decides the next turn:
+     null = not yet detected, "live" = backend LLM, "offline" = on-device rule engine.
+     Detect-once: after the first failed /turn we stay offline for the rest of the call. */
+  let brainMode = null;
+  let micAllowed = false;         // whether getUserMedia granted (affects copy only)
 
   /* ---- intent helpers ---- */
   const has = (t, re) => re.test(t);
@@ -344,20 +363,59 @@ if (demoEl) {
   }
   function clearInterim() { if (interimEl) { interimEl.remove(); interimEl = null; } }
 
+  /* subtle "which brain is active" tag in the call header */
+  function setBrain(mode) {
+    if (!brainEl) return;
+    if (mode === "live") {
+      brainEl.hidden = false;
+      brainEl.className = "call__brain call__brain--live";
+      brainEl.innerHTML = `<i class="dot"></i> live AI`;
+      brainEl.title = "Anaga's replies are generated live by the backend LLM.";
+    } else if (mode === "offline") {
+      brainEl.hidden = false;
+      brainEl.className = "call__brain call__brain--offline";
+      brainEl.innerHTML = `<i class="dot"></i> offline script`;
+      brainEl.title = "No backend reachable — running the on-device qualification script.";
+    } else {
+      brainEl.hidden = true;
+      brainEl.textContent = "";
+    }
+  }
+
+  /* inline notice (mic blocked, etc.) */
+  function showNotice(text) {
+    if (!noticeEl) return;
+    noticeEl.textContent = text;
+    noticeEl.hidden = false;
+  }
+  function clearNotice() { if (noticeEl) { noticeEl.hidden = true; noticeEl.textContent = ""; } }
+
   /* ---- speaking & listening ---- */
+  /* speak a line and decide what to do when Anaga finishes.
+     onDone(endInfo|null): endInfo = { reason, optout } when the call should end. */
+  function speakLine(line, endInfo, onDone) {
+    addBubble("anaga", line);
+    history.push({ role: "agent", text: line });
+    setMic(false);
+    setStatus("Anaga is speaking…", "is-speaking");
+    speakText(line, CALL_LANG, {
+      onend: () => {
+        if (endInfo) return finishCall(endInfo);
+        if (onDone) onDone();
+        else startListening();
+      }
+    });
+  }
+
+  /* offline path: speak a FLOW step (mirrors the versioned flow JSON) */
   function sayStep(id) {
     const step = FLOW[id];
     stepId = id;
     const line = step.say();
-    addBubble("anaga", line);
-    setMic(false);
-    setStatus("Anaga is speaking…", "is-speaking");
-    speakText(line, "en-IN", {
-      onend: () => {
-        if (step.end) return finishCall(step.optout ? "Opt-out recorded · call ended" : "Call ended");
-        startListening();
-      }
-    });
+    const endInfo = step.end
+      ? { reason: step.optout ? "Opt-out recorded · call ended" : "Call ended", optout: !!step.optout }
+      : null;
+    speakLine(line, endInfo);
   }
 
   function startListening() {
@@ -375,9 +433,53 @@ if (demoEl) {
     processing = true;
     clearInterim();
     addBubble("you", text);
-    const nextId = (FLOW[stepId].next ? FLOW[stepId].next(text, ctx) : null) || "callback";
+    history.push({ role: "user", text });
     setStatus("Anaga is thinking…", null);
-    setTimeout(() => sayStep(nextId), 350);
+
+    /* Once we know the brain is offline, never hit the network again this call. */
+    if (brainMode === "offline") { setTimeout(nextOfflineTurn, 350); return; }
+    nextLiveTurn();
+  }
+
+  /* offline rule-engine turn (also the fallback used the moment the backend fails) */
+  function nextOfflineTurn() {
+    if (!active) return;
+    const lastUser = [...history].reverse().find(m => m.role === "user");
+    const said = lastUser ? lastUser.text : "";
+    const step = FLOW[stepId] || FLOW.greet;
+    const nextId = (step.next ? step.next(said, ctx) : null) || "callback";
+    sayStep(nextId);
+  }
+
+  /* live backend turn: POST history → { say, end, disposition }.
+     On any non-200 / throw we flip to the offline engine for the rest of the call. */
+  function nextLiveTurn() {
+    fetch(TURN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lang: CALL_LANG, history })
+    })
+      .then(res => {
+        if (!res.ok) throw new Error("turn_unavailable_" + res.status);
+        return res.json();
+      })
+      .then(data => {
+        if (!active) return;
+        if (brainMode !== "live") { brainMode = "live"; setBrain("live"); }
+        const line = (data && data.say) ? String(data.say) : "Sorry, could you say that again?";
+        if (data && data.disposition) lastDisposition = data.disposition;
+        const endInfo = (data && data.end)
+          ? { reason: data.disposition === "opt-out" ? "Opt-out recorded · call ended" : "Call ended",
+              optout: data.disposition === "opt-out" }
+          : null;
+        speakLine(line, endInfo);
+      })
+      .catch(() => {
+        if (!active) return;
+        /* detect-once: remember offline so we don't spam failed fetches every turn */
+        if (brainMode !== "offline") { brainMode = "offline"; setBrain("offline"); }
+        nextOfflineTurn();
+      });
   }
 
   if (recog) {
@@ -408,30 +510,210 @@ if (demoEl) {
     micBtn.querySelector(".call__mic-label").textContent = on ? "Listening… (tap to stop)" : "Tap to speak";
   }
 
+  /* ---- microphone permission ---- */
+  /* Explicitly request mic access BEFORE the dialogue. On grant we immediately stop
+     the tracks (SpeechRecognition does the actual capture); on deny/insecure/unavailable
+     we continue in text-only mode and never hard-fail. Resolves to a boolean. */
+  function requestMic() {
+    const md = navigator.mediaDevices;
+    if (!md || !md.getUserMedia) {
+      showNotice("Microphone unavailable in this browser — you can type your replies.");
+      return Promise.resolve(false);
+    }
+    setStatus("Requesting microphone…", null);
+    return md.getUserMedia({ audio: true })
+      .then(stream => {
+        stream.getTracks().forEach(t => t.stop()); // we only needed the permission
+        clearNotice();
+        return true;
+      })
+      .catch(() => {
+        showNotice("Microphone blocked — you can type your replies.");
+        return false;
+      });
+  }
+
   /* ---- lifecycle ---- */
-  function startCall() {
-    ctx = {}; stepId = null; processing = false; active = true;
+  function resetCall() {
+    ctx = {}; stepId = null; processing = false;
+    history = []; lastDisposition = "qualifying"; brainMode = null;
     transcript.innerHTML = "";
+    if (reviewEl) { reviewEl.hidden = true; reviewEl.innerHTML = ""; }
+    if (endBtn) endBtn.textContent = "✕ End call";
+    setBrain(null);
+    clearNotice();
+  }
+
+  function startCall() {
+    resetCall();
+    active = true;
     overlay.hidden = false;
     document.body.style.overflow = "hidden";
     setStatus("Connecting…", null);
-    if (!recog) addBubble("anaga", "(Speech recognition isn't available in this browser — you can type your replies. Chrome or Edge give the full voice experience.)");
-    setTimeout(() => sayStep("greet"), 500);
+    requestMic().then(granted => {
+      if (!active) return;            // closed while the prompt was open
+      micAllowed = granted;
+      if (!recog) {
+        addBubble("anaga", "(Speech recognition isn't available in this browser — you can type your replies. Chrome or Edge give the full voice experience.)");
+      } else if (!granted) {
+        addBubble("anaga", "(Microphone access wasn't granted — no problem, you can type your replies below.)");
+      }
+      setStatus("Connecting…", null);
+      setTimeout(() => { if (active) sayStep("greet"); }, 450);
+    });
   }
-  function finishCall(reason) {
+
+  /* endInfo: { reason, optout } | string (legacy) */
+  function finishCall(endInfo) {
+    const reason = typeof endInfo === "string" ? endInfo : (endInfo && endInfo.reason) || "Call ended";
     active = false; listening = false;
     if (recog) try { recog.abort(); } catch (e) {}
     synth && synth.cancel();
     setMic(false);
-    setStatus(reason || "Call ended", null);
+    setStatus(reason, null);
+    if (endBtn) endBtn.textContent = "✕ Close";
+    renderReview();
+  }
+
+  /* ===================================================================
+     POST-CALL "CALL REVIEW" — summarize + internal comment.
+     POST the full history to /api/anaga/summary. On 503 / throw (e.g. the
+     static build with no backend) fall back to a local heuristic review so
+     the card ALWAYS appears, labelled clearly. Reuses the dark theme.
+     =================================================================== */
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, c => (
+      { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+    ));
+  }
+
+  /* derive a sensible review from the captured context / transcript when the
+     backend isn't reachable. booked → interested ~85; opt-out → not interested;
+     otherwise scale by how far the lead got through qualification. */
+  function localReview() {
+    const userTurns = history.filter(m => m.role === "user").length;
+    const joined = history.filter(m => m.role === "user").map(m => m.text).join("  ").toLowerCase();
+    let disposition = lastDisposition;
+    let interested, score, summary, nextAction, comment;
+
+    /* normalize FLOW-engine dispositions into the contract's vocabulary */
+    if (stepId === "confirm")       disposition = "booked";
+    else if (stepId === "optout")   disposition = "opt-out";
+    else if (stepId === "busy")     disposition = "busy";
+    else if (stepId === "callback") disposition = "callback";
+
+    if (disposition === "booked") {
+      interested = true; score = 85;
+      summary = `Lead engaged through qualification and booked a site visit${ctx.day ? " for " + ctx.day : ""}. Interested in a ${ctx.config || "home"} for ${ctx.purpose || "their use"}${ctx.budget ? " around " + ctx.budget : ""}.`;
+      nextAction = "Sales manager to confirm the site visit on WhatsApp and prepare a tailored unit shortlist.";
+      comment = "Hot lead — booked a site visit on the call. Treat as high priority and confirm promptly.";
+    } else if (disposition === "opt-out" || /not interested|don'?t call|stop calling|remove me/.test(joined)) {
+      disposition = "opt-out"; interested = false; score = 3;
+      summary = "Lead asked not to be contacted. Number flagged for the do-not-call list.";
+      nextAction = "Suppress the number — no further outreach. Compliance honored opt-out on the call.";
+      comment = "Opt-out recorded. Do not contact again.";
+    } else if (disposition === "busy" || userTurns <= 1) {
+      disposition = "busy"; interested = false; score = 25;
+      summary = "Lead was busy or ended early; qualification did not complete.";
+      nextAction = "Retry at a better time, or send project details on WhatsApp first.";
+      comment = "Reached but not qualified — try a callback at a more convenient time.";
+    } else if (disposition === "callback") {
+      interested = true; score = 55;
+      summary = `Lead shared some details (${[ctx.purpose, ctx.budget, ctx.config, ctx.timeline].filter(Boolean).join(", ") || "partial"}) but wasn't ready to book yet.`;
+      nextAction = "Send project brochure on WhatsApp and follow up to arrange a visit.";
+      comment = "Warm but undecided — nurture with details and a soft follow-up.";
+    } else {
+      disposition = "undecided"; interested = userTurns >= 3; score = Math.min(70, 25 + userTurns * 10);
+      summary = `Partial qualification captured (${[ctx.purpose, ctx.budget, ctx.config, ctx.timeline].filter(Boolean).join(", ") || "limited info"}).`;
+      nextAction = "Follow up to complete qualification and offer a site visit.";
+      comment = "Conversation in progress when it ended — follow up to qualify fully.";
+    }
+    return { interested, score, disposition, summary, nextAction, comment, _local: true };
+  }
+
+  function paintReview(r) {
+    if (!reviewEl) return;
+    const local = !!r._local;
+    const score = Math.max(0, Math.min(100, Math.round(Number(r.score) || 0)));
+    const yes = !!r.interested;
+    const badgeClass = yes ? "is-yes" : "is-no";
+    const meterColor = score >= 66 ? "var(--green)" : score >= 33 ? "var(--saffron)" : "#ff6b6b";
+
+    reviewEl.innerHTML = `
+      <div class="review__head">
+        <h3>Call Review</h3>
+        <span class="review__source ${local ? "is-local" : "is-live"}">
+          ${local ? "local heuristic" : "AI summary"}
+        </span>
+      </div>
+      <div class="review__row">
+        <span class="review__badge ${badgeClass}">
+          ${yes ? "Interested" : "Not interested"}
+        </span>
+        <span class="review__disp">${escapeHtml(r.disposition || "undecided")}</span>
+      </div>
+      <div class="review__meter" role="img" aria-label="Intent score ${score} out of 100">
+        <div class="review__meter-label"><span>Intent score</span><b>${score}/100</b></div>
+        <div class="review__meter-track">
+          <div class="review__meter-fill" style="width:${score}%;background:${meterColor}"></div>
+        </div>
+      </div>
+      <div class="review__block">
+        <span class="review__k">Summary</span>
+        <p>${escapeHtml(r.summary || "No summary available.")}</p>
+      </div>
+      <div class="review__block">
+        <span class="review__k">Suggested next action</span>
+        <p>${escapeHtml(r.nextAction || "—")}</p>
+      </div>
+      <div class="review__comment">
+        <span class="review__k">Internal note (from our side)</span>
+        <p>${escapeHtml(r.comment || "—")}</p>
+      </div>
+      <button class="review__new" id="call-new" type="button">↻ New call</button>
+    `;
+    reviewEl.hidden = false;
+    transcript.scrollTop = transcript.scrollHeight;
+    const newBtn = reviewEl.querySelector("#call-new");
+    if (newBtn) newBtn.addEventListener("click", startCall);
+    newBtn && newBtn.focus();
+  }
+
+  function renderReview() {
+    if (!reviewEl) return;
+    /* loading placeholder while we ask the backend */
+    reviewEl.hidden = false;
+    reviewEl.innerHTML = `<div class="review__head"><h3>Call Review</h3>
+      <span class="review__source">summarizing…</span></div>`;
+
+    /* If we already know there's no backend brain, skip the fetch entirely. */
+    if (brainMode === "offline") { paintReview(localReview()); return; }
+
+    fetch(SUMMARY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ history })
+    })
+      .then(res => {
+        if (!res.ok) throw new Error("summary_unavailable_" + res.status);
+        return res.json();
+      })
+      .then(data => {
+        if (!data || typeof data !== "object") throw new Error("summary_bad_payload");
+        paintReview(data);
+      })
+      .catch(() => paintReview(localReview()));
   }
   function closeCall() {
-    finishCall("Call ended");
+    if (active) finishCall({ reason: "Call ended" });
     overlay.hidden = true;
     document.body.style.overflow = "";
   }
 
   startBtn.addEventListener("click", startCall);
+  /* End call: hang up and SHOW the review (overlay stays). If the call already
+     ended (review on screen), the same button dismisses the overlay. */
+  if (endBtn) endBtn.addEventListener("click", () => { if (active) finishCall({ reason: "Call ended" }); else closeCall(); });
   micBtn.addEventListener("click", () => {
     if (!active) return;
     if (listening) { try { recog.stop(); } catch (e) {} }

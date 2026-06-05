@@ -16,7 +16,8 @@ hand warm prospects to human closers — compliant with TRAI/DLT/DND by design.
 | `docs/COMPLIANCE.md` | India regulatory requirements + enforcement rules | Compliance owner, WP-5 |
 | `docs/FINANCIAL_MODEL_NOTES.md` | Unit economics & market assumptions | Investors, founder |
 | `engineering/MULTI_AGENT_SPEC.md` | Production build spec, multi-agent design, work packages | **Engineering — build to this** |
-| `web/` | **Home screen (Mission Control)** + the Scratch→Production→Investors→Marketing Playbook | **Everyone — open `web/index.html`** |
+| `web/` | **Home screen (Mission Control)** + the Scratch→Production→Investors→Marketing Playbook + the live "Talk to Anaga" call demo | **Everyone — open `web/index.html`** |
+| `api/` | Serverless **call brain** — provider-abstracted LLM (Google Gemini) for live turn generation + call review | Vercel functions |
 | `.github/` | CI + agent task templates | Coding agents |
 
 ## Home screen & the Playbook
