@@ -36,10 +36,19 @@ actually listens and responds:
 
 ### Turning on the live Gemini brain
 
-Set `GEMINI_API_KEY` in your Vercel project (Settings → Environment Variables). Optional:
-`LLM_PROVIDER` (default `gemini`) and `GEMINI_MODEL` (default `gemini-2.0-flash`). The key is
-read **server-side only** in `/api` functions and never reaches the browser. Without it, the
-demo still works on the rule-engine fallback.
+**Two ways — the call brain picks the first available:** your browser key → server key → offline.
+
+1. **In-app (quickest, personal):** click **🔑 Connect Gemini** in the top nav, paste your key
+   (get one at https://aistudio.google.com/apikey), press **Connect**. It's tested, then stored
+   **in your browser only** (localStorage) and Gemini is called directly from your browser. Great
+   for testing without deploying. ⚠️ Don't use this on a public site — the key would be reachable
+   by visitors of that browser; use the server option for production.
+2. **Server (production):** set `GEMINI_API_KEY` in Vercel (Settings → Environment Variables).
+   Optional: `LLM_PROVIDER` (default `gemini`), `GEMINI_MODEL` (default `gemini-2.0-flash`). Read
+   **server-side only** in `/api`; never reaches the browser.
+
+Without either, the demo runs on the on-device rule-engine fallback. During a call the header tag
+shows which brain is live: **live AI · your key**, **live AI · server**, or **offline script**.
 
 > The browser handles STT/TTS; the LLM is the "brain". The production caller agent (WP-3) swaps
 > Sarvam STT/TTS in over the same flow, behind the provider-abstraction boundary (WP-4), with

@@ -623,3 +623,66 @@ body {
   background: var(--panel);
 }
 .call__mic:disabled:hover, .call__mic.is-disabled:hover { transform: none; border-color: var(--line); }
+
+/* ===================================================================
+   SETTINGS — Connect Gemini
+   =================================================================== */
+.nav__key {
+  font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600;
+  color: var(--saffron-2); background: rgba(255,138,61,.1);
+  border: 1px solid rgba(255,138,61,.3); border-radius: 100px;
+  padding: 7px 14px; cursor: pointer; transition: .18s var(--ease);
+}
+.nav__key:hover { background: rgba(255,138,61,.18); border-color: var(--saffron); color: var(--ink); }
+
+.settings { position: fixed; inset: 0; z-index: 140; }
+.settings[hidden] { display: none; }
+.settings__scrim { position: absolute; inset: 0; background: rgba(3,4,8,.78); backdrop-filter: blur(7px); animation: fade .25s var(--ease); }
+.settings__panel {
+  position: relative; margin: auto; top: 50%; transform: translateY(-50%);
+  width: min(520px, 94vw); max-height: 92vh; overflow-y: auto;
+  background: linear-gradient(180deg, var(--bg-2), var(--bg));
+  border: 1px solid var(--line); border-radius: 22px; box-shadow: var(--shadow);
+  animation: rise .3s var(--ease);
+}
+.settings__top { display: flex; gap: 14px; align-items: flex-start; padding: 24px 24px 16px; border-bottom: 1px solid var(--line-soft); }
+.settings__top h2 { font-family: 'Sora', sans-serif; font-size: 22px; font-weight: 700; }
+.settings__top p { color: var(--ink-dim); font-size: 13.5px; margin-top: 6px; }
+.settings__close { margin-left: auto; flex-shrink: 0; width: 36px; height: 36px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); color: var(--ink-dim); font-size: 14px; cursor: pointer; }
+.settings__close:hover { color: var(--ink); border-color: #39405e; }
+.settings__body { padding: 20px 24px 26px; }
+.settings__status {
+  display: block; font-size: 12.5px; color: var(--ink-dim);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 14px; margin-bottom: 18px;
+}
+.settings__status.is-connected { color: var(--green); background: rgba(70,211,154,.08); border-color: rgba(70,211,154,.3); }
+.settings__label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-dim); margin: 0 0 7px; }
+.settings__label span { color: var(--ink-faint); font-weight: 400; }
+.settings__keyrow { display: flex; gap: 8px; margin-bottom: 16px; }
+.settings__body input {
+  flex: 1; width: 100%; background: var(--bg-2); border: 1px solid var(--line); color: var(--ink);
+  border-radius: 11px; padding: 12px 14px; font-size: 14px; font-family: 'Inter', sans-serif;
+}
+.settings__body input:focus { outline: none; border-color: var(--saffron); }
+#settings-model { margin-bottom: 18px; }
+.settings__reveal { flex: 0 0 auto; width: 46px; background: var(--panel); border: 1px solid var(--line); border-radius: 11px; color: var(--ink-dim); cursor: pointer; font-size: 15px; }
+.settings__reveal:hover { color: var(--ink); border-color: #39405e; }
+.settings__actions { display: flex; gap: 10px; margin-top: 4px; }
+.settings__connect {
+  flex: 1; background: linear-gradient(135deg, var(--saffron), var(--saffron-2)); color: #1a1206;
+  border: none; border-radius: 11px; padding: 13px; font-weight: 700; font-size: 14.5px; cursor: pointer;
+  font-family: 'Inter', sans-serif; transition: .18s var(--ease);
+}
+.settings__connect:hover:not(:disabled) { transform: translateY(-1px); }
+.settings__connect:disabled { opacity: .6; cursor: not-allowed; }
+.settings__clear { background: var(--panel); color: var(--ink-dim); border: 1px solid var(--line); border-radius: 11px; padding: 13px 18px; font-weight: 600; font-size: 14px; cursor: pointer; font-family: 'Inter', sans-serif; }
+.settings__clear:hover { color: var(--ink); border-color: #39405e; }
+.settings__msg { margin-top: 14px; font-size: 13px; padding: 10px 14px; border-radius: 10px; }
+.settings__msg.is-ok { color: var(--green); background: rgba(70,211,154,.08); border: 1px solid rgba(70,211,154,.25); }
+.settings__msg.is-err { color: #ff8a8a; background: rgba(255,77,79,.08); border: 1px solid rgba(255,77,79,.25); }
+.settings__help { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line-soft); }
+.settings__help p { font-size: 12.5px; color: var(--ink-dim); margin-bottom: 10px; }
+.settings__help a { color: var(--saffron-2); }
+.settings__help code { background: var(--panel); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: var(--ink); }
+.settings__warn { color: var(--ink-faint); }

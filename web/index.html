@@ -27,6 +27,7 @@
       <a href="#metrics">Metrics</a>
       <a href="docs/BUSINESS_PLAN.md">Business Plan</a>
       <a href="engineering/MULTI_AGENT_SPEC.md">Build Spec</a>
+      <button class="nav__key" id="open-settings" type="button">🔑 Connect Gemini</button>
     </nav>
     <span class="nav__status"><i class="dot"></i> Pre-seed · Building</span>
   </header>
@@ -193,6 +194,45 @@
     </div>
   </div>
 
+  <!-- ===================== SETTINGS / CONNECT GEMINI ===================== -->
+  <div class="settings" id="settings" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+    <div class="settings__scrim" data-settings-close></div>
+    <div class="settings__panel" role="document">
+      <header class="settings__top">
+        <div>
+          <h2 id="settings-title">🔑 Connect Gemini</h2>
+          <p>Paste your Google Gemini API key to power Anaga's live brain from this browser.</p>
+        </div>
+        <button class="settings__close" data-settings-close aria-label="Close">✕</button>
+      </header>
+
+      <div class="settings__body">
+        <span class="settings__status" id="settings-status">Status: not connected — running the offline script.</span>
+
+        <label class="settings__label" for="settings-key">Gemini API key</label>
+        <div class="settings__keyrow">
+          <input id="settings-key" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false" />
+          <button type="button" id="settings-reveal" class="settings__reveal" aria-label="Show/hide key">👁</button>
+        </div>
+
+        <label class="settings__label" for="settings-model">Model <span>(optional)</span></label>
+        <input id="settings-model" type="text" placeholder="gemini-2.0-flash" autocomplete="off" spellcheck="false" />
+
+        <div class="settings__actions">
+          <button type="button" id="settings-connect" class="settings__connect">Connect</button>
+          <button type="button" id="settings-clear" class="settings__clear">Disconnect</button>
+        </div>
+        <p class="settings__msg" id="settings-msg" hidden></p>
+
+        <div class="settings__help">
+          <p><b>Where do I get a key?</b> <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> → Create API key.</p>
+          <p class="settings__warn">⚠️ This stores the key in <b>your browser only</b> and calls Google directly from your browser — fine for personal testing. For a <b>public</b> site, leave this empty and set <code>GEMINI_API_KEY</code> as a server env var on Vercel instead, so visitors never see your key.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/llm-client.js"></script>
   <script src="assets/playbook-data.js"></script>
   <script src="assets/app.js"></script>
 </body>

@@ -364,13 +364,13 @@ if (demoEl) {
   function clearInterim() { if (interimEl) { interimEl.remove(); interimEl = null; } }
 
   /* subtle "which brain is active" tag in the call header */
-  function setBrain(mode) {
+  function setBrain(mode, src) {
     if (!brainEl) return;
     if (mode === "live") {
       brainEl.hidden = false;
       brainEl.className = "call__brain call__brain--live";
-      brainEl.innerHTML = `<i class="dot"></i> live AI`;
-      brainEl.title = "Anaga's replies are generated live by the backend LLM.";
+      brainEl.innerHTML = `<i class="dot"></i> live AI${src ? " · " + src : ""}`;
+      brainEl.title = "Anaga's replies are generated live by Gemini" + (src ? " (" + src + ")." : ".");
     } else if (mode === "offline") {
       brainEl.hidden = false;
       brainEl.className = "call__brain call__brain--offline";
@@ -453,19 +453,27 @@ if (demoEl) {
 
   /* live backend turn: POST history → { say, end, disposition }.
      On any non-200 / throw we flip to the offline engine for the rest of the call. */
-  function nextLiveTurn() {
-    fetch(TURN_URL, {
+  /* fetch the next turn from the best available brain:
+     your own Gemini key (BYOK, in-browser) → server /api → (caller handles offline). */
+  function fetchTurn() {
+    if (window.AnagaBrain && AnagaBrain.hasKey()) {
+      return AnagaBrain.turn({ history }).then(d => ({ data: d, src: "your key" }));
+    }
+    return fetch(TURN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ lang: CALL_LANG, history })
-    })
-      .then(res => {
-        if (!res.ok) throw new Error("turn_unavailable_" + res.status);
-        return res.json();
-      })
-      .then(data => {
+    }).then(res => {
+      if (!res.ok) throw new Error("turn_unavailable_" + res.status);
+      return res.json();
+    }).then(d => ({ data: d, src: "server" }));
+  }
+
+  function nextLiveTurn() {
+    fetchTurn()
+      .then(({ data, src }) => {
         if (!active) return;
-        if (brainMode !== "live") { brainMode = "live"; setBrain("live"); }
+        if (brainMode !== "live") { brainMode = "live"; setBrain("live", src); }
         const line = (data && data.say) ? String(data.say) : "Sorry, could you say that again?";
         if (data && data.disposition) lastDisposition = data.disposition;
         const endInfo = (data && data.end)
@@ -707,18 +715,22 @@ if (demoEl) {
     reviewEl.innerHTML = `<div class="review__head"><h3>Call Review</h3>
       <span class="review__source">summarizing…</span></div>`;
 
-    /* If we already know there's no backend brain, skip the fetch entirely. */
-    if (brainMode === "offline") { paintReview(localReview()); return; }
+    const useByok = window.AnagaBrain && AnagaBrain.hasKey();
+    /* No key and the server already proved unreachable → local heuristic. */
+    if (!useByok && brainMode === "offline") { paintReview(localReview()); return; }
 
-    fetch(SUMMARY_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ history })
-    })
-      .then(res => {
-        if (!res.ok) throw new Error("summary_unavailable_" + res.status);
-        return res.json();
-      })
+    const summaryReq = useByok
+      ? AnagaBrain.summary({ history })
+      : fetch(SUMMARY_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ history })
+        }).then(res => {
+          if (!res.ok) throw new Error("summary_unavailable_" + res.status);
+          return res.json();
+        });
+
+    summaryReq
       .then(data => {
         if (!data || typeof data !== "object") throw new Error("summary_bad_payload");
         paintReview(data);
@@ -753,3 +765,77 @@ if (demoEl) {
 
 /* stop any speech when the Playbook opens */
 openBtn.addEventListener("click", () => { if (synth) synth.cancel(); });
+
+/* ===================================================================
+   SETTINGS — "Connect Gemini" (bring-your-own-key, stored in this browser)
+   =================================================================== */
+(function settings() {
+  const openS  = document.getElementById("open-settings");
+  const modal  = document.getElementById("settings");
+  if (!openS || !modal || !window.AnagaBrain) return;
+
+  const keyEl    = document.getElementById("settings-key");
+  const modelEl  = document.getElementById("settings-model");
+  const statusEl = document.getElementById("settings-status");
+  const msgEl    = document.getElementById("settings-msg");
+  const connectB = document.getElementById("settings-connect");
+  const clearB   = document.getElementById("settings-clear");
+  const revealB  = document.getElementById("settings-reveal");
+
+  function refreshStatus() {
+    const connected = AnagaBrain.hasKey();
+    statusEl.textContent = connected
+      ? `Status: connected ✓ — Anaga's brain runs live via your browser key (model: ${AnagaBrain.getModel()}).`
+      : "Status: not connected — the call runs the offline script (or your Vercel server key, if deployed).";
+    statusEl.className = "settings__status" + (connected ? " is-connected" : "");
+    if (openS) openS.textContent = connected ? "🔑 Gemini connected" : "🔑 Connect Gemini";
+  }
+  function showMsg(text, ok) {
+    msgEl.hidden = false;
+    msgEl.textContent = text;
+    msgEl.className = "settings__msg " + (ok ? "is-ok" : "is-err");
+  }
+  function open() {
+    keyEl.value = AnagaBrain.getKey();
+    modelEl.value = AnagaBrain.getModel() === AnagaBrain.DEFAULT_MODEL ? "" : AnagaBrain.getModel();
+    msgEl.hidden = true;
+    refreshStatus();
+    modal.hidden = false;
+    document.body.style.overflow = "hidden";
+    keyEl.focus();
+  }
+  function close() { modal.hidden = true; document.body.style.overflow = ""; }
+
+  openS.addEventListener("click", open);
+  modal.addEventListener("click", e => { if (e.target.matches("[data-settings-close]")) close(); });
+  document.addEventListener("keydown", e => { if (!modal.hidden && e.key === "Escape") close(); });
+
+  revealB.addEventListener("click", () => {
+    keyEl.type = keyEl.type === "password" ? "text" : "password";
+  });
+
+  connectB.addEventListener("click", () => {
+    const key = keyEl.value.trim();
+    const model = modelEl.value.trim() || AnagaBrain.DEFAULT_MODEL;
+    if (!key) { showMsg("Please paste your Gemini API key first.", false); return; }
+    connectB.disabled = true;
+    showMsg("Testing the key…", true);
+    AnagaBrain.test(key, model)
+      .then(() => {
+        AnagaBrain.setKey(key);
+        AnagaBrain.setModel(modelEl.value.trim());
+        showMsg("Connected ✓  Anaga will now think with Gemini. Start a call to hear it.", true);
+        refreshStatus();
+      })
+      .catch(err => showMsg("Couldn't connect: " + (err && err.message ? err.message : "check the key/model and try again."), false))
+      .finally(() => { connectB.disabled = false; });
+  });
+
+  clearB.addEventListener("click", () => {
+    AnagaBrain.setKey("");
+    showMsg("Disconnected. The key was removed from this browser.", true);
+    refreshStatus();
+  });
+
+  refreshStatus(); // reflect any previously-saved key on load
+})();
