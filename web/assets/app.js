@@ -235,7 +235,8 @@ if (demoEl) {
     hearBtn.querySelector(".btn--hear__label").textContent = on ? "Stop" : "Hear Anaga";
   };
   const play = () => {
-    const v = speakText(ANAGA_LINES[curLang] || ANAGA_LINES["en-IN"], curLang, { onend: () => setSpeaking(false) });
+    const hl = (curLang === "auto") ? "en-IN" : curLang;   // sample needs a concrete language
+    const v = speakText(ANAGA_LINES[hl] || ANAGA_LINES["en-IN"], hl, { onend: () => setSpeaking(false) });
     setSpeaking(true);
     if (v) voiceNote.textContent = `Voice: ${v.name}${/female/i.test(v.name) ? "" : " (best female match on your system)"}.`;
     else   voiceNote.textContent = "No regional voice installed — using your default voice.";
@@ -303,6 +304,8 @@ if (demoEl) {
   let callLang = "en-IN";
   let callBase = "en";
   let translateOn = false;
+  let autoMode = false;           // 🌐 detect the caller's language with on-device AI
+  let notedLang = null;           // last language we announced a switch to (avoid spam)
 
   /* ---- intent helpers ---- */
   const has = (t, re) => re.test(t);
@@ -474,10 +477,22 @@ if (demoEl) {
       if (brainMode === "offline") { setTimeout(nextOfflineTurn, 350); return; }
       nextLiveTurn();
     };
-    if (translateOn) {
-      TranslateKit.in(text, callBase).then(en => advance(en || text)).catch(() => advance(text));
+    const toEnglishThenAdvance = () => {
+      if (translateOn) TranslateKit.in(text, callBase).then(en => advance(en || text)).catch(() => advance(text));
+      else advance(text);
+    };
+
+    /* 🌐 auto-detect the caller's language with on-device AI, then adapt */
+    if (autoMode && window.TranslateKit && TranslateKit.available() && TranslateKit.hasDetector()) {
+      TranslateKit.detect(text)
+        .then(base => {
+          if (!active) return;
+          if (shouldSwitch(base, text)) applyLanguage(base).then(toEnglishThenAdvance);
+          else toEnglishThenAdvance();
+        })
+        .catch(toEnglishThenAdvance);
     } else {
-      advance(text);
+      toEnglishThenAdvance();
     }
   }
 
@@ -614,7 +629,34 @@ if (demoEl) {
   }
 
   function langLabel(base) {
-    return ({ en: "English", hi: "Hindi", te: "Telugu", ta: "Tamil", kn: "Kannada", mr: "Marathi", bn: "Bengali" })[base] || base;
+    return ({ en: "English", hi: "Hindi", te: "Telugu", ta: "Tamil", kn: "Kannada", mr: "Marathi", bn: "Bengali", ml: "Malayalam", gu: "Gujarati", pa: "Punjabi" })[base] || base;
+  }
+  function bcp47(base) {
+    return ({ en: "en-IN", hi: "hi-IN", te: "te-IN", ta: "ta-IN", kn: "kn-IN", mr: "mr-IN", bn: "bn-IN", ml: "ml-IN", gu: "gu-IN", pa: "pa-IN" })[base] || (base + "-IN");
+  }
+
+  /* switch the live call to a language mid-conversation (used by auto-detect).
+     Returns a promise that resolves once translators (if needed) are ready. */
+  function applyLanguage(base) {
+    callBase = base;
+    callLang = bcp47(base);
+    if (recog) { try { recog.lang = callLang; } catch (e) {} }
+    if (base === "en") { translateOn = false; return Promise.resolve(true); }
+    if (!window.TranslateKit || !TranslateKit.available()) { translateOn = false; return Promise.resolve(false); }
+    return TranslateKit.prep(base).then(ok => {
+      translateOn = ok;
+      if (ok && notedLang !== base) { notedLang = base; addBubble("anaga", "🌐 Detected " + langLabel(base) + " — switching to " + langLabel(base) + "."); }
+      return ok;
+    }).catch(() => { translateOn = false; return false; });
+  }
+
+  /* avoid flip-flopping on short acknowledgements ("yes"/"haan") while already
+     mid-conversation in another language. */
+  function shouldSwitch(base, text) {
+    if (!base) return false;
+    if (base === callBase) return base !== "en" && !translateOn;   // same lang but translator not on yet
+    if (base === "en" && translateOn && text.trim().length < 8) return false; // short ack inside a non-EN call
+    return true;
   }
 
   /* Mobile browsers only allow speech to start from a user gesture. Speaking a
@@ -640,11 +682,15 @@ if (demoEl) {
     document.body.style.overflow = "hidden";
     primeAudio();                    // unlock audio within the tap (mobile)
 
-    /* language for this call comes from the active hero language pill */
+    /* language for this call comes from the active hero language pill.
+       "auto" → detect the caller's language on the fly with on-device AI. */
     const activePill = document.querySelector('#voice-demo .lang-pill.is-active');
-    callLang = (activePill && activePill.dataset.lang) || "en-IN";
+    const sel = (activePill && activePill.dataset.lang) || "en-IN";
+    autoMode = (sel === "auto");
+    callLang = autoMode ? "en-IN" : sel;
     callBase = callLang.split("-")[0];
     translateOn = false;
+    notedLang = null;
     if (recog) recog.lang = callLang;
 
     setStatus("Connecting…", null);
@@ -659,6 +705,17 @@ if (demoEl) {
       }
 
       const begin = () => { if (active) sayStep("greet"); };
+
+      /* 🌐 Auto-detect: greet in English, then adapt to whatever the caller speaks */
+      if (autoMode) {
+        if (window.TranslateKit && TranslateKit.available() && TranslateKit.hasDetector()) {
+          addBubble("anaga", "🌐 Auto language is on — reply in English, हिंदी, or తెలుగు and I'll match you.");
+        } else {
+          showNotice("🌐 Auto-detect needs Chrome 138+ (or Edge) — running in English. You can still type.");
+        }
+        setTimeout(begin, 450);
+        return;
+      }
 
       if (callBase === "en") { setTimeout(begin, 450); return; }
 

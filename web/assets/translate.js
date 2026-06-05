@@ -14,6 +14,7 @@
   const G = typeof self !== "undefined" ? self : window;
   const hasNew    = "Translator" in G;                                   // Chrome 138+ stable
   const hasLegacy = !hasNew && G.translation && typeof G.translation.createTranslator === "function"; // older trial
+  const hasDetect = "LanguageDetector" in G;                             // on-device language detection (Chrome 138+)
 
   const cache = {};        // "src>tgt" -> Promise<translator|null>
   const readyBase = {};    // base lang -> bool (both directions created)
@@ -46,8 +47,41 @@
     try { return await t.translate(text); } catch (e) { return null; }
   }
 
+  /* ---- on-device language detection (the "auto" in auto-convert) ---- */
+  let detectorP = undefined;   // Promise<detector|null>
+  function getDetector() {
+    if (detectorP === undefined) {
+      detectorP = (async () => {
+        if (!hasDetect) return null;
+        try {
+          const avail = await G.LanguageDetector.availability();
+          if (avail === "unavailable") return null;
+          return await G.LanguageDetector.create();
+        } catch (e) { return null; }
+      })();
+    }
+    return detectorP;
+  }
+
+  /* returns a base language code ("en","hi","te"…) or null if unsure */
+  async function detect(text) {
+    if (!text || text.trim().length < 3) return null;   // too short to be reliable
+    const d = await getDetector();
+    if (!d) return null;
+    try {
+      const results = await d.detect(text);
+      if (!results || !results.length) return null;
+      const top = results[0];
+      if (!top || top.detectedLanguage === "und") return null;
+      if (typeof top.confidence === "number" && top.confidence < 0.45) return null;
+      return String(top.detectedLanguage).split("-")[0];
+    } catch (e) { return null; }
+  }
+
   G.TranslateKit = {
     available: () => hasNew || hasLegacy,
+    hasDetector: () => hasDetect,
+    detect,
     /* pre-create both directions (en <-> base); resolves to whether it's usable */
     async prep(base) {
       const [a, b] = await Promise.all([get(base, "en"), get("en", base)]);
