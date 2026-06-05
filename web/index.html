@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vaak AI — Mission Control</title>
+  <meta name="description" content="Voice-AI sales infrastructure for Bharat's high-ticket, multilingual, regulated industries." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <!-- ambient background -->
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  <!-- ===================== TOP NAV ===================== -->
+  <header class="nav">
+    <div class="nav__brand">
+      <span class="brand__mark" aria-hidden="true">वाक्</span>
+      <span class="brand__name">Vaak<span class="brand__ai">AI</span></span>
+      <span class="brand__tag">Mission Control</span>
+    </div>
+    <nav class="nav__links">
+      <a href="#fleet">Agent Fleet</a>
+      <a href="#metrics">Metrics</a>
+      <a href="../docs/BUSINESS_PLAN.md">Business Plan</a>
+      <a href="../engineering/MULTI_AGENT_SPEC.md">Build Spec</a>
+    </nav>
+    <span class="nav__status"><i class="dot"></i> Pre-seed · Building</span>
+  </header>
+
+  <!-- ===================== HERO ===================== -->
+  <section class="hero">
+    <p class="hero__kicker">वाक् · వాక్ — <em>the spoken word</em></p>
+    <h1 class="hero__title">
+      The voice-AI sales layer<br />for <span class="grad">Bharat</span>.
+    </h1>
+    <p class="hero__sub">
+      Autonomous, India-native voice agents that qualify leads, handle objections in the
+      languages Indians actually speak, book high-intent meetings, and hand warm prospects to
+      human closers — compliant with TRAI/DLT/DND by design.
+    </p>
+
+    <!-- ============ PRIMARY ACTION ROW ============ -->
+    <!-- The special guide button is surgically placed in the centre of the action row. -->
+    <div class="cta-row">
+      <a class="btn btn--ghost" href="../engineering/MULTI_AGENT_SPEC.md">
+        <span class="btn__icon">⚙︎</span> Build Spec
+      </a>
+
+      <!-- ★★★ THE BUTTON THE FOUNDER ASKED FOR ★★★ -->
+      <button class="btn btn--playbook" id="open-playbook" aria-haspopup="dialog" aria-controls="playbook">
+        <span class="btn__pulse" aria-hidden="true"></span>
+        <span class="btn__icon">🗺️</span>
+        <span class="btn__label">
+          <span class="btn__label-main">The Playbook</span>
+          <span class="btn__label-sub">Scratch → Production → Investors → Marketing</span>
+        </span>
+        <span class="btn__chev" aria-hidden="true">→</span>
+      </button>
+
+      <a class="btn btn--ghost" href="../docs/BUSINESS_PLAN.md">
+        <span class="btn__icon">📈</span> Investor Memo
+      </a>
+    </div>
+    <p class="cta-hint">One button. Zero to a ₹100 Cr company — every step, in order.</p>
+  </section>
+
+  <!-- ===================== AGENT FLEET ===================== -->
+  <section class="fleet" id="fleet">
+    <div class="section-head">
+      <h2>The Agent Fleet</h2>
+      <p>A fleet of specialized agents behind one orchestrator. Each work package is an
+         isolated, branchable task an autonomous coding agent can own end-to-end.</p>
+    </div>
+    <div class="fleet__grid" id="fleet-grid"><!-- injected by app.js --></div>
+  </section>
+
+  <!-- ===================== METRICS ===================== -->
+  <section class="metrics" id="metrics">
+    <div class="section-head">
+      <h2>Production-grade bar</h2>
+      <p>Non-negotiable acceptance targets the system is built against.</p>
+    </div>
+    <div class="metrics__grid" id="metrics-grid"><!-- injected by app.js --></div>
+  </section>
+
+  <footer class="foot">
+    <span>Vaak AI · वाक् · Voice-AI sales infrastructure for Bharat</span>
+    <span>Beachhead: Hyderabad real estate · Confidential</span>
+  </footer>
+
+  <!-- ===================== PLAYBOOK OVERLAY ===================== -->
+  <div class="playbook" id="playbook" role="dialog" aria-modal="true" aria-labelledby="playbook-title" hidden>
+    <div class="playbook__scrim" data-close></div>
+    <div class="playbook__panel" role="document">
+      <header class="playbook__top">
+        <div class="playbook__title-wrap">
+          <h2 id="playbook-title">From Scratch to a ₹100 Cr Company</h2>
+          <p>The end-to-end operating manual — build, raise, and sell, in the order you actually do them.</p>
+        </div>
+        <button class="playbook__close" data-close aria-label="Close playbook">✕</button>
+      </header>
+
+      <!-- phase tabs -->
+      <nav class="playbook__tabs" id="playbook-tabs"><!-- injected --></nav>
+
+      <!-- progress rail -->
+      <div class="playbook__rail"><div class="playbook__rail-fill" id="rail-fill"></div></div>
+
+      <!-- content -->
+      <div class="playbook__body" id="playbook-body"><!-- injected --></div>
+    </div>
+  </div>
+
+  <script src="assets/playbook-data.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
