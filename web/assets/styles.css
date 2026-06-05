@@ -617,12 +617,11 @@ body {
 
 @media (max-width: 720px) { .call__panel { height: 90vh; width: 96vw; } }
 
-/* mic button disabled / blocked state (visible affordance) */
-.call__mic:disabled, .call__mic.is-disabled {
-  opacity: .6; cursor: not-allowed; border-style: dashed; border-color: var(--line);
-  background: var(--panel);
+/* mic button muted state — still clickable (a tap explains + focuses the text box) */
+.call__mic.is-disabled {
+  opacity: .8; border-style: dashed; border-color: var(--line); background: var(--panel);
 }
-.call__mic:disabled:hover, .call__mic.is-disabled:hover { transform: none; border-color: var(--line); }
+.call__mic.is-disabled:hover { border-color: var(--indigo); opacity: 1; }
 
 /* ===================================================================
    SETTINGS — Connect Gemini

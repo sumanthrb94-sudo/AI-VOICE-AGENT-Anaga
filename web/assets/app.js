@@ -175,7 +175,11 @@ function pickVoice(lang) {
 
 /* speakText(text, lang, { onstart, onend }) -> returns chosen voice (or null) */
 function speakText(text, lang, opts = {}) {
-  if (!synth) { opts.onend && opts.onend(); return null; }
+  if (!synth) {
+    /* no TTS engine — don't stall the conversation; continue after a short beat */
+    setTimeout(() => opts.onend && opts.onend(), 400);
+    return null;
+  }
   const u = new SpeechSynthesisUtterance(text);
   const v = pickVoice(lang);
   if (v) u.voice = v;
@@ -183,10 +187,16 @@ function speakText(text, lang, opts = {}) {
   u.pitch = 1.08;
   u.rate = 0.97;
   if (opts.onstart) u.onstart = opts.onstart;
-  u.onend = () => opts.onend && opts.onend();
-  u.onerror = () => opts.onend && opts.onend();
+  /* fire onend exactly once, even if the browser drops the speech 'end' event
+     (a common cause of a stalled call) — a watchdog guarantees progress. */
+  let done = false;
+  const finish = () => { if (done) return; done = true; clearTimeout(wd); opts.onend && opts.onend(); };
+  u.onend = finish;
+  u.onerror = finish;
   synth.cancel();
   synth.speak(u);
+  const ms = Math.min(20000, 2600 + text.split(/\s+/).length * 380);
+  const wd = setTimeout(finish, ms);
   return v;
 }
 
@@ -283,7 +293,8 @@ if (demoEl) {
      null = not yet detected, "live" = backend LLM, "offline" = on-device rule engine.
      Detect-once: after the first failed /turn we stay offline for the rest of the call. */
   let brainMode = null;
-  let micAllowed = false;         // whether getUserMedia granted (affects copy only)
+  let micAllowed = false;         // whether getUserMedia granted
+  let micCapable = false;         // recog supported AND mic granted → can actually listen
 
   /* ---- intent helpers ---- */
   const has = (t, re) => re.test(t);
@@ -420,7 +431,11 @@ if (demoEl) {
 
   function startListening() {
     if (!active) return;
-    if (!recog) { setStatus("Your turn — type your reply below", null); return; }
+    if (!micCapable) {                       // no recog or mic not granted → prompt typing instead
+      setStatus("Your turn — type your reply below ⌨️", null);
+      if (textInput) textInput.focus();
+      return;
+    }
     if (listening) return;
     processing = false;
     try { recog.start(); } catch (e) { /* already started */ }
@@ -547,16 +562,16 @@ if (demoEl) {
       });
   }
 
-  /* enable/disable + label the mic button so its state is always visible */
+  /* label the mic button so its state is always visible — but NEVER disable it,
+     so a tap always does something (either listen, or explain + focus the text box). */
   function configureMicButton(granted) {
     const label = micBtn.querySelector(".call__mic-label");
-    if (recog && granted) {
-      micBtn.disabled = false; micBtn.classList.remove("is-disabled");
-      label.textContent = "🎤 Tap to speak";
-    } else {
-      micBtn.disabled = true; micBtn.classList.add("is-disabled");
-      label.textContent = recog ? "🎤 Mic blocked — type below" : "🎤 Voice input unsupported — type below";
-    }
+    micCapable = !!(recog && granted);
+    micBtn.disabled = false;
+    micBtn.classList.toggle("is-disabled", !micCapable);
+    label.textContent = micCapable
+      ? "🎤 Tap to speak"
+      : (recog ? "🎤 Allow mic — or tap to type" : "🎤 Voice unsupported — tap to type");
   }
 
   /* ---- lifecycle ---- */
@@ -566,7 +581,8 @@ if (demoEl) {
     transcript.innerHTML = "";
     if (reviewEl) { reviewEl.hidden = true; reviewEl.innerHTML = ""; }
     if (endBtn) endBtn.textContent = "✕ End call";
-    micBtn.disabled = true;            // re-enabled by configureMicButton after the permission resolves
+    micCapable = false;
+    micBtn.disabled = false;           // never a dead button; configureMicButton sets the label
     micBtn.classList.remove("is-on");
     setBrain(null);
     clearNotice();
@@ -749,6 +765,13 @@ if (demoEl) {
   if (endBtn) endBtn.addEventListener("click", () => { if (active) finishCall({ reason: "Call ended" }); else closeCall(); });
   micBtn.addEventListener("click", () => {
     if (!active) return;
+    if (!micCapable) {                       // can't listen → guide to typing (always responsive)
+      showNotice(recog
+        ? "🎤 Mic needs permission on a secure page (https or localhost). Type your reply below — Anaga will still respond."
+        : "🎤 Voice input isn't supported in this browser (try Chrome/Edge). Type your reply below — Anaga will still respond.");
+      if (textInput) textInput.focus();
+      return;
+    }
     if (listening) { try { recog.stop(); } catch (e) {} }
     else startListening();
   });
