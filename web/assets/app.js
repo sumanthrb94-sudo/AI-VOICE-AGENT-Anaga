@@ -507,17 +507,21 @@ if (demoEl) {
   function setMic(on) {
     micBtn.classList.toggle("is-on", on);
     micBtn.setAttribute("aria-pressed", String(on));
-    micBtn.querySelector(".call__mic-label").textContent = on ? "Listening… (tap to stop)" : "Tap to speak";
+    micBtn.querySelector(".call__mic-label").textContent = on ? "Listening… (tap to stop)" : "🎤 Tap to speak";
   }
 
   /* ---- microphone permission ---- */
-  /* Explicitly request mic access BEFORE the dialogue. On grant we immediately stop
-     the tracks (SpeechRecognition does the actual capture); on deny/insecure/unavailable
-     we continue in text-only mode and never hard-fail. Resolves to a boolean. */
+  /* Explicitly request mic access BEFORE the dialogue. The mic only works in a
+     secure context (HTTPS or http://localhost) — on file:// or plain http the
+     browser hides navigator.mediaDevices, so we explain that instead of failing
+     silently. On deny/unsupported we continue in text-only mode. Resolves boolean. */
   function requestMic() {
     const md = navigator.mediaDevices;
-    if (!md || !md.getUserMedia) {
-      showNotice("Microphone unavailable in this browser — you can type your replies.");
+    const insecure = (typeof window.isSecureContext !== "undefined") && !window.isSecureContext;
+    if (insecure || !md || !md.getUserMedia) {
+      showNotice(insecure
+        ? "🎤 The microphone needs a secure page — open this on your deployed https:// link (Vercel) or via http://localhost. On a file:// or plain http page browsers block the mic. You can still type your replies below."
+        : "🎤 Microphone isn't available in this browser — use Chrome or Edge, or type your replies below.");
       return Promise.resolve(false);
     }
     setStatus("Requesting microphone…", null);
@@ -527,10 +531,24 @@ if (demoEl) {
         clearNotice();
         return true;
       })
-      .catch(() => {
-        showNotice("Microphone blocked — you can type your replies.");
+      .catch(err => {
+        showNotice(err && err.name === "NotAllowedError"
+          ? "🎤 Microphone permission was blocked. Click the 🔒/🎤 icon in your browser's address bar, allow the mic, then start a new call. You can also type below."
+          : "🎤 Couldn't access the microphone — you can type your replies below.");
         return false;
       });
+  }
+
+  /* enable/disable + label the mic button so its state is always visible */
+  function configureMicButton(granted) {
+    const label = micBtn.querySelector(".call__mic-label");
+    if (recog && granted) {
+      micBtn.disabled = false; micBtn.classList.remove("is-disabled");
+      label.textContent = "🎤 Tap to speak";
+    } else {
+      micBtn.disabled = true; micBtn.classList.add("is-disabled");
+      label.textContent = recog ? "🎤 Mic blocked — type below" : "🎤 Voice input unsupported — type below";
+    }
   }
 
   /* ---- lifecycle ---- */
@@ -540,6 +558,8 @@ if (demoEl) {
     transcript.innerHTML = "";
     if (reviewEl) { reviewEl.hidden = true; reviewEl.innerHTML = ""; }
     if (endBtn) endBtn.textContent = "✕ End call";
+    micBtn.disabled = true;            // re-enabled by configureMicButton after the permission resolves
+    micBtn.classList.remove("is-on");
     setBrain(null);
     clearNotice();
   }
@@ -553,6 +573,7 @@ if (demoEl) {
     requestMic().then(granted => {
       if (!active) return;            // closed while the prompt was open
       micAllowed = granted;
+      configureMicButton(granted);
       if (!recog) {
         addBubble("anaga", "(Speech recognition isn't available in this browser — you can type your replies. Chrome or Edge give the full voice experience.)");
       } else if (!granted) {

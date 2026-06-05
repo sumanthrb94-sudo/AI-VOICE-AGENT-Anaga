@@ -616,3 +616,10 @@ body {
 .call__textform button:hover { background: var(--saffron-2); }
 
 @media (max-width: 720px) { .call__panel { height: 90vh; width: 96vw; } }
+
+/* mic button disabled / blocked state (visible affordance) */
+.call__mic:disabled, .call__mic.is-disabled {
+  opacity: .6; cursor: not-allowed; border-style: dashed; border-color: var(--line);
+  background: var(--panel);
+}
+.call__mic:disabled:hover, .call__mic.is-disabled:hover { transform: none; border-color: var(--line); }
