@@ -11,6 +11,18 @@ A self-contained, zero-build home screen for the Vaak AI project.
 | `assets/app.js` | Renders the agent fleet + metrics and drives the Playbook overlay |
 | `assets/playbook-data.js` | The Playbook content — edit this to change the guide |
 
+## Hear Anaga (live voice demo)
+
+The hero has a **Hear Anaga** button with English / हिंदी / తెలుగు pills. It speaks her
+opening disclosure line in the browser via the **Web Speech API** — no API keys, no backend.
+It picks the best **female** voice installed on your OS/browser and the waveform pulses while
+she talks. This is a front-end preview of her persona; the production voice is Sarvam's female
+Bulbul voice, configured in `caller-agent/flows/anaga.persona.json` and built in WP-3/WP-4.
+
+> Note: available voices vary by OS/browser (Chrome/Edge have the widest set). If no regional
+> female voice is installed, it falls back to your default voice. The line text mirrors the
+> persona file.
+
 ## The Playbook button
 
 The hero action row has a dedicated, surgically-placed button in the centre:

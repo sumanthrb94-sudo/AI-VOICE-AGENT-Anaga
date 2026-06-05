@@ -140,3 +140,98 @@ document.addEventListener("keydown", e => {
 
 /* deep-link: open with #playbook */
 if (location.hash === "#playbook") openPlaybook();
+
+/* ===================================================================
+   HEAR ANAGA — in-browser female-voice demo (Web Speech API)
+   No keys, no backend. Best-effort female voice from the user's OS.
+   Lines mirror caller-agent/flows/anaga.persona.json (native script so
+   a matching regional voice reads naturally; falls back to English).
+   =================================================================== */
+const ANAGA_LINES = {
+  "en-IN": "Hi, I'm Anaga, an AI voice assistant from Vaak. Is now a good time to talk for a couple of minutes?",
+  "hi-IN": "नमस्ते, मैं अनघा हूँ, वाक की एक ए आई वॉइस असिस्टेंट। क्या मैं आपसे दो मिनट बात कर सकती हूँ?",
+  "te-IN": "నమస్కారం, నేను అనగా, వాక్ నుండి ఒక ఏఐ వాయిస్ అసిస్టెంట్. మీకు కొన్ని నిమిషాలు ఉంటే మాట్లాడొచ్చా?"
+};
+
+/* names that signal a female voice across common OS/browser voice sets */
+const FEMALE_HINTS = [
+  "female", "samantha", "victoria", "karen", "moira", "tessa", "fiona", "veena",
+  "zira", "susan", "linda", "heera", "kalpana", "swara", "aditi", "raveena",
+  "google हिन्दी", "google తెలుగు", "google uk english female", "google us english"
+];
+
+const hearBtn   = document.getElementById("hear-anaga");
+const voiceNote = document.getElementById("voice-note");
+const demoEl    = document.getElementById("voice-demo");
+const chipEl    = document.querySelector(".agent-chip");
+const synth     = window.speechSynthesis;
+let voices = [];
+let curLang = "en-IN";
+let speaking = false;
+
+if (!synth) {
+  if (hearBtn) hearBtn.disabled = true;
+  if (voiceNote) voiceNote.textContent = "Your browser doesn't support in-browser speech. Try Chrome or Edge.";
+} else {
+  const loadVoices = () => { voices = synth.getVoices() || []; };
+  loadVoices();
+  synth.onvoiceschanged = loadVoices;
+
+  /* pick the best female voice for a language, with graceful fallback */
+  function pickVoice(lang) {
+    const base = lang.split("-")[0];
+    const byLang = voices.filter(v => v.lang && (v.lang === lang || v.lang.replace("_", "-").startsWith(base)));
+    const isFemale = v => FEMALE_HINTS.some(h => v.name.toLowerCase().includes(h));
+    return (
+      byLang.find(isFemale) ||
+      byLang[0] ||
+      voices.filter(v => v.lang && v.lang.startsWith("en")).find(isFemale) ||
+      voices.find(isFemale) ||
+      null
+    );
+  }
+
+  function setSpeaking(on) {
+    speaking = on;
+    hearBtn.setAttribute("aria-pressed", String(on));
+    hearBtn.classList.toggle("is-speaking", on);
+    if (chipEl) chipEl.classList.toggle("is-speaking", on);
+    hearBtn.querySelector(".btn--hear__ico").textContent = on ? "■" : "▶";
+    hearBtn.querySelector(".btn--hear__label").textContent = on ? "Stop" : "Hear Anaga";
+  }
+
+  function speak() {
+    const u = new SpeechSynthesisUtterance(ANAGA_LINES[curLang] || ANAGA_LINES["en-IN"]);
+    const v = pickVoice(curLang);
+    if (v) u.voice = v;
+    u.lang = (v && v.lang) || curLang;
+    u.pitch = 1.08;   // a touch warmer / higher
+    u.rate = 0.97;
+    u.onend = () => setSpeaking(false);
+    u.onerror = () => { setSpeaking(false); voiceNote.textContent = "Couldn't play that voice — try English, or another browser."; };
+    synth.cancel();
+    synth.speak(u);
+    setSpeaking(true);
+    if (v) voiceNote.textContent = `Voice: ${v.name}${/female/i.test(v.name) ? "" : " (best female match on your system)"}.`;
+    else   voiceNote.textContent = "No regional voice installed — using your default voice.";
+  }
+
+  hearBtn.addEventListener("click", () => {
+    if (speaking) { synth.cancel(); setSpeaking(false); return; }
+    speak();
+  });
+
+  /* language pills */
+  demoEl.querySelectorAll(".lang-pill").forEach(pill => {
+    pill.addEventListener("click", () => {
+      demoEl.querySelectorAll(".lang-pill").forEach(p => p.classList.remove("is-active"));
+      pill.classList.add("is-active");
+      curLang = pill.dataset.lang;
+      if (speaking) { synth.cancel(); speak(); }   // re-speak in the new language
+    });
+  });
+
+  /* stop speech if the user navigates away or opens the playbook */
+  window.addEventListener("beforeunload", () => synth.cancel());
+  openBtn.addEventListener("click", () => { if (speaking) { synth.cancel(); setSpeaking(false); } });
+}

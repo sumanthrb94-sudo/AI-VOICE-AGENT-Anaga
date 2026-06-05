@@ -148,6 +148,40 @@ body {
   width: 6px; height: 6px; border-radius: 50%; background: var(--green);
   animation: pulse 2.4s infinite;
 }
+/* intensify the waveform while Anaga is speaking */
+.agent-chip.is-speaking .agent-chip__avatar { box-shadow: 0 0 0 4px rgba(255,138,61,.3); }
+.agent-chip.is-speaking .agent-chip__wave i { animation-duration: .55s; }
+
+/* ---------- Hear Anaga voice demo ---------- */
+.voice-demo {
+  display: inline-flex; align-items: center; flex-wrap: wrap; gap: 12px;
+  margin: 0 auto 30px; justify-content: center;
+}
+.voice-demo__langs { display: inline-flex; gap: 6px; }
+.lang-pill {
+  font-family: 'Inter', sans-serif; font-size: 12.5px; font-weight: 600; color: var(--ink-dim);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 100px;
+  padding: 7px 14px; cursor: pointer; transition: .18s var(--ease);
+}
+.lang-pill:hover { color: var(--ink); border-color: #353c59; }
+.lang-pill.is-active {
+  color: #1a1206; border-color: transparent;
+  background: linear-gradient(135deg, var(--saffron), var(--saffron-2));
+}
+.btn--hear {
+  display: inline-flex; align-items: center; gap: 9px;
+  font-family: 'Inter', sans-serif; font-weight: 600; font-size: 14px; color: var(--ink);
+  background: var(--panel-2); border: 1px solid #34406a; border-radius: 100px;
+  padding: 9px 18px; cursor: pointer; transition: .18s var(--ease);
+}
+.btn--hear:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--indigo); }
+.btn--hear:disabled { opacity: .5; cursor: not-allowed; }
+.btn--hear__ico { color: var(--saffron); font-size: 12px; }
+.btn--hear.is-speaking { border-color: var(--saffron); background: linear-gradient(135deg, rgba(255,138,61,.18), rgba(109,139,255,.14)); }
+.btn--hear.is-speaking .btn--hear__ico { color: #ff6b6b; }
+.voice-demo__note {
+  flex-basis: 100%; text-align: center; color: var(--ink-faint); font-size: 12px; margin-top: 2px;
+}
 .hero__title {
   font-family: 'Sora', sans-serif; font-weight: 800;
   font-size: clamp(38px, 7vw, 72px); line-height: 1.04; letter-spacing: -1.5px;
