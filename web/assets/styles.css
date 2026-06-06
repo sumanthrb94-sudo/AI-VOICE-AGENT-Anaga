@@ -742,3 +742,48 @@ body {
 /* voice chip pushes the right-side group; brain + end sit tight next to it */
 .call__top .call__voice ~ .call__brain { margin-left: 8px; }
 .call__top .call__voice ~ .call__end { margin-left: 8px; }
+
+/* ===================================================================
+   VOICE LAB — frequency meter + modulator
+   =================================================================== */
+.voicelab { position: relative; z-index: 1; padding: clamp(36px,5vw,64px) clamp(20px,6vw,64px); border-top: 1px solid var(--line-soft); }
+.vlab {
+  max-width: 1000px; margin: 0 auto;
+  background: linear-gradient(180deg, var(--panel), var(--bg-2));
+  border: 1px solid var(--line); border-radius: 20px; padding: clamp(16px,3vw,26px);
+}
+.vlab__meter {
+  display: block; width: 100%; height: 170px;
+  background: radial-gradient(120% 120% at 50% 0%, rgba(255,138,61,.06), transparent 70%);
+  border: 1px solid var(--line-soft); border-radius: 14px;
+}
+.vlab__row { display: flex; gap: 22px; margin-top: 18px; flex-wrap: wrap; align-items: flex-start; }
+.vlab__btns { display: flex; flex-direction: column; gap: 10px; min-width: 200px; flex: 1; }
+.vlab__btn {
+  font-family: 'Inter', sans-serif; font-weight: 600; font-size: 14px; color: var(--ink);
+  background: var(--panel-2); border: 1px solid #34406a; border-radius: 12px; padding: 12px 16px;
+  cursor: pointer; transition: .18s var(--ease);
+}
+.vlab__btn:hover { transform: translateY(-2px); border-color: var(--indigo); }
+.vlab__btn.is-on { border-color: #ff6b6b; background: linear-gradient(135deg, rgba(255,77,79,.18), rgba(255,138,61,.14)); }
+.vlab__btn--primary { background: linear-gradient(135deg, var(--saffron), var(--saffron-2)); color: #1a1206; border: none; }
+.vlab__sliders { flex: 2; min-width: 280px; display: flex; flex-direction: column; gap: 14px; }
+.vlab__slider { display: flex; flex-direction: column; gap: 6px; }
+.vlab__slider span { font-size: 12.5px; color: var(--ink-dim); display: flex; justify-content: space-between; }
+.vlab__slider span b { color: var(--saffron-2); font-weight: 700; }
+.vlab__slider input[type=range] {
+  -webkit-appearance: none; appearance: none; height: 6px; border-radius: 6px;
+  background: linear-gradient(90deg, var(--saffron), var(--indigo)); outline: none; cursor: pointer;
+}
+.vlab__slider input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; border: 3px solid var(--saffron); cursor: pointer;
+}
+.vlab__slider input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 3px solid var(--saffron); cursor: pointer; }
+.vlab__reset {
+  align-self: flex-start; background: var(--panel); color: var(--ink-dim); border: 1px solid var(--line);
+  border-radius: 100px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.vlab__reset:hover { color: var(--ink); border-color: #39405e; }
+.vlab__note { margin-top: 14px; text-align: center; color: var(--ink-faint); font-size: 12.5px; }
+@media (max-width: 640px) { .vlab__row { flex-direction: column; } .vlab__btns { min-width: 0; } }

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/styles.css?v=8" />
+  <link rel="stylesheet" href="assets/styles.css?v=9" />
 </head>
 <body>
   <!-- ambient background -->
@@ -129,6 +129,39 @@
       </a>
     </div>
     <p class="cta-hint">One button. Zero to a ₹100 Cr company — every step, in order.</p>
+  </section>
+
+  <!-- ===================== VOICE LAB ===================== -->
+  <section class="voicelab" id="voicelab">
+    <div class="section-head">
+      <h2>Voice Lab</h2>
+      <p>Live frequency meter + voice modulator — shape exactly how Anaga sounds.</p>
+    </div>
+    <div class="vlab">
+      <canvas class="vlab__meter" id="vlab-meter" width="900" height="170" aria-label="Voice frequency meter"></canvas>
+      <div class="vlab__row">
+        <div class="vlab__btns">
+          <button class="vlab__btn" id="vlab-mic" type="button">🎤 Visualize my voice</button>
+          <button class="vlab__btn vlab__btn--primary" id="vlab-preview" type="button">🔊 Preview Anaga</button>
+        </div>
+        <div class="vlab__sliders">
+          <label class="vlab__slider">
+            <span>Pitch <b id="vlab-pitch-v">0%</b></span>
+            <input type="range" id="vlab-pitch" min="-50" max="50" step="1" value="0" />
+          </label>
+          <label class="vlab__slider">
+            <span>Pace <b id="vlab-pace-v">0%</b></span>
+            <input type="range" id="vlab-pace" min="-50" max="50" step="1" value="0" />
+          </label>
+          <label class="vlab__slider">
+            <span>Loudness <b id="vlab-loud-v">100%</b></span>
+            <input type="range" id="vlab-loud" min="40" max="200" step="5" value="100" />
+          </label>
+          <button class="vlab__reset" id="vlab-reset" type="button">Reset</button>
+        </div>
+      </div>
+      <p class="vlab__note" id="vlab-note"></p>
+    </div>
   </section>
 
   <!-- ===================== AGENT FLEET ===================== -->
@@ -257,9 +290,9 @@
     </div>
   </div>
 
-  <script src="assets/translate.js?v=8"></script>
-  <script src="assets/llm-client.js?v=8"></script>
-  <script src="assets/playbook-data.js?v=8"></script>
-  <script src="assets/app.js?v=8"></script>
+  <script src="assets/translate.js?v=9"></script>
+  <script src="assets/llm-client.js?v=9"></script>
+  <script src="assets/playbook-data.js?v=9"></script>
+  <script src="assets/app.js?v=9"></script>
 </body>
 </html>

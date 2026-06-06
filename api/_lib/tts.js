@@ -20,7 +20,7 @@ export function ttsAvailable() {
   return false;
 }
 
-export async function synth({ text, lang, speaker } = {}) {
+export async function synth({ text, lang, speaker, pitch, pace, loudness } = {}) {
   const provider = (process.env.TTS_PROVIDER || 'sarvam').toLowerCase();
   if (provider !== 'sarvam') throw new Error('unsupported_tts_provider');
 
@@ -31,14 +31,17 @@ export async function synth({ text, lang, speaker } = {}) {
     ? String(speaker).toLowerCase()
     : 'anushka';
 
+  // modulation (clamped to Sarvam's accepted ranges; verify against current docs)
+  const clamp = (n, lo, hi, d) => { n = Number(n); return Number.isNaN(n) ? d : Math.max(lo, Math.min(hi, n)); };
+
   const body = {
     text: String(text).slice(0, 1500),
     target_language_code: lang || 'en-IN',
     speaker: spk,
     model: process.env.SARVAM_TTS_MODEL || 'bulbul:v2',
-    pitch: 0,
-    pace: 1.0,
-    loudness: 1.0,
+    pitch: clamp(pitch, -1, 1, 0),
+    pace: clamp(pace, 0.3, 3, 1.0),
+    loudness: clamp(loudness, 0.1, 3, 1.0),
     speech_sample_rate: 22050,
     enable_preprocessing: true
   };

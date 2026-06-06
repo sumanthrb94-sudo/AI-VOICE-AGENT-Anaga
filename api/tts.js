@@ -37,11 +37,12 @@ export default async function handler(req, res) {
   if (!text) return res.status(400).json({ error: 'text_required' });
   const lang = typeof body.lang === 'string' ? body.lang : 'en-IN';
   const speaker = typeof body.speaker === 'string' ? body.speaker : 'anushka';
+  const { pitch, pace, loudness } = body;   // optional modulation (clamped in synth)
 
   if (!ttsAvailable()) return res.status(503).json({ error: 'tts_unavailable' });
 
   try {
-    const { audio, mime } = await synth({ text, lang, speaker });
+    const { audio, mime } = await synth({ text, lang, speaker, pitch, pace, loudness });
     return res.status(200).json({ audio, mime });
   } catch {
     // Never leak provider details; client falls back to its on-device voice.

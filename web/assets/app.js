@@ -179,6 +179,24 @@ function setSelectedVoice(id) {
   try { localStorage.setItem("vaak_voice", id); } catch (e) {}
 }
 
+/* ---- voice modulation (set by the Voice Lab sliders) ----
+   pitch/pace are ±% offsets; loud is % (100 = normal). Applied to both the
+   browser voice and the Sarvam request. */
+let modulation = (function () {
+  try { return Object.assign({ pitch: 0, pace: 0, loud: 100 }, JSON.parse(localStorage.getItem("vaak_mod") || "{}")); }
+  catch (e) { return { pitch: 0, pace: 0, loud: 100 }; }
+})();
+function getModulation() { return modulation; }
+function setModulation(m) {
+  modulation = Object.assign({}, modulation, m);
+  try { localStorage.setItem("vaak_mod", JSON.stringify(modulation)); } catch (e) {}
+}
+const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
+/* hook the Voice Lab registers so the meter animates during browser TTS
+   (speechSynthesis output can't be captured by Web Audio) */
+let vlabOnSynthetic = null;   // (durationMs) => void
+
 const synth = window.speechSynthesis;
 let voices = [];
 function loadVoices() { voices = (synth && synth.getVoices()) || []; }
@@ -226,7 +244,16 @@ function voiceLabel(v) {
 const CloudTTS = (function () {
   let available = null;            // null=unknown, true, false
   let audio = null;
-  const cache = {};                // `${speaker}|${lang}|${text}` -> dataURL (repeat lines, e.g. greeting)
+  const cache = {};                // key -> dataURL (repeat lines, e.g. greeting)
+  const modKey = () => modulation.pitch + "," + modulation.pace + "," + modulation.loud;
+  function reqBody(text, lang, speaker) {
+    return JSON.stringify({
+      text, lang: lang || "en-IN", speaker,
+      pitch: modulation.pitch / 100,        // ±0.5 offset
+      pace: 1 + modulation.pace / 100,       // 0.5..1.5
+      loudness: modulation.loud / 100        // 0..2
+    });
+  }
   function probe() {
     return fetch("/api/tts").then(r => r.ok ? r.json() : { available: false })
       .then(d => { available = !!(d && d.available); return available; })
@@ -246,12 +273,9 @@ const CloudTTS = (function () {
   }
   function speak(text, lang, preset, opts, fallback) {
     const speaker = preset.sarvam || "anushka";
-    const key = speaker + "|" + (lang || "en-IN") + "|" + text;
+    const key = speaker + "|" + (lang || "en-IN") + "|" + modKey() + "|" + text;
     if (cache[key]) return play(cache[key], opts, fallback);
-    fetch("/api/tts", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, lang: lang || "en-IN", speaker })
-    })
+    fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker) })
       .then(r => { if (!r.ok) throw new Error("tts_" + r.status); return r.json(); })
       .then(d => {
         if (!d || !d.audio) throw new Error("no_audio");
@@ -261,7 +285,13 @@ const CloudTTS = (function () {
       })
       .catch(() => { available = false; fallback(); });   // degrade to browser voice
   }
-  return { probe, isOn, speak, stop };
+  /* fetch raw audio (used by the Voice Lab so it can analyse real frequencies) */
+  function fetchAudio(text, lang, preset) {
+    const speaker = preset.sarvam || "anushka";
+    return fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker) })
+      .then(r => { if (!r.ok) throw new Error("tts_" + r.status); return r.json(); });
+  }
+  return { probe, isOn, speak, stop, fetchAudio };
 })();
 
 /* browser Web Speech path (fallback / no key) */
@@ -271,8 +301,9 @@ function browserSpeak(text, lang, preset, opts) {
   const v = resolveVoiceForPreset(preset, lang);
   if (v) u.voice = v;
   u.lang = (v && v.lang) || lang;
-  u.pitch = preset.pitch;
-  u.rate = preset.rate;
+  u.pitch = clamp(preset.pitch * (1 + modulation.pitch / 100), 0, 2);
+  u.rate  = clamp(preset.rate  * (1 + modulation.pace  / 100), 0.1, 3);
+  u.volume = clamp(modulation.loud / 100, 0, 1);
   if (opts.onstart) u.onstart = opts.onstart;
   let done = false;
   const finish = () => { if (done) return; done = true; clearTimeout(wd); opts.onend && opts.onend(); };
@@ -282,6 +313,8 @@ function browserSpeak(text, lang, preset, opts) {
   synth.speak(u);
   const ms = Math.min(20000, 2600 + text.split(/\s+/).length * 380);
   const wd = setTimeout(finish, ms);
+  /* browser speechSynthesis can't be tapped by Web Audio — drive a synthetic meter */
+  if (vlabOnSynthetic) vlabOnSynthetic(Math.min(ms, 2600 + text.split(/\s+/).length * 360));
   return v;
 }
 
@@ -1160,4 +1193,211 @@ openBtn.addEventListener("click", () => { if (synth) synth.cancel(); CloudTTS.st
   });
 
   refreshStatus(); // reflect any previously-saved key on load
+})();
+
+/* ===================================================================
+   VOICE LAB — real-time frequency meter + voice modulator
+   - Spectrum analyzer (Web Audio AnalyserNode) reacts to your mic and to
+     Anaga's previewed voice (decoded Sarvam audio = real FFT; browser TTS
+     can't be tapped, so a synthetic meter animates instead).
+   - Pitch / Pace / Loudness sliders set the global `modulation`, applied to
+     both the browser voice and the Sarvam request.
+   =================================================================== */
+(function voiceLab() {
+  const canvas = document.getElementById("vlab-meter");
+  if (!canvas) return;
+  const cx = canvas.getContext("2d");
+  const micBtn = document.getElementById("vlab-mic");
+  const prevBtn = document.getElementById("vlab-preview");
+  const note = document.getElementById("vlab-note");
+  const sl = {
+    pitch: document.getElementById("vlab-pitch"),
+    pace: document.getElementById("vlab-pace"),
+    loud: document.getElementById("vlab-loud")
+  };
+  const val = {
+    pitch: document.getElementById("vlab-pitch-v"),
+    pace: document.getElementById("vlab-pace-v"),
+    loud: document.getElementById("vlab-loud-v")
+  };
+
+  let ctx = null, analyser = null, freq = null;
+  let micStream = null, micSrc = null, bufSrc = null;
+  let mode = "idle";                 // idle | mic | buffer | synthetic
+  let synthUntil = 0;
+  const BARS = 56;
+
+  function ensureCtx() {
+    if (ctx) return ctx;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    ctx = new AC();
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.8;
+    freq = new Uint8Array(analyser.frequencyBinCount);
+    return ctx;
+  }
+  function stopSources() {
+    if (bufSrc) { try { bufSrc.stop(); } catch (e) {} try { bufSrc.disconnect(); } catch (e) {} bufSrc = null; }
+    if (micSrc) { try { micSrc.disconnect(); } catch (e) {} micSrc = null; }
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  }
+
+  /* ---- drawing ---- */
+  function fit() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = canvas.clientWidth || 900;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(170 * dpr);
+  }
+  function sampleBars() {
+    analyser.getByteFrequencyData(freq);
+    const out = new Array(BARS);
+    const usable = Math.floor(freq.length * 0.7);     // ignore the empty top end
+    for (let i = 0; i < BARS; i++) {
+      const start = Math.floor((i / BARS) * usable);
+      const end = Math.floor(((i + 1) / BARS) * usable);
+      let sum = 0; for (let j = start; j < end; j++) sum += freq[j];
+      out[i] = (sum / Math.max(1, end - start)) / 255;
+    }
+    return out;
+  }
+  function syntheticBars(t) {
+    const out = new Array(BARS);
+    for (let i = 0; i < BARS; i++) {
+      const env = Math.sin((i / BARS) * Math.PI);     // louder in the middle
+      const wob = 0.5 + 0.5 * Math.sin(t * 0.012 + i * 0.5) * Math.sin(t * 0.03 + i);
+      out[i] = Math.max(0.04, env * (0.35 + 0.6 * wob) * (0.7 + 0.3 * Math.random()));
+    }
+    return out;
+  }
+  function idleBars(t) {
+    const out = new Array(BARS);
+    for (let i = 0; i < BARS; i++) out[i] = 0.06 + 0.05 * (0.5 + 0.5 * Math.sin(t * 0.002 + i * 0.4));
+    return out;
+  }
+  function drawBars(data) {
+    const w = canvas.width, h = canvas.height;
+    cx.clearRect(0, 0, w, h);
+    const gap = Math.max(2, w / BARS * 0.18);
+    const bw = (w - gap * (BARS - 1)) / BARS;
+    for (let i = 0; i < BARS; i++) {
+      const bh = Math.max(2, data[i] * h * 0.92);
+      const x = i * (bw + gap), y = (h - bh) / 2;     // center-mirrored
+      const g = cx.createLinearGradient(0, y, 0, y + bh);
+      g.addColorStop(0, "#ffb066");
+      g.addColorStop(0.5, "#ff8a3d");
+      g.addColorStop(1, "#6d8bff");
+      cx.fillStyle = g;
+      const r = Math.min(bw / 2, 4);
+      cx.beginPath();
+      cx.roundRect ? cx.roundRect(x, y, bw, bh, r) : cx.rect(x, y, bw, bh);
+      cx.fill();
+    }
+  }
+  function loop() {
+    requestAnimationFrame(loop);
+    const t = performance.now();
+    let data;
+    if ((mode === "mic" || mode === "buffer") && analyser) data = sampleBars();
+    else if (mode === "synthetic" && t < synthUntil) data = syntheticBars(t);
+    else { if (mode === "synthetic") mode = "idle"; data = idleBars(t); }
+    drawBars(data);
+  }
+
+  /* ---- mic ---- */
+  function micOn() {
+    const md = navigator.mediaDevices;
+    if (!md || !md.getUserMedia || (typeof window.isSecureContext !== "undefined" && !window.isSecureContext)) {
+      setNote("🎤 The mic needs a secure page (https or localhost)."); return;
+    }
+    if (!ensureCtx()) { setNote("Web Audio isn't supported in this browser."); return; }
+    md.getUserMedia({ audio: true }).then(stream => {
+      ctx.resume && ctx.resume();
+      stopSources();
+      micStream = stream;
+      micSrc = ctx.createMediaStreamSource(stream);
+      micSrc.connect(analyser);              // analyser only → no feedback
+      mode = "mic";
+      micBtn.classList.add("is-on");
+      micBtn.textContent = "■ Stop mic";
+      setNote("Listening to your mic — speak to see your frequencies.");
+    }).catch(() => setNote("🎤 Microphone permission was blocked."));
+  }
+  function micOff() {
+    stopSources();
+    mode = "idle";
+    micBtn.classList.remove("is-on");
+    micBtn.textContent = "🎤 Visualize my voice";
+  }
+
+  /* ---- preview Anaga (with current voice + modulation) ---- */
+  const b64ToBuf = b64 => { const bin = atob(b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; };
+  function previewLine() {
+    const pill = document.querySelector('#voice-demo .lang-pill.is-active');
+    let l = pill ? pill.dataset.lang : "en-IN"; if (l === "auto") l = "en-IN";
+    return { lang: l, text: "Hi, I'm Anaga, your AI voice agent. This is how I sound right now." };
+  }
+  function preview() {
+    if (mode === "mic") micOff();
+    const { lang, text } = previewLine();
+    const preset = currentVoice();
+    if (window.CloudTTS && CloudTTS.isOn() && ensureCtx()) {
+      setNote("Synthesizing with Sarvam " + preset.sarvam + "…");
+      CloudTTS.fetchAudio(text, lang, preset).then(d => {
+        if (!d || !d.audio) throw new Error("no audio");
+        ctx.resume && ctx.resume();
+        return ctx.decodeAudioData(b64ToBuf(d.audio));
+      }).then(buf => {
+        stopSources();
+        bufSrc = ctx.createBufferSource();
+        bufSrc.buffer = buf;
+        bufSrc.connect(ctx.destination);     // audible
+        bufSrc.connect(analyser);            // analysed
+        bufSrc.onended = () => { mode = "idle"; };
+        bufSrc.start();
+        mode = "buffer";
+        setNote("🟢 Sarvam " + preset.name + " (" + preset.sarvam + ") — real frequencies.");
+      }).catch(() => { setNote("Couldn't reach Sarvam — using the browser voice."); browserPreview(text, lang, preset); });
+    } else {
+      browserPreview(text, lang, preset);
+    }
+  }
+  function browserPreview(text, lang, preset) {
+    setNote("Browser voice " + preset.name + " — synthetic meter (speech audio can't be tapped).");
+    speakText(text, lang, { voice: preset });   // browserSpeak triggers vlabOnSynthetic
+  }
+
+  /* browser-TTS hook: animate a synthetic meter for the spoken duration */
+  vlabOnSynthetic = (ms) => { if (mode !== "mic") { mode = "synthetic"; synthUntil = performance.now() + (ms || 1500); } };
+
+  /* ---- sliders / modulation ---- */
+  function fmtSigned(n) { return (n > 0 ? "+" : "") + n + "%"; }
+  function syncLabels() {
+    val.pitch.textContent = fmtSigned(modulation.pitch);
+    val.pace.textContent = fmtSigned(modulation.pace);
+    val.loud.textContent = modulation.loud + "%";
+  }
+  function syncSliders() {
+    sl.pitch.value = modulation.pitch; sl.pace.value = modulation.pace; sl.loud.value = modulation.loud;
+    syncLabels();
+  }
+  sl.pitch.addEventListener("input", () => { setModulation({ pitch: +sl.pitch.value }); syncLabels(); });
+  sl.pace.addEventListener("input", () => { setModulation({ pace: +sl.pace.value }); syncLabels(); });
+  sl.loud.addEventListener("input", () => { setModulation({ loud: +sl.loud.value }); syncLabels(); });
+  document.getElementById("vlab-reset").addEventListener("click", () => {
+    setModulation({ pitch: 0, pace: 0, loud: 100 }); syncSliders(); setNote("Modulation reset.");
+  });
+
+  function setNote(t) { if (note) note.textContent = t; }
+
+  micBtn.addEventListener("click", () => { mode === "mic" ? micOff() : micOn(); });
+  prevBtn.addEventListener("click", preview);
+  window.addEventListener("resize", fit);
+
+  fit();
+  syncSliders();
+  setNote("Tap “Preview Anaga” to hear & see the current voice, or visualize your mic. Move the sliders to modulate.");
+  requestAnimationFrame(loop);
 })();
