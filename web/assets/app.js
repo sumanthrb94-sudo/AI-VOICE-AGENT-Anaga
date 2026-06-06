@@ -291,7 +291,19 @@ const CloudTTS = (function () {
     return fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker) })
       .then(r => { if (!r.ok) throw new Error("tts_" + r.status); return r.json(); });
   }
-  return { probe, isOn, speak, stop, fetchAudio };
+  /* warm the cache for the NEXT sentence while the current one plays — keeps
+     sentence-chunked delivery gap-free (and lowers time-to-first-audio). */
+  function prefetch(text, lang, preset) {
+    if (available !== true || !text) return;
+    const speaker = (preset && preset.sarvam) || "anushka";
+    const key = speaker + "|" + (lang || "en-IN") + "|" + modKey() + "|" + text;
+    if (cache[key]) return;
+    fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker) })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d && d.audio) cache[key] = "data:" + (d.mime || "audio/wav") + ";base64," + d.audio; })
+      .catch(() => {});
+  }
+  return { probe, isOn, speak, stop, fetchAudio, prefetch };
 })();
 
 /* browser Web Speech path (fallback / no key) */
@@ -472,14 +484,33 @@ if (demoEl) {
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const recog = SR ? new SR() : null;
-  if (recog) { recog.lang = "en-IN"; recog.interimResults = true; recog.maxAlternatives = 1; recog.continuous = false; }
+  if (recog) { recog.lang = "en-IN"; recog.interimResults = true; recog.maxAlternatives = 1; recog.continuous = true; }
+
+  /* ---- free-flow conversation config (Path A: browser-only, no new keys) ----
+     CONTINUOUS  keep the mic hot so the caller never has to tap "speak"
+     BARGE_IN    let the caller interrupt Anaga mid-sentence (she stops & listens)
+     ENDPOINT_MS silence after speech before the caller's turn is treated as done
+                 — lets them pause mid-thought without getting cut off */
+  const CONTINUOUS = true;
+  const BARGE_IN = true;
+  const ENDPOINT_MS = 900;
+  const BARGEIN_MIN_CHARS = 6;     // ignore shorter blips while Anaga speaks (echo guard)
 
   let ctx = {};
   let stepId = null;
   let listening = false;
-  let processing = false;
   let active = false;
   let interimEl = null;
+
+  /* free-flow state */
+  let phase = "idle";              // idle | listening | thinking | speaking
+  let micMuted = false;            // caller toggled the mic off
+  let wantListen = false;          // we want recognition running (drives auto-restart)
+  let speakToken = 0;              // invalidates a superseded line's TTS onend (barge-in)
+  let pendingEnd = null;           // end-info resolved after speech already started (streaming)
+  let endpointTimer = null;        // debounce timer for natural end-of-turn
+  let pendingUtter = "";           // accumulates the caller's words across short pauses
+  let currentSpokenNorm = "";      // Anaga's current line, normalized — used to filter echo
 
   /* full conversation transcript sent to the backend brain */
   let history = [];               // [{ role:"agent"|"user", text }]
@@ -607,6 +638,57 @@ if (demoEl) {
   }
   function clearNotice() { if (noticeEl) { noticeEl.hidden = true; noticeEl.textContent = ""; } }
 
+  /* ---- free-flow helpers (echo filter, barge-in, smart endpointing) ---- */
+  const norm = s => (s || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+
+  /* is this recognized text most likely Anaga's own voice echoing into the mic? */
+  function isLikelyEcho(candidate) {
+    if (!currentSpokenNorm) return false;
+    const words = norm(candidate).split(" ").filter(w => w.length > 2);
+    if (!words.length) return false;
+    const hit = words.filter(w => currentSpokenNorm.includes(w)).length;
+    return hit / words.length >= 0.6;     // mostly her own words → treat as echo
+  }
+
+  /* caller talks over Anaga → stop her immediately and start listening */
+  function bargeIn() {
+    speakToken++;                         // any in-flight TTS onend becomes a no-op
+    try { synth && synth.cancel(); } catch (e) {}
+    CloudTTS.stop();
+    currentSpokenNorm = "";
+    pendingEnd = null;
+    phase = "listening";
+    setStatus("Listening… (go ahead)", "is-listening");
+    setMic(true);
+  }
+
+  /* wait for a real pause before ending the caller's turn (natural endpointing) */
+  function armEndpoint() {
+    if (endpointTimer) clearTimeout(endpointTimer);
+    endpointTimer = setTimeout(() => {
+      endpointTimer = null;
+      const t = pendingUtter.trim();
+      pendingUtter = "";
+      if (t) handleUtterance(t);
+    }, ENDPOINT_MS);
+  }
+
+  /* split a line into sentences so cloud TTS can start on a short first chunk
+     (lower latency) and pause naturally between sentences. Avoids regex
+     look-behind for broad browser support. */
+  function splitSentences(text) {
+    const s = String(text);
+    const raw = s.match(/[^.?!।]+[.?!।]+|\S[^.?!।]*$/g) || [s];
+    const out = [];
+    for (let p of raw) {
+      p = p.trim();
+      if (!p) continue;
+      if (out.length && (p.length < 14 || out[out.length - 1].length < 14)) out[out.length - 1] += " " + p;
+      else out.push(p);
+    }
+    return out.length ? out : [s];
+  }
+
   /* ---- speaking & listening ---- */
   /* speak `display` (already in the caller's language) in `ttsLang`, record
      `histText` (English) for review/LLM, then continue or end the call. */
@@ -614,14 +696,45 @@ if (demoEl) {
     opts = opts || {};
     addBubble("anaga", display);
     history.push({ role: "agent", text: opts.histText || display });
-    setMic(false);
-    setStatus("Anaga is speaking…", "is-speaking");
-    speakText(display, opts.lang || CALL_LANG, {
-      onend: () => {
-        if (endInfo) return finishCall(endInfo);
-        (opts.onDone || startListening)();
+    phase = "speaking";
+    currentSpokenNorm = norm(display);
+    setStatus(BARGE_IN ? "Anaga is speaking… (you can jump in)" : "Anaga is speaking…", "is-speaking");
+
+    /* keep the mic hot during speech so the caller can barge in */
+    if (BARGE_IN && CONTINUOUS && micCapable && !micMuted) {
+      wantListen = true;
+      setMic(true);
+      if (!listening) { try { recog.start(); } catch (e) {} }
+    } else {
+      setMic(false);
+    }
+
+    const lang = opts.lang || CALL_LANG;
+    const chunks = splitSentences(display);
+    const myToken = ++speakToken;       // barge-in / a newer line bumps this → stale onends no-op
+    let i = 0;
+    const speakNext = () => {
+      if (myToken !== speakToken || !active) return;        // superseded
+      if (i >= chunks.length) {                             // whole line delivered
+        currentSpokenNorm = "";
+        const finalize = () => {
+          if (myToken !== speakToken || !active) return;
+          const ei = (typeof endInfo === "function") ? endInfo() : endInfo;
+          if (ei) return finishCall(ei);
+          return (opts.onDone || startListening)();
+        };
+        // streaming may resolve end-of-call a beat late — give it a short grace
+        if (typeof endInfo === "function" && endInfo() == null) { setTimeout(finalize, 500); return; }
+        return finalize();
       }
-    });
+      const piece = chunks[i++];
+      if (window.CloudTTS && CloudTTS.isOn() && chunks[i]) CloudTTS.prefetch(chunks[i], lang, opts.voice || currentVoice());
+      speakText(piece, lang, {
+        voice: opts.voice,
+        onend: () => { if (myToken === speakToken) speakNext(); }
+      });
+    };
+    speakNext();
   }
 
   /* Deliver an ENGLISH line from the brain — translate to the caller's
@@ -644,23 +757,32 @@ if (demoEl) {
     deliver(step.say(), endInfo);
   }
 
+  /* arm continuous listening (no "tap to speak"): keep the mic hot for the
+     caller's whole turn, ending it only after a natural pause (armEndpoint). */
   function startListening() {
     if (!active) return;
-    if (!micCapable) {                       // no recog or mic not granted → prompt typing instead
-      setStatus("Your turn — type your reply below ⌨️", null);
-      if (textInput) textInput.focus();
+    phase = "listening";
+    pendingUtter = "";
+    if (!micCapable || micMuted) {           // can't / shouldn't listen → invite typing
+      setStatus(micMuted ? "Muted — tap the mic to talk" : "Your turn — type your reply below ⌨️", null);
+      if (!micMuted && textInput) textInput.focus();
+      setMic(false);
       return;
     }
-    if (listening) return;
-    processing = false;
-    try { recog.start(); } catch (e) { /* already started */ }
+    wantListen = true;
+    setStatus("Listening… speak now", "is-listening");
+    setMic(true);
+    if (!listening) { try { recog.start(); } catch (e) { /* already started */ } }
   }
 
   function handleUtterance(text) {
-    if (processing || !active) return;
+    if (!active || phase === "thinking") return;
     text = (text || "").trim();
     if (!text) { startListening(); return; }
-    processing = true;
+    if (endpointTimer) { clearTimeout(endpointTimer); endpointTimer = null; }
+    pendingUtter = "";
+    phase = "thinking";
+    setMic(false);
     clearInterim();
     addBubble("you", text);                 // show what the caller actually said (their language)
     setStatus("Anaga is thinking…", null);
@@ -720,6 +842,42 @@ if (demoEl) {
   }
 
   function nextLiveTurn() {
+    pendingEnd = null;
+
+    /* BYOK: stream Gemini's tokens and start speaking the moment the line is
+       ready. The end/disposition arrive before the spoken audio finishes, so
+       speakLine resolves the hang-up via the () => pendingEnd callback. */
+    if (window.AnagaBrain && AnagaBrain.hasKey() && AnagaBrain.turnStream) {
+      let spoke = false;
+      AnagaBrain.turnStream({
+        history,
+        onText: (sayText) => {
+          if (!active || spoke || !sayText) return;
+          spoke = true;
+          if (brainMode !== "live") { brainMode = "live"; setBrain("live", "your key"); }
+          deliver(String(sayText), () => pendingEnd);
+        }
+      })
+        .then((d) => {
+          if (!active) return;
+          if (brainMode !== "live") { brainMode = "live"; setBrain("live", "your key"); }
+          if (d && d.disposition) lastDisposition = d.disposition;
+          const endInfo = (d && d.end)
+            ? { reason: d.disposition === "opt-out" ? "Opt-out recorded · call ended" : "Call ended",
+                optout: d.disposition === "opt-out" }
+            : null;
+          if (!spoke) deliver((d && d.say) ? String(d.say) : "Sorry, could you say that again?", endInfo);
+          else pendingEnd = endInfo;
+        })
+        .catch(() => {
+          if (!active) return;
+          if (brainMode !== "offline") { brainMode = "offline"; setBrain("offline"); }
+          nextOfflineTurn();
+        });
+      return;
+    }
+
+    /* server (/api) — non-streaming JSON turn */
     fetchTurn()
       .then(({ data, src }) => {
         if (!active) return;
@@ -741,31 +899,56 @@ if (demoEl) {
   }
 
   if (recog) {
-    recog.onstart = () => { listening = true; setMic(true); setStatus("Listening… speak now", "is-listening"); };
+    recog.onstart = () => {
+      listening = true;
+      if (phase === "listening") { setMic(true); setStatus("Listening… speak now", "is-listening"); }
+    };
     recog.onresult = e => {
       let interim = "", finalT = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
         if (r.isFinal) finalT += r[0].transcript; else interim += r[0].transcript;
       }
-      if (interim) showInterim(interim);
-      if (finalT) { try { recog.stop(); } catch (e) {} handleUtterance(finalT); }
+      const heard = (finalT || interim).trim();
+
+      /* barge-in: the caller starts talking while Anaga is speaking */
+      if (phase === "speaking") {
+        if (!BARGE_IN || heard.length < BARGEIN_MIN_CHARS || isLikelyEcho(heard)) return;
+        bargeIn();                          // stop her, switch to listening, then capture below
+      }
+      if (phase !== "listening") return;    // ignore stray results while thinking/idle
+
+      if (interim) { showInterim(pendingUtter ? pendingUtter + " " + interim : interim); armEndpoint(); }
+      if (finalT)  { pendingUtter = (pendingUtter ? pendingUtter + " " : "") + finalT.trim(); showInterim(pendingUtter); armEndpoint(); }
     };
     recog.onerror = ev => {
-      listening = false; setMic(false);
+      listening = false;
       if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
-        setStatus("Mic blocked — type your reply below", null);
-      } else if (ev.error === "no-speech") {
-        setStatus("Didn't catch that — tap the mic to try again", null);
+        /* pause the auto-restart loop, but keep the mic tappable — a tap is a
+           user gesture and can re-arm it (mobile often needs that). */
+        wantListen = false; setMic(false);
+        if (phase === "listening") { setStatus("Mic paused — tap the mic, or type below", null); if (textInput) textInput.focus(); }
+      }
+      /* no-speech / aborted / network are transient → onend auto-restarts */
+    };
+    recog.onend = () => {
+      listening = false;
+      if (active && wantListen && micCapable && !micMuted) {
+        try { recog.start(); }
+        catch (e) { setTimeout(() => { if (active && wantListen && !listening) { try { recog.start(); } catch (_) {} } }, 250); }
+      } else {
+        setMic(false);
       }
     };
-    recog.onend = () => { listening = false; setMic(false); };
   }
 
   function setMic(on) {
     micBtn.classList.toggle("is-on", on);
     micBtn.setAttribute("aria-pressed", String(on));
-    micBtn.querySelector(".call__mic-label").textContent = on ? "Listening… (tap to stop)" : "🎤 Tap to speak";
+    const label = micBtn.querySelector(".call__mic-label");
+    if (micMuted) label.textContent = "🔇 Muted — tap to talk";
+    else if (!micCapable) label.textContent = recog ? "🎤 Allow mic — or type below" : "🎤 Type your reply below";
+    else label.textContent = on ? "🎙️ Listening — tap to mute" : "🎤 Tap to mute";
   }
 
   /* ---- microphone permission ---- */
@@ -783,7 +966,7 @@ if (demoEl) {
       return Promise.resolve(false);
     }
     setStatus("Requesting microphone…", null);
-    return md.getUserMedia({ audio: true })
+    return md.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
       .then(stream => {
         stream.getTracks().forEach(t => t.stop()); // we only needed the permission
         clearNotice();
@@ -800,19 +983,19 @@ if (demoEl) {
   /* label the mic button so its state is always visible — but NEVER disable it,
      so a tap always does something (either listen, or explain + focus the text box). */
   function configureMicButton(granted) {
-    const label = micBtn.querySelector(".call__mic-label");
     micCapable = !!(recog && granted);
     micBtn.disabled = false;
     micBtn.classList.toggle("is-disabled", !micCapable);
-    label.textContent = micCapable
-      ? "🎤 Tap to speak"
-      : (recog ? "🎤 Allow mic — or tap to type" : "🎤 Voice unsupported — tap to type");
+    setMic(false);
   }
 
   /* ---- lifecycle ---- */
   function resetCall() {
-    ctx = {}; stepId = null; processing = false;
+    ctx = {}; stepId = null;
     history = []; lastDisposition = "qualifying"; brainMode = null;
+    phase = "idle"; micMuted = false; wantListen = false;
+    pendingUtter = ""; pendingEnd = null; currentSpokenNorm = "";
+    if (endpointTimer) { clearTimeout(endpointTimer); endpointTimer = null; }
     transcript.innerHTML = "";
     if (reviewEl) { reviewEl.hidden = true; reviewEl.innerHTML = ""; }
     if (endBtn) endBtn.textContent = "✕ End call";
@@ -942,7 +1125,9 @@ if (demoEl) {
   /* endInfo: { reason, optout } | string (legacy) */
   function finishCall(endInfo) {
     const reason = typeof endInfo === "string" ? endInfo : (endInfo && endInfo.reason) || "Call ended";
-    active = false; listening = false;
+    active = false; listening = false; wantListen = false; phase = "idle";
+    speakToken++;                       // invalidate any in-flight TTS onend
+    if (endpointTimer) { clearTimeout(endpointTimer); endpointTimer = null; }
     if (recog) try { recog.abort(); } catch (e) {}
     synth && synth.cancel();
     CloudTTS.stop();
@@ -1104,8 +1289,16 @@ if (demoEl) {
       if (textInput) textInput.focus();
       return;
     }
-    if (listening) { try { recog.stop(); } catch (e) {} }
-    else startListening();
+    /* continuous mic: tap to mute while listening; tap to (re)arm otherwise.
+       Tapping is a user gesture, so it also recovers a mic paused by an error. */
+    if (micMuted) { micMuted = false; startListening(); return; }
+    if (!wantListen || !listening) { startListening(); return; }
+    micMuted = true;
+    wantListen = false;
+    if (endpointTimer) { clearTimeout(endpointTimer); endpointTimer = null; }
+    try { recog.stop(); } catch (e) {}
+    setMic(false);
+    setStatus("Muted — tap the mic when you're ready", null);
   });
   textForm.addEventListener("submit", e => {
     e.preventDefault();

@@ -91,6 +91,94 @@
       disposition: d.disposition || "qualifying"
     };
   }
+
+  /* Pull a COMPLETED "say" string out of a partial JSON stream, or null if the
+     closing quote hasn't arrived yet. Lets us start speaking the line the moment
+     it's ready, before "end"/"disposition" finish generating. */
+  function extractSayComplete(raw) {
+    const m = raw.match(/"say"\s*:\s*"/);
+    if (!m) return null;
+    let out = "";
+    for (let i = m.index + m[0].length; i < raw.length; i++) {
+      const c = raw[i];
+      if (c === "\\") {
+        const n = raw[i + 1];
+        if (n === undefined) return null;                 // escape split across chunks
+        out += ({ n: "\n", t: "\t", r: "\r", '"': '"', "\\": "\\", "/": "/" }[n] || n);
+        i++; continue;
+      }
+      if (c === '"') return out;                          // closing quote → complete
+      out += c;
+    }
+    return null;                                          // not closed yet
+  }
+
+  /* Streaming turn (BYOK): reads Gemini's SSE tokens and fires onText(say) as
+     soon as the spoken line is complete, then resolves with the full turn.
+     Falls back to the non-streaming turn() on any hiccup. */
+  async function turnStream({ history, onText }) {
+    const key = getKey(), model = getModel();
+    if (!key) throw new Error("no key");
+    const { system, user } = turnPrompt(history);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${encodeURIComponent(key)}`;
+    const body = {
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: "user", parts: [{ text: user }] }],
+      generationConfig: { responseMimeType: "application/json", temperature: 0.6 }
+    };
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    let res;
+    try {
+      res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal });
+    } catch (e) { clearTimeout(timer); return turn({ history }); }
+    if (!res.ok || !res.body || !res.body.getReader) { clearTimeout(timer); return turn({ history }); }
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let raw = "", buf = "", sayEmitted = false;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+          if (!line || !line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          let j; try { j = JSON.parse(payload); } catch (_) { continue; }
+          const parts = (((j.candidates || [])[0] || {}).content || {}).parts || [];
+          for (const p of parts) if (p && typeof p.text === "string") raw += p.text;
+          if (!sayEmitted && onText) {
+            const s = extractSayComplete(raw);
+            if (s != null) { sayEmitted = true; try { onText(s); } catch (_) {} }
+          }
+        }
+      }
+    } catch (e) { /* stream broke — finalize with whatever we have */ }
+    finally { clearTimeout(timer); }
+
+    let parsed = null;
+    try {
+      parsed = JSON.parse(raw.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim());
+    } catch (_) {
+      const a = raw.indexOf("{"), b = raw.lastIndexOf("}");
+      if (a >= 0 && b > a) { try { parsed = JSON.parse(raw.slice(a, b + 1)); } catch (_) {} }
+    }
+    if (!parsed) {
+      const say = extractSayComplete(raw);
+      if (say != null) return { say, end: false, disposition: "qualifying" };
+      return turn({ history });
+    }
+    return {
+      say: String(parsed.say || extractSayComplete(raw) || "Sorry, could you say that again?"),
+      end: !!parsed.end,
+      disposition: parsed.disposition || "qualifying"
+    };
+  }
+
   async function summary({ history }) {
     const d = await gemini(summaryPrompt(history), getKey(), getModel());
     return {
@@ -110,5 +198,5 @@
     return true;
   }
 
-  window.AnagaBrain = { getKey, setKey, getModel, setModel, hasKey, turn, summary, test, DEFAULT_MODEL };
+  window.AnagaBrain = { getKey, setKey, getModel, setModel, hasKey, turn, turnStream, summary, test, DEFAULT_MODEL };
 })();
