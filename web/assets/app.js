@@ -494,7 +494,7 @@ if (demoEl) {
   const CONTINUOUS = true;
   const BARGE_IN = true;
   const ENDPOINT_MS = 900;
-  const BARGEIN_MIN_CHARS = 6;     // ignore shorter blips while Anaga speaks (echo guard)
+  const BARGEIN_MIN_CHARS = 3;     // ignore shorter blips while Anaga speaks (echo guard)
 
   let ctx = {};
   let stepId = null;
@@ -532,6 +532,7 @@ if (demoEl) {
   let translateOn = false;
   let autoMode = false;           // 🌐 detect the caller's language with on-device AI
   let notedLang = null;           // last language we announced a switch to (avoid spam)
+  let offlineNudged = false;      // showed the "connect a brain for real conversation" nudge once
 
   /* ---- intent helpers ---- */
   const has = (t, re) => re.test(t);
@@ -540,6 +541,19 @@ if (demoEl) {
   const optout      = t => has(t, /\b(not interested|do ?n'?t call|don'?t call|stop calling|remove me|unsubscribe|leave me alone|opt ?out|take me off|dnd)\b/i);
   const extractBudget = t => { const m = t.match(/(\d+(?:\.\d+)?)\s*(crore|cr|lakh|lac|l)\b/i); return m ? `${m[1]} ${/c/i.test(m[2]) ? "crore" : "lakh"}` : null; };
   const extractBHK    = t => { const m = t.match(/(\d)\s*[- ]?\s*bhk/i); if (m) return `${m[1]}BHK`; if (/studio/i.test(t)) return "studio"; if (/villa|penthouse|duplex/i.test(t)) return t.match(/villa|penthouse|duplex/i)[0].toLowerCase(); return null; };
+  const isQuestion = t => /\?|price|cost|rate|how much|kitna|kitne|where|location|located|kahan|possession|ready|hand ?over|loan|emi|finance|amenit|size|sq ?ft|square feet|carpet|builder|who|when|what|why/i.test(t);
+
+  /* offline-only mini knowledge base — lets the rule-engine Anaga actually
+     ANSWER common questions (honestly, generally) instead of ignoring them. */
+  const QA = [
+    { re: /price|cost|rate|how much|kitna|kitne|per sq|sq ?ft|square feet|carpet/i, a: "Good question — Skyline Villaments are broadly in the one-to-three crore range depending on the configuration. Our sales manager shares exact pricing on the site visit." },
+    { re: /where|location|located|area|kahan|address|connectivity|metro/i, a: "It's in Hyderabad, well-connected to the IT corridor. I'll WhatsApp you the exact location with a map." },
+    { re: /possession|ready|hand ?over|move ?in|when.*(complete|ready)/i, a: "I'll have our manager confirm the exact possession timeline for you on the visit." },
+    { re: /loan|emi|finance|bank|mortgage/i, a: "Yes, we work with leading banks for home loans and can help with the paperwork." },
+    { re: /amenit|gym|pool|clubhouse|park|facilit|security/i, a: "It's a premium gated community with modern amenities — I'll include the full list in the WhatsApp details." },
+    { re: /builder|developer|who.*(build|develop)|rera/i, a: "It's a reputed, RERA-registered project — our manager can share all the documentation on the visit." }
+  ];
+  const quickAnswer = t => { const m = QA.find(q => q.re.test(t)); return m ? m.a : null; };
 
   /* ---- the flow (mirrors the versioned flow JSON) ---- */
   const FLOW = {
@@ -623,11 +637,22 @@ if (demoEl) {
       brainEl.hidden = false;
       brainEl.className = "call__brain call__brain--offline";
       brainEl.innerHTML = `<i class="dot"></i> offline script`;
-      brainEl.title = "No backend reachable — running the on-device qualification script.";
+      brainEl.title = "No AI brain reachable — running the on-device qualification script.";
+      maybeNudgeOffline();
     } else {
       brainEl.hidden = true;
       brainEl.textContent = "";
     }
+  }
+
+  /* The offline rule engine can only follow a fixed flow — it can't truly
+     converse. If there's no AI brain connected, tell the user how to get one
+     (once per call). */
+  function maybeNudgeOffline() {
+    if (offlineNudged) return;
+    offlineNudged = true;
+    if (window.AnagaBrain && AnagaBrain.hasKey()) return;   // a brain is connected; no nudge
+    showNotice("💡 Right now I'm on a basic offline script (fixed questions only). Connect a Gemini key — 🔑 top-right — so I can truly converse, answer anything, and reply in your language.");
   }
 
   /* inline notice (mic blocked, etc.) */
@@ -737,14 +762,19 @@ if (demoEl) {
     speakNext();
   }
 
-  /* Deliver an ENGLISH line from the brain — translate to the caller's
-     language first when translation is on (the second of the two passes). */
-  function deliver(englishLine, endInfo) {
-    if (!translateOn) { speakLine(englishLine, endInfo); return; }
-    setStatus("Anaga is speaking…", "is-speaking");
-    TranslateKit.out(englishLine, callBase)
-      .then(tr => speakLine(tr || englishLine, endInfo, { lang: callLang, histText: englishLine }))
-      .catch(() => speakLine(englishLine, endInfo, { lang: callLang, histText: englishLine }));
+  /* Speak Anaga's next line. The LLM brain already replies in the caller's
+     language, so we speak it as-is. The offline FLOW emits English, so when the
+     call is in another language we translate it first (opts.translate). */
+  function deliver(line, endInfo, opts) {
+    opts = opts || {};
+    if (opts.translate && translateOn && callBase !== "en" && window.TranslateKit) {
+      setStatus("Anaga is speaking…", "is-speaking");
+      TranslateKit.out(line, callBase)
+        .then(tr => speakLine(tr || line, endInfo, { lang: callLang, histText: line }))
+        .catch(() => speakLine(line, endInfo, { lang: callLang, histText: line }));
+      return;
+    }
+    speakLine(line, endInfo, { lang: callLang });
   }
 
   /* offline path: speak a FLOW step (mirrors the versioned flow JSON) */
@@ -754,7 +784,7 @@ if (demoEl) {
     const endInfo = step.end
       ? { reason: step.optout ? "Opt-out recorded · call ended" : "Call ended", optout: !!step.optout }
       : null;
-    deliver(step.say(), endInfo);
+    deliver(step.say(), endInfo, { translate: true });
   }
 
   /* arm continuous listening (no "tap to speak"): keep the mic hot for the
@@ -787,16 +817,14 @@ if (demoEl) {
     addBubble("you", text);                 // show what the caller actually said (their language)
     setStatus("Anaga is thinking…", null);
 
-    /* translate the caller's speech to English (first pass) so the rule engine /
-       LLM see English; the displayed bubble keeps the original language. */
-    const advance = (englishText) => {
-      history.push({ role: "user", text: englishText });
-      if (brainMode === "offline") { setTimeout(nextOfflineTurn, 350); return; }
+    /* Push the caller's ACTUAL words (their language) — the LLM brain handles
+       language natively and replies in kind. Auto-detect adapts the speech
+       recognition + voice language in real time (the offline FLOW translates
+       on demand for its keyword matching). */
+    const advance = () => {
+      history.push({ role: "user", text });
+      if (brainMode === "offline") { setTimeout(nextOfflineTurn, 250); return; }
       nextLiveTurn();
-    };
-    const toEnglishThenAdvance = () => {
-      if (translateOn) TranslateKit.in(text, callBase).then(en => advance(en || text)).catch(() => advance(text));
-      else advance(text);
     };
 
     /* 🌐 auto-detect the caller's language with on-device AI, then adapt */
@@ -804,23 +832,42 @@ if (demoEl) {
       TranslateKit.detect(text)
         .then(base => {
           if (!active) return;
-          if (shouldSwitch(base, text)) applyLanguage(base).then(toEnglishThenAdvance);
-          else toEnglishThenAdvance();
+          if (shouldSwitch(base, text)) applyLanguage(base).then(advance);
+          else advance();
         })
-        .catch(toEnglishThenAdvance);
+        .catch(advance);
     } else {
-      toEnglishThenAdvance();
+      advance();
     }
   }
 
-  /* offline rule-engine turn (also the fallback used the moment the backend fails) */
+  /* offline rule-engine turn (also the fallback used the moment the backend fails).
+     The caller's words are in their own language; when the call isn't English we
+     translate them to English first so the keyword matching still works. */
   function nextOfflineTurn() {
     if (!active) return;
     const lastUser = [...history].reverse().find(m => m.role === "user");
     const said = lastUser ? lastUser.text : "";
-    const step = FLOW[stepId] || FLOW.greet;
-    const nextId = (step.next ? step.next(said, ctx) : null) || "callback";
-    sayStep(nextId);
+    const proceed = (matchText) => {
+      if (!active) return;
+      /* answer a question first (then re-ask the current step), instead of
+         blindly advancing — makes the offline script feel responsive. */
+      const qualifying = ["purpose", "budget", "config", "timeline", "offer"].includes(stepId);
+      const qa = quickAnswer(matchText);
+      if (qa && isQuestion(matchText) && qualifying && !optout(matchText)) {
+        const cur = FLOW[stepId];
+        deliver(qa + " " + (cur && cur.say ? cur.say() : ""), null, { translate: true });
+        return;
+      }
+      const step = FLOW[stepId] || FLOW.greet;
+      const nextId = (step.next ? step.next(matchText, ctx) : null) || "callback";
+      sayStep(nextId);
+    };
+    if (translateOn && callBase !== "en" && window.TranslateKit && said) {
+      TranslateKit.in(said, callBase).then(en => proceed(en || said)).catch(() => proceed(said));
+    } else {
+      proceed(said);
+    }
   }
 
   /* live backend turn: POST history → { say, end, disposition }.
@@ -993,7 +1040,7 @@ if (demoEl) {
   function resetCall() {
     ctx = {}; stepId = null;
     history = []; lastDisposition = "qualifying"; brainMode = null;
-    phase = "idle"; micMuted = false; wantListen = false;
+    phase = "idle"; micMuted = false; wantListen = false; offlineNudged = false;
     pendingUtter = ""; pendingEnd = null; currentSpokenNorm = "";
     if (endpointTimer) { clearTimeout(endpointTimer); endpointTimer = null; }
     transcript.innerHTML = "";
