@@ -14,7 +14,7 @@
 (function () {
   const KEY_LS   = "vaak_gemini_key";
   const MODEL_LS = "vaak_gemini_model";
-  const DEFAULT_MODEL = "gemini-2.0-flash";
+  const DEFAULT_MODEL = "gemini-2.5-flash";
 
   const getKey   = () => (localStorage.getItem(KEY_LS) || "").trim();
   const getModel = () => (localStorage.getItem(MODEL_LS) || "").trim() || DEFAULT_MODEL;

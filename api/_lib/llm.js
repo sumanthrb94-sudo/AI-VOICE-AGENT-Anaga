@@ -60,7 +60,7 @@ async function generateGemini({ system, user, json }) {
     throw new Error('GEMINI_API_KEY is not configured');
   }
 
-  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 

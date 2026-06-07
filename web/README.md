@@ -64,7 +64,7 @@ actually listens and responds:
    for testing without deploying. ⚠️ Don't use this on a public site — the key would be reachable
    by visitors of that browser; use the server option for production.
 2. **Server (production):** set `GEMINI_API_KEY` in Vercel (Settings → Environment Variables).
-   Optional: `LLM_PROVIDER` (default `gemini`), `GEMINI_MODEL` (default `gemini-2.0-flash`). Read
+   Optional: `LLM_PROVIDER` (default `gemini`), `GEMINI_MODEL` (default `gemini-2.5-flash`). Read
    **server-side only** in `/api`; never reaches the browser.
 
 Without either, the demo runs on the on-device rule-engine fallback. During a call the header tag
