@@ -13,23 +13,17 @@
 // POST that fails soft (503, no key/URL/stack ever leaked). Uses the global
 // `fetch` from Node 18+ (Vercel) — no npm dependencies.
 //
-// ── How the ephemeral token is minted (verified against Google docs, 2026) ──
-// Ephemeral tokens are created via the v1alpha REST method `auth_tokens.create`:
-//
+// ── How the ephemeral token is minted (verified LIVE against the API, 2026) ──
 //   POST https://generativelanguage.googleapis.com/v1alpha/auth_tokens?key=GEMINI_API_KEY
-//   Content-Type: application/json
-//   {
-//     "uses": 1,                                  // single Live connection
-//     "expireTime": "<RFC3339, ~30 min out>",     // window to USE the connection
-//     "newSessionExpireTime": "<RFC3339, ~2 min>",// window to START the session
-//     "liveConnectConstraints": {                 // lock the token to one model
-//       "model": "models/<live-model>",
-//       "config": { "responseModalities": ["AUDIO"] }
-//     }
-//   }
-//
+//   { "uses": 1, "expireTime": "<RFC3339 ~30m>", "newSessionExpireTime": "<RFC3339 ~2m>" }
 // Response: { "name": "<ephemeral-token>", "expireTime": "...", ... }
-// The browser then connects with: ...?access_token=<name>  (only on v1alpha).
+//
+// NOTE: this REST surface REJECTS a `liveConnectConstraints` field (HTTP 400), so
+// the token is minted UNconstrained. The browser supplies the model + AUDIO config
+// in the WS `setup` message and connects via the v1alpha *Constrained* method:
+//   wss://…/v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=<name>
+// (The plain BidiGenerateContent method rejects ephemeral tokens — it needs an API
+// key — so the Constrained method is required; confirmed by an end-to-end test.)
 // Docs: https://ai.google.dev/gemini-api/docs/ephemeral-tokens
 //       https://ai.google.dev/gemini-api/docs/live-api
 
@@ -53,11 +47,6 @@ function liveModel() {
 // Capability gate — identical contract to api/_lib/tts.js#ttsAvailable.
 function liveAvailable() {
   return !!process.env.GEMINI_API_KEY;
-}
-
-// The model field on the WS setup / token constraint wants the "models/" prefix.
-function modelResource(model) {
-  return /^models\//.test(model) ? model : `models/${model}`;
 }
 
 export default async function handler(req, res) {
@@ -91,18 +80,13 @@ export default async function handler(req, res) {
   // Window to START the session with this token (kept short; Google default ~1 min).
   const newSessionMs = now + 2 * 60 * 1000;
 
-  // Lock the token to AUDIO output on this one model so a leaked token can't be
-  // repurposed (defense in depth — the token is short-lived and single-use too).
+  // Minimal mint — the v1alpha REST surface rejects a liveConnectConstraints
+  // field (verified). The token is single-use, short-lived, and Live-only; the
+  // browser sends the model + AUDIO config in the WS `setup` message.
   const body = {
     uses: 1,
     expireTime: new Date(expireMs).toISOString(),
     newSessionExpireTime: new Date(newSessionMs).toISOString(),
-    liveConnectConstraints: {
-      model: modelResource(model),
-      config: {
-        responseModalities: ['AUDIO'],
-      },
-    },
   };
 
   const controller = new AbortController();
