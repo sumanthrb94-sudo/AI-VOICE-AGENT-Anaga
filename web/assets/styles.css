@@ -464,7 +464,7 @@ body {
   display: flex; flex-direction: column; overflow: hidden; animation: rise .3s var(--ease);
 }
 .call__top { display: flex; align-items: center; gap: 14px; padding: 20px 22px; border-bottom: 1px solid var(--line-soft); }
-.call__id { display: flex; align-items: center; gap: 14px; }
+.call__id { display: flex; align-items: center; gap: 14px; flex: 1 1 auto; min-width: 0; }
 .call__avatar {
   position: relative; width: 52px; height: 52px; border-radius: 50%; flex-shrink: 0;
   display: grid; place-items: center;
@@ -492,6 +492,7 @@ body {
   margin-left: auto; background: rgba(255,77,79,.12); color: #ff7a7c;
   border: 1px solid rgba(255,77,79,.3); border-radius: 100px; padding: 9px 16px;
   font-weight: 600; font-size: 13px; cursor: pointer; transition: .2s var(--ease);
+  flex-shrink: 0;            /* never let the header clip the End / Close button */
 }
 .call__end:hover { background: rgba(255,77,79,.2); }
 
@@ -616,6 +617,20 @@ body {
 .call__textform button:hover { background: var(--saffron-2); }
 
 @media (max-width: 720px) { .call__panel { height: 90vh; width: 96vw; } }
+
+/* Mobile: the End / Close button must always be visible — declutter the call
+   header (hide the voice chip, compact the brain tag, truncate the name) so the
+   row can't overflow and clip the button. */
+@media (max-width: 560px) {
+  .call__top { padding: 14px 14px; gap: 10px; }
+  .call__avatar { width: 42px; height: 42px; }
+  .call__who { min-width: 0; }
+  .call__who b { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .call__status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .call__voice { display: none; }                 /* voice is chosen on the home screen */
+  .call__brain { max-width: 30vw; overflow: hidden; padding: 4px 9px; font-size: 10px; }
+  .call__end { flex-shrink: 0; margin-left: 8px; padding: 9px 14px; font-size: 13px; }
+}
 
 /* mic button muted state — still clickable (a tap explains + focuses the text box) */
 .call__mic.is-disabled {
