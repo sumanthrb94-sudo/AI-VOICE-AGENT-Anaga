@@ -218,13 +218,27 @@
 
     const onFrames = function (float32) {
       if (!s.alive || s.muted) return;
-      // resample this device's rate down to 16 kHz, then buffer + send. Send a
-      // CONTINUOUS stream (no client-side gating) so Gemini's own voice-activity
-      // detection hears the silence after you stop and replies promptly. Noise is
-      // handled by getUserMedia noiseSuppression + LOW server start-sensitivity.
       const down = resample(float32, ctx.sampleRate, IN_RATE);
-      s.micBuf.push(down);
-      s.micBufLen += down.length;
+      if (s.gate) {
+        // MANUAL turn-taking: a client-side VAD marks activityStart / activityEnd
+        // explicitly. Server auto-VAD on streamed mic audio was unreliable — it
+        // failed to detect end-of-turn, causing the 30-40s reply gaps. With manual
+        // signals the model replies ~1s after the caller stops (verified).
+        const out = s.gate.feed(down);            // frames while speaking (onset prefix + hangover), else empty
+        if (out.length) {
+          if (!s.userActive) { s.userActive = true; s.actStart = Date.now(); sendJSON(s, { realtimeInput: { activityStart: {} } }); }
+          s.micBuf.push(out); s.micBufLen += out.length;
+          if (Date.now() - s.actStart > 20000) {  // safety: never let one turn hang open
+            s.userActive = false; flushMic(s); sendJSON(s, { realtimeInput: { activityEnd: {} } });
+          }
+        } else if (s.userActive) {                // gate went quiet past its hangover → end of turn
+          s.userActive = false;
+          flushMic(s);
+          sendJSON(s, { realtimeInput: { activityEnd: {} } });
+        }
+      } else {
+        s.micBuf.push(down); s.micBufLen += down.length;
+      }
       const need = Math.round(IN_RATE * SEND_MS / 1000);
       while (s.micBufLen >= need) {
         const chunk = new Float32Array(need);
@@ -286,6 +300,22 @@
         realtimeInput: { audio: { data: b64, mimeType: 'audio/pcm;rate=' + IN_RATE } }
       }));
     } catch (_) { /* socket race — ignore, next chunk will retry */ }
+  }
+
+  // Send any control/realtimeInput JSON (activityStart / activityEnd).
+  function sendJSON(s, obj) {
+    if (!s.alive || !s.ws || s.ws.readyState !== WebSocket.OPEN || !s.setupDone) return;
+    try { s.ws.send(JSON.stringify(obj)); } catch (_) {}
+  }
+  // Flush any buffered (< SEND_MS) mic samples — used right before activityEnd so
+  // the final partial chunk of the caller's turn is delivered.
+  function flushMic(s) {
+    if (s.micBufLen <= 0) return;
+    const chunk = new Float32Array(s.micBufLen);
+    let off = 0;
+    while (s.micBuf.length) { const h = s.micBuf.shift(); chunk.set(h, off); off += h.length; }
+    s.micBufLen = 0;
+    sendAudioChunk(s, floatToB64PCM16(chunk));
   }
 
   /* ====================== gap-free playback ======================
@@ -427,17 +457,21 @@
         systemInstruction: { parts: [{ text: systemPrompt }] },
         inputAudioTranscription: {},
         outputAudioTranscription: {},
-        // Automatic VAD is on by default; the server emits `interrupted` when the
-        // caller talks over Anaga, which we honor in handleServerMessage (barge-in).
-        realtimeInputConfig: {
-          automaticActivityDetection: {
-            startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',   // ignore background noise — only clear, deliberate speech interrupts
-            endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
-            prefixPaddingMs: 60,
-            silenceDurationMs: 350                                // reply ~0.35s after the caller stops (snappier turn-taking)
-          },
-          activityHandling: 'START_OF_ACTIVITY_INTERRUPTS'
-        }
+        // Turn detection: when a client-side VAD is available we DISABLE the
+        // server's automatic detection and drive turns with explicit
+        // activityStart / activityEnd (reliable, ~1s replies). Server auto-VAD on
+        // streamed mic audio failed to end turns (the 30-40s gaps). Without a
+        // client VAD we fall back to server auto-VAD (best-effort).
+        realtimeInputConfig: (window.NoiseGate && window.NoiseGate.create)
+          ? { automaticActivityDetection: { disabled: true } }
+          : {
+              automaticActivityDetection: {
+                startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
+                endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+                silenceDurationMs: 500
+              },
+              activityHandling: 'START_OF_ACTIVITY_INTERRUPTS'
+            }
       }
     };
   }
@@ -485,6 +519,11 @@
       inCtx: new AC({ sampleRate: IN_RATE }),    // hint; browser may ignore & we resample
       micStream: null, micSource: null, micWorklet: null, micProc: null, micSink: null,
       micBuf: [], micBufLen: 0,
+      // client-side VAD for manual turn-taking (activityStart/activityEnd)
+      gate: (window.NoiseGate && window.NoiseGate.create)
+        ? window.NoiseGate.create({ sampleRate: IN_RATE, hangoverMs: 600, prefixMs: 200 })
+        : null,
+      userActive: false,
       // playback
       outCtx: new AC({ sampleRate: OUT_RATE }),
       sources: [], playHead: 0,
@@ -629,6 +668,7 @@
     try { if (s.micSource) s.micSource.disconnect(); } catch (_) {}
     s.micWorklet = s.micProc = s.micSink = s.micSource = null;
     s.micBuf = []; s.micBufLen = 0;
+    s.gate = null; s.userActive = false;
 
     // mic tracks
     try { if (s.micStream) s.micStream.getTracks().forEach(function (t) { try { t.stop(); } catch (_) {} }); } catch (_) {}
