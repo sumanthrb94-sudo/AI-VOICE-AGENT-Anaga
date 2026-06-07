@@ -407,9 +407,9 @@
         // caller talks over Anaga, which we honor in handleServerMessage (barge-in).
         realtimeInputConfig: {
           automaticActivityDetection: {
-            startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH',  // snappy barge-in / auto-pause
+            startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',   // ignore background noise — only clear, deliberate speech interrupts
             endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
-            prefixPaddingMs: 20,
+            prefixPaddingMs: 60,
             silenceDurationMs: 500                                // reply ~0.5s after the caller stops
           },
           activityHandling: 'START_OF_ACTIVITY_INTERRUPTS'
