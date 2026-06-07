@@ -1361,10 +1361,11 @@ if (demoEl) {
     notedLang = null;
     if (recog) recog.lang = callLang;
 
-    /* Prefer the REAL-TIME Gemini Live engine when available: true full-duplex,
-       natively multilingual (Telugu/Hindi/English), and 0 Sarvam credits. Falls
-       back automatically to the turn-based call if it can't start. */
-    if (window.LiveCall && LiveCall.isAvailable()) { startLiveCall(); return; }
+    /* Prefer the REAL-TIME Gemini Live engine (true full-duplex, sub-second,
+       natively multilingual, 0 Sarvam credits). Try it unless the probe has
+       CONFIRMED it can't run — this avoids a first-click race where the probe
+       hasn't resolved yet. startLiveCall() falls back to turn-based on any error. */
+    if (window.LiveCall && LiveCall.isUnavailable && !LiveCall.isUnavailable()) { startLiveCall(); return; }
     startTurnBasedCall();
   }
 

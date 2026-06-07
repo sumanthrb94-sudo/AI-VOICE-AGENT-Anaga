@@ -59,8 +59,8 @@
     "of Equality, ~30-45 min to the Financial District. Residential: low-density biophilic",
     "'villaments' with big balconies and forest views, and a 22,000 sft clubhouse (infinity pool,",
     "gym, yoga, sauna, library, co-working, banquet). Commercial: a G+4 block (retail, co-working,",
-    "healthcare, business-stay). Modcon also has a SEPARATE project 'Agartha' (agartha.in) — only",
-    "mention it if asked about other projects. Contact +91 95348 69999, info@modconbuilders.com.",
+    "healthcare, business-stay). Modcon also has another project, 'Agartha' (agartha.in) — you can",
+    "mention it as an alternative; for its details point to agartha.in. Contact +91 95348 69999, info@modconbuilders.com.",
     "For exact prices, sizes, floor plans, RERA or possession you don't have, offer modcon.in /",
     "WhatsApp / the site visit — never invent specifics.",
     "LANGUAGE: speak in the SAME language the caller uses — English, Hindi, or Telugu, or natural",
@@ -175,6 +175,9 @@
 
   /** LiveCall.isAvailable() -> boolean (only true once probe() confirmed it). */
   function isAvailable() { return available === true; }
+  /** LiveCall.isUnavailable() -> true only once probe() CONFIRMED it can't run.
+      Lets the caller optimistically try Live before the probe resolves. */
+  function isUnavailable() { return available === false; }
 
   /* ====================== mic capture ====================== */
 
@@ -333,6 +336,16 @@
     if (data.setupComplete) {
       s.setupDone = true;
       setStatus(s, 'listening');
+      // Outbound feel + instant first response: have Anaga open the call right
+      // away instead of waiting for the caller to speak first.
+      if (s.greetOnConnect && s.ws && s.ws.readyState === WebSocket.OPEN) {
+        try {
+          s.ws.send(JSON.stringify({ clientContent: {
+            turns: [{ role: 'user', parts: [{ text: 'The call just connected. Greet the caller now with your short opening line.' }] }],
+            turnComplete: true
+          } }));
+        } catch (_) {}
+      }
       return;
     }
 
@@ -393,7 +406,12 @@
         // Automatic VAD is on by default; the server emits `interrupted` when the
         // caller talks over Anaga, which we honor in handleServerMessage (barge-in).
         realtimeInputConfig: {
-          automaticActivityDetection: {},
+          automaticActivityDetection: {
+            startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH',  // snappy barge-in / auto-pause
+            endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+            prefixPaddingMs: 20,
+            silenceDurationMs: 500                                // reply ~0.5s after the caller stops
+          },
           activityHandling: 'START_OF_ACTIVITY_INTERRUPTS'
         }
       }
@@ -433,6 +451,7 @@
       setupDone: false,
       speaking: false,
       lastState: null,
+      greetOnConnect: opts.greetOnConnect !== false,
       cb: {
         onStatus: opts.onStatus, onAgentText: opts.onAgentText, onUserText: opts.onUserText,
         onError: opts.onError, onClose: opts.onClose
@@ -600,6 +619,7 @@
   window.LiveCall = {
     probe: probe,
     isAvailable: isAvailable,
+    isUnavailable: isUnavailable,
     start: start,
     stop: stop,
     mute: mute,
