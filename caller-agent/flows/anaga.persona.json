@@ -4,11 +4,37 @@
   "version": "1.0.0",
   "displayName": "Anaga",
   "meaning": "Anaga — a graceful, faultless voice; the named persona of Modcon Builders' caller agent.",
-  "company": { "name": "Modcon Builders", "website": "agartha.in" },
-  "projects": [
-    { "name": "Agartha", "type": "residential", "website": "agartha.in", "primary": true, "_note": "Flagship project — add location, configurations, price range, amenities, possession, RERA, etc." },
-    { "name": "Syl", "_note": "Modcon Builders project — details to be added." }
-  ],
+  "company": {
+    "name": "Modcon Builders",
+    "tagline": "Building Beyond Expectations",
+    "websites": ["modcon.in", "agartha.in", "thegreenteam.in", "modconbuilders.com"],
+    "phone": "+91 95348 69999",
+    "email": "info@modconbuilders.com",
+    "office": "The District, 8th floor, Financial District, Hyderabad, Telangana"
+  },
+  "project": {
+    "name": "Agartha",
+    "alsoKnownAs": "Modcon One",
+    "type": "integrated (residential + commercial)",
+    "size": "~4.5 acres",
+    "location": "Tukkuguda, South Hyderabad — on the 200-ft Srisailam Highway, just off ORR Exit-14",
+    "connectivity": {
+      "5min": ["Fab City", "Pedda Golconda", "Manchester Global School"],
+      "10-15min": ["RGI / Shamshabad Airport", "Aga Khan Academy", "Statue of Equality", "Wonderla"],
+      "30-45min": ["Financial District", "Gachibowli", "Kondapur", "Jubilee Hills", "Apollo Hospital", "Ramoji Film City"]
+    },
+    "residential": {
+      "name": "SYL Residences",
+      "style": "low-density biophilic villaments; large private balconies; forest & sunrise views",
+      "clubhouse": "22,000 sft G+2 — infinity pool, gym with Pilates, yoga pavilion, steam & sauna, library, co-working, banquet & guest rooms, indoor/outdoor play",
+      "specs": "RCC structure (wind/seismic), double-charged vitrified flooring, GROHE fittings, EV charging, 4 high-speed lifts + fire lift, 100% DG backup, CCTV/access control, biophilic landscaping"
+    },
+    "commercial": {
+      "size": "~1.5 acres, G+4, prime 200-ft highway frontage",
+      "mix": "G+1 retail/F&B/banking; 2nd floor co-working & startups; 3rd healthcare & diagnostics; 4th-5th business suites & hospitality (business-stay)"
+    },
+    "_todo": "Add exact unit configurations/sizes, price range, RERA number, and possession date when available."
+  },
   "persona": {
     "gender": "female",
     "tone": ["warm", "confident", "respectful", "unhurried"],

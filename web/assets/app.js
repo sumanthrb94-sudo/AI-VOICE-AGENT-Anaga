@@ -649,17 +649,18 @@ if (demoEl) {
   const optout      = t => has(t, /\b(not interested|do ?n'?t call|don'?t call|stop calling|remove me|unsubscribe|leave me alone|opt ?out|take me off|dnd)\b/i);
   const extractBudget = t => { const m = t.match(/(\d+(?:\.\d+)?)\s*(crore|cr|lakh|lac|l)\b/i); return m ? `${m[1]} ${/c/i.test(m[2]) ? "crore" : "lakh"}` : null; };
   const extractBHK    = t => { const m = t.match(/(\d)\s*[- ]?\s*bhk/i); if (m) return `${m[1]}BHK`; if (/studio/i.test(t)) return "studio"; if (/villa|penthouse|duplex/i.test(t)) return t.match(/villa|penthouse|duplex/i)[0].toLowerCase(); return null; };
-  const isQuestion = t => /\?|price|cost|rate|how much|kitna|kitne|where|location|located|kahan|possession|ready|hand ?over|loan|emi|finance|amenit|size|sq ?ft|square feet|carpet|builder|who|when|what|why/i.test(t);
+  const isQuestion = t => /\?|price|cost|rate|how much|kitna|kitne|where|location|located|kahan|airport|metro|possession|ready|hand ?over|loan|emi|finance|amenit|club|pool|gym|size|sq ?ft|square feet|carpet|commercial|shop|retail|office|builder|developer|modcon|who|when|what|why/i.test(t);
 
   /* offline-only mini knowledge base — lets the rule-engine Anaga actually
      ANSWER common questions (honestly, generally) instead of ignoring them. */
   const QA = [
     { re: /price|cost|rate|how much|kitna|kitne|per sq|sq ?ft|square feet|carpet/i, a: "Pricing depends on the configuration — I'll have our team share the exact price sheet, and you can see details at agartha.in." },
-    { re: /where|location|located|area|kahan|address|connectivity|metro/i, a: "I'll WhatsApp you the exact location with a map — and the full project details are at agartha.in." },
-    { re: /possession|ready|hand ?over|move ?in|when.*(complete|ready)/i, a: "I'll have our manager confirm the exact possession timeline for you on the visit." },
+    { re: /where|location|located|area|kahan|address|connectivity|metro|airport/i, a: "Agartha is in Tukkuguda, South Hyderabad — on the 200-foot Srisailam Highway, just off ORR Exit 14, about 10 to 15 minutes from the airport. Full map and details are at agartha.in." },
+    { re: /possession|ready|hand ?over|move ?in|when.*(complete|ready)/i, a: "I'll have our manager confirm the exact possession timeline for you — you'll also find it on agartha.in." },
     { re: /loan|emi|finance|bank|mortgage/i, a: "Yes, we work with leading banks for home loans and can help with the paperwork." },
-    { re: /amenit|gym|pool|clubhouse|park|facilit|security/i, a: "Agartha is a premium gated community with modern amenities — the full list is at agartha.in and in the WhatsApp details." },
-    { re: /builder|developer|who.*(build|develop)|rera/i, a: "Agartha is by Modcon Builders, a reputed developer — you can see our credentials and the project at agartha.in." }
+    { re: /amenit|gym|pool|clubhouse|club|park|facilit|security/i, a: "There's a 22,000 square-foot clubhouse — infinity pool, a gym with Pilates, yoga, steam and sauna, a library, co-working spaces and a banquet. The homes are low-density, biophilic villaments with large balconies. Full list at agartha.in." },
+    { re: /commercial|shop|retail|office|business|rent/i, a: "Agartha also has a G plus 4 commercial hub — retail and dining, co-working and startups, healthcare, and business-stay suites. I can have our team share commercial options too." },
+    { re: /builder|developer|who.*(build|develop)|rera|modcon/i, a: "Agartha is by Modcon Builders — Building Beyond Expectations. You can see our credentials and the project at agartha.in." }
   ];
   const quickAnswer = t => { const m = QA.find(q => q.re.test(t)); return m ? m.a : null; };
 
