@@ -89,6 +89,7 @@
   let probedModel = null;        // model reported by the GET probe
 
   let session = null;            // the current live session object (see start())
+  let warmToken = null;          // pre-minted ephemeral token (see prewarm()) — shaves connect time
 
   /* ============================ utilities ============================ */
 
@@ -178,6 +179,18 @@
   /** LiveCall.isUnavailable() -> true only once probe() CONFIRMED it can't run.
       Lets the caller optimistically try Live before the probe resolves. */
   function isUnavailable() { return available === false; }
+
+  /** LiveCall.prewarm() — pre-mint an ephemeral token (e.g. on the call button's
+      pointerdown) so the click→connect path skips the mint round-trip. Fail-soft;
+      single-use and discarded if older than ~90s (inside its start window). */
+  function prewarm() {
+    if (!supportsLive()) return;
+    if (warmToken && (Date.now() - warmToken.mintedAt) < 90000) return;   // still fresh
+    fetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.token) warmToken = { token: d.token, model: d.model, expiresAt: d.expiresAt, mintedAt: Date.now() }; })
+      .catch(function () {});
+  }
 
   /* ====================== mic capture ====================== */
 
@@ -400,7 +413,11 @@
       setup: {
         model: modelResource(model),
         generationConfig: {
-          responseModalities: ['AUDIO']
+          responseModalities: ['AUDIO'],
+          // 3.1 Flash Live: keep "thinking" minimal so she speaks immediately
+          // (the pre-speech reasoning was the main "analysing" delay). Verified
+          // ~467ms first-audio vs ~1s with the old thinking native-audio model.
+          thinkingConfig: { thinkingLevel: 'minimal' }
         },
         systemInstruction: { parts: [{ text: systemPrompt }] },
         inputAudioTranscription: {},
@@ -412,7 +429,7 @@
             startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',   // ignore background noise — only clear, deliberate speech interrupts
             endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
             prefixPaddingMs: 60,
-            silenceDurationMs: 500                                // reply ~0.5s after the caller stops
+            silenceDurationMs: 350                                // reply ~0.35s after the caller stops (snappier turn-taking)
           },
           activityHandling: 'START_OF_ACTIVITY_INTERRUPTS'
         }
@@ -484,14 +501,22 @@
 
     // 1) mint an ephemeral token (server-side key never reaches us), 2) grab the
     // mic, in parallel; then 3) open the WS and 4) start capture.
-    const tokenP = fetch(TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lang: opts.lang || '' })
-    }).then(function (r) {
-      if (!r.ok) throw new Error('token_' + r.status);
-      return r.json();
-    });
+    // Use a freshly pre-minted token if we have one (pointerdown pre-warm) so the
+    // mint round-trip is off the click→first-audio path; otherwise mint now.
+    var tokenP;
+    if (warmToken && (Date.now() - warmToken.mintedAt) < 90000) {
+      var w = warmToken; warmToken = null;                 // single-use
+      tokenP = Promise.resolve({ token: w.token, model: w.model, expiresAt: w.expiresAt });
+    } else {
+      tokenP = fetch(TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lang: opts.lang || '' })
+      }).then(function (r) {
+        if (!r.ok) throw new Error('token_' + r.status);
+        return r.json();
+      });
+    }
 
     const micP = navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -624,6 +649,7 @@
     probe: probe,
     isAvailable: isAvailable,
     isUnavailable: isUnavailable,
+    prewarm: prewarm,
     start: start,
     stop: stop,
     mute: mute,

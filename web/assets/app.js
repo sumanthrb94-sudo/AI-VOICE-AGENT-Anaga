@@ -1639,6 +1639,9 @@ if (demoEl) {
     document.body.style.overflow = "";
   }
 
+  /* pre-warm the live engine (pre-mint the ephemeral token) the instant the call
+     button is pressed, so the click→first-audio path skips the mint round-trip. */
+  startBtn.addEventListener("pointerdown", () => { if (window.LiveCall && LiveCall.prewarm) LiveCall.prewarm(); }, { passive: true });
   startBtn.addEventListener("click", startCall);
   /* End call: hang up and SHOW the review (overlay stays). If the call already
      ended (review on screen), the same button dismisses the overlay. */
