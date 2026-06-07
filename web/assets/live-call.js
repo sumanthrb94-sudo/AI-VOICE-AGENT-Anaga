@@ -206,9 +206,11 @@
       if (!s.alive || s.muted) return;
       // resample this device's rate down to 16 kHz, then encode + send.
       const down = resample(float32, ctx.sampleRate, IN_RATE);
-      // buffer small frames into ~SEND_MS chunks to reduce WS overhead.
-      s.micBuf.push(down);
-      s.micBufLen += down.length;
+      // noise gate: forward only the caller's clear speech — background noise is
+      // suppressed (so it can't trigger a false interrupt), and a speech onset is
+      // prefixed with a little pre-roll so the first words aren't clipped.
+      const sendable = s.gate ? s.gate.feed(down) : down;
+      if (sendable.length) { s.micBuf.push(sendable); s.micBufLen += sendable.length; }
       const need = Math.round(IN_RATE * SEND_MS / 1000);
       while (s.micBufLen >= need) {
         const chunk = new Float32Array(need);
@@ -461,6 +463,7 @@
       inCtx: new AC({ sampleRate: IN_RATE }),    // hint; browser may ignore & we resample
       micStream: null, micSource: null, micWorklet: null, micProc: null, micSink: null,
       micBuf: [], micBufLen: 0,
+      gate: (window.NoiseGate && window.NoiseGate.create) ? window.NoiseGate.create({ sampleRate: IN_RATE }) : null,
       // playback
       outCtx: new AC({ sampleRate: OUT_RATE }),
       sources: [], playHead: 0,
@@ -597,6 +600,7 @@
     try { if (s.micSource) s.micSource.disconnect(); } catch (_) {}
     s.micWorklet = s.micProc = s.micSink = s.micSource = null;
     s.micBuf = []; s.micBufLen = 0;
+    s.gate = null;
 
     // mic tracks
     try { if (s.micStream) s.micStream.getTracks().forEach(function (t) { try { t.stop(); } catch (_) {} }); } catch (_) {}
