@@ -1,5 +1,5 @@
 /* ===================================================================
-   Vaak AI — Mission Control · app logic
+   Anaga — Modcon Builders · app logic
    Renders the agent fleet, the metrics, and drives the Playbook overlay.
    =================================================================== */
 
@@ -147,9 +147,9 @@ if (location.hash === "#playbook") openPlaybook();
    Sample lines mirror caller-agent/flows/anaga.persona.json.
    =================================================================== */
 const ANAGA_LINES = {
-  "en-IN": "Hi, I'm Anaga, an AI voice assistant from Vaak. Is now a good time to talk for a couple of minutes?",
-  "hi-IN": "नमस्ते, मैं अनघा हूँ, वाक की एक ए आई वॉइस असिस्टेंट। क्या मैं आपसे दो मिनट बात कर सकती हूँ?",
-  "te-IN": "నమస్కారం, నేను అనగా, వాక్ నుండి ఒక ఏఐ వాయిస్ అసిస్టెంట్. మీకు కొన్ని నిమిషాలు ఉంటే మాట్లాడొచ్చా?"
+  "en-IN": "Hi, I'm Anaga, Modcon Builders' AI voice assistant, calling about our Agartha project. Is now a good time to talk for a couple of minutes?",
+  "hi-IN": "नमस्ते, मैं अनघा हूँ, Modcon Builders की एक ए आई वॉइस असिस्टेंट, Agartha के बारे में बात कर रही हूँ। क्या मैं आपसे दो मिनट बात कर सकती हूँ?",
+  "te-IN": "నమస్కారం, నేను అనగా, Modcon Builders నుండి ఒక ఏఐ వాయిస్ అసిస్టెంట్, Agartha గురించి మాట్లాడుతున్నాను. మీకు కొన్ని నిమిషాలు ఉంటే మాట్లాడొచ్చా?"
 };
 const FEMALE_HINTS = [
   "female", "samantha", "victoria", "karen", "moira", "tessa", "fiona", "veena",
@@ -654,19 +654,19 @@ if (demoEl) {
   /* offline-only mini knowledge base — lets the rule-engine Anaga actually
      ANSWER common questions (honestly, generally) instead of ignoring them. */
   const QA = [
-    { re: /price|cost|rate|how much|kitna|kitne|per sq|sq ?ft|square feet|carpet/i, a: "Good question — Skyline Villaments are broadly in the one-to-three crore range depending on the configuration. Our sales manager shares exact pricing on the site visit." },
-    { re: /where|location|located|area|kahan|address|connectivity|metro/i, a: "It's in Hyderabad, well-connected to the IT corridor. I'll WhatsApp you the exact location with a map." },
+    { re: /price|cost|rate|how much|kitna|kitne|per sq|sq ?ft|square feet|carpet/i, a: "Pricing depends on the configuration — I'll have our team share the exact price sheet, and you can see details at agartha.in." },
+    { re: /where|location|located|area|kahan|address|connectivity|metro/i, a: "I'll WhatsApp you the exact location with a map — and the full project details are at agartha.in." },
     { re: /possession|ready|hand ?over|move ?in|when.*(complete|ready)/i, a: "I'll have our manager confirm the exact possession timeline for you on the visit." },
     { re: /loan|emi|finance|bank|mortgage/i, a: "Yes, we work with leading banks for home loans and can help with the paperwork." },
-    { re: /amenit|gym|pool|clubhouse|park|facilit|security/i, a: "It's a premium gated community with modern amenities — I'll include the full list in the WhatsApp details." },
-    { re: /builder|developer|who.*(build|develop)|rera/i, a: "It's a reputed, RERA-registered project — our manager can share all the documentation on the visit." }
+    { re: /amenit|gym|pool|clubhouse|park|facilit|security/i, a: "Agartha is a premium gated community with modern amenities — the full list is at agartha.in and in the WhatsApp details." },
+    { re: /builder|developer|who.*(build|develop)|rera/i, a: "Agartha is by Modcon Builders, a reputed developer — you can see our credentials and the project at agartha.in." }
   ];
   const quickAnswer = t => { const m = QA.find(q => q.re.test(t)); return m ? m.a : null; };
 
   /* ---- the flow (mirrors the versioned flow JSON) ---- */
   const FLOW = {
     greet: {
-      say: () => "Namaste! This is Anaga, an A I assistant from Vaak, calling about the Skyline Villaments project in Hyderabad. Just so you know, I'm an AI voice agent. Do you have a quick minute to talk?",
+      say: () => "Namaste! This is Anaga, an A I voice assistant from Modcon Builders, calling about our Agartha project. Just so you know, I'm an AI voice agent. Do you have a quick minute to talk?",
       next: t => optout(t) ? "optout" : (negative(t) ? "busy" : "purpose")
     },
     purpose: {
@@ -686,7 +686,7 @@ if (demoEl) {
       next: (t) => { ctx.timeline = /month|soon|ready|immediat|next|asap|urgent/i.test(t) ? "soon" : "exploring"; return "offer"; }
     },
     offer: {
-      say: () => `Thanks for sharing all that. Based on a ${ctx.config} for ${ctx.purpose}, I really think our Skyline Villaments would suit you. Could I book you a site visit this weekend?`,
+      say: () => `Thanks for sharing all that. Based on a ${ctx.config} for ${ctx.purpose}, I really think our Agartha project would suit you. Could I book you a site visit this weekend?`,
       next: t => optout(t) ? "optout" : (affirmative(t) ? "book" : "callback")
     },
     book: {

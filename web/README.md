@@ -1,6 +1,6 @@
-# Vaak AI — Home Screen (Mission Control)
+# Anaga — Home Screen (Modcon Builders)
 
-A self-contained, zero-build home screen for the Vaak AI project.
+A self-contained, zero-build home screen for Anaga, Modcon Builders' AI voice agent.
 
 ## What's here
 

@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "persona": "anaga",
   "vertical": "real-estate",
-  "project": { "name": "Skyline Villaments", "city": "Hyderabad" },
+  "project": { "name": "Agartha", "builder": "Modcon Builders", "website": "agartha.in", "alsoProjects": ["Syl"] },
   "goal": "Disclose AI, get consent, qualify (purpose/budget/config/timeline), book a site visit, handle opt-out.",
   "notes": "This is the versioned source of truth for the conversation. The browser demo in web/assets/app.js mirrors it (English) for an offline preview. In production the caller-agent (WP-3) loads this flow as data and the LLM handles free-form turns; opt-out is enforced by the compliance-agent (WP-5), fail-closed.",
   "globals": {
@@ -16,7 +16,7 @@
   "steps": [
     {
       "id": "greet",
-      "say": "Namaste! This is Anaga, an AI assistant from Vaak, calling about the Skyline Villaments project in Hyderabad. Just so you know, I'm an AI voice agent. Do you have a quick minute to talk?",
+      "say": "Namaste! This is Anaga, an AI voice assistant from Modcon Builders, calling about our Agartha project. Just so you know, I'm an AI voice agent. Do you have a quick minute to talk?",
       "disclosure": true,
       "branch": { "optout": "optout", "negative": "busy", "default": "purpose" }
     },
@@ -24,7 +24,7 @@
     { "id": "budget",   "say": "What budget range are you considering — for example one to two crore, or higher?", "capture": "budget", "next": "config" },
     { "id": "config",   "say": "Are you looking at a 2BHK, 3BHK, or something larger?", "capture": "config", "next": "timeline" },
     { "id": "timeline", "say": "Are you planning to buy in the next few months, or just exploring for now?", "capture": "timeline", "next": "offer" },
-    { "id": "offer",    "say": "Based on what you've told me, I think Skyline Villaments would suit you. Could I book you a site visit this weekend?", "branch": { "optout": "optout", "affirmative": "book", "default": "callback" } },
+    { "id": "offer",    "say": "Based on what you've told me, I think Agartha would suit you. Could I book you a site visit this weekend?", "branch": { "optout": "optout", "affirmative": "book", "default": "callback" } },
     { "id": "book",     "say": "Would Saturday or Sunday work better for you?", "capture": "day", "next": "confirm" },
     { "id": "confirm",  "say": "Done! I've booked your site visit for {day}. You'll get a WhatsApp confirmation with the location, and our sales manager will meet you there. Thank you for your time!", "tool": "book_site_visit", "end": true },
     { "id": "callback", "say": "No problem — I'll have our sales manager send the project details on WhatsApp, and we can arrange a visit whenever you're ready. Thank you!", "tool": "book_callback", "end": true },
