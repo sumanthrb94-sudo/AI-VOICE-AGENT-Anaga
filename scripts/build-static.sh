@@ -16,15 +16,9 @@ mkdir -p public
 echo "→ Copying home screen (web/)"
 cp -R web/. public/
 
-# --- Reference docs surfaced by the home-screen nav -----------------
-# NOTE: docs/BUSINESS_PLAN.md is marked Confidential. It is copied here
-# so the nav links resolve on the deployed site. To keep it OFF a public
-# deployment, comment out the BUSINESS_PLAN / FINANCIAL lines below.
-echo "→ Copying reference docs"
-mkdir -p public/docs public/engineering
-cp docs/BUSINESS_PLAN.md          public/docs/          # ← Confidential
-cp docs/COMPLIANCE.md             public/docs/
-cp docs/FINANCIAL_MODEL_NOTES.md  public/docs/          # ← Confidential
-cp engineering/MULTI_AGENT_SPEC.md public/engineering/
+# --- Reference docs are intentionally NOT published ------------------
+# The customer-facing site no longer links to internal/confidential docs
+# (business plan, financials, build spec). Keeping them out of ./public
+# ensures no internal or third-party names are reachable on the public site.
 
 echo "✓ Static site assembled in ./public"

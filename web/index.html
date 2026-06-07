@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/styles.css?v=22" />
+  <link rel="stylesheet" href="assets/styles.css?v=23" />
 </head>
 <body>
   <!-- ambient background -->
@@ -23,11 +23,8 @@
       <span class="brand__tag">by Modcon Builders</span>
     </div>
     <nav class="nav__links">
-      <a href="#fleet">Agent Fleet</a>
-      <a href="#metrics">Metrics</a>
-      <a href="docs/BUSINESS_PLAN.md">Business Plan</a>
-      <a href="engineering/MULTI_AGENT_SPEC.md">Build Spec</a>
-      <button class="nav__key" id="open-settings" type="button">🔑 Connect Gemini</button>
+      <a href="#fleet">How it works</a>
+      <a href="#metrics">Standards</a>
     </nav>
     <span class="nav__status"><i class="dot"></i> Pre-seed · Building</span>
   </header>
@@ -48,37 +45,15 @@
       <span class="agent-chip__live"><i class="dot"></i> on a call</span>
     </div>
 
-    <!-- Pick Anaga's AI voice (2 selectable voices) -->
-    <div class="voice-picker" id="voice-picker" role="group" aria-label="Choose Anaga's voice">
-      <span class="voice-picker__label">AI voice</span>
-      <div class="voice-picker__cards">
-        <button class="voice-card" data-voice="aria" type="button">
-          <span class="voice-card__wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-          <span class="voice-card__txt"><b>Aria</b><em>Warm &amp; bright</em></span>
-          <span class="voice-card__play" aria-hidden="true">▶</span>
-        </button>
-        <button class="voice-card" data-voice="kiara" type="button">
-          <span class="voice-card__wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-          <span class="voice-card__txt"><b>Kiara</b><em>Low &amp; crisp</em></span>
-          <span class="voice-card__play" aria-hidden="true">▶</span>
-        </button>
-      </div>
-      <p class="voice-picker__note" id="voice-resolved"></p>
-    </div>
-
-    <!-- Hear Anaga: live in-browser female-voice demo (Web Speech API) -->
+    <!-- Call language (drives the live call) -->
     <div class="voice-demo" id="voice-demo">
-      <div class="voice-demo__langs" role="group" aria-label="Sample language">
+      <span class="voice-demo__lbl">Language</span>
+      <div class="voice-demo__langs" role="group" aria-label="Call language">
         <button class="lang-pill is-active" data-lang="auto">🌐 Auto</button>
         <button class="lang-pill" data-lang="en-IN">English</button>
         <button class="lang-pill" data-lang="hi-IN">हिंदी</button>
         <button class="lang-pill" data-lang="te-IN">తెలుగు</button>
       </div>
-      <button class="btn btn--hear" id="hear-anaga" aria-pressed="false">
-        <span class="btn--hear__ico" aria-hidden="true">▶</span>
-        <span class="btn--hear__label">Hear Anaga</span>
-      </button>
-      <p class="voice-demo__note" id="voice-note">Plays her opening line using a female voice from your browser/OS.</p>
     </div>
 
     <!-- Live two-way call demo: your mic → Anaga listens & responds -->
@@ -88,7 +63,7 @@
         <span class="btn--call__ico" aria-hidden="true">📞</span>
         <span class="btn--call__label">Talk to Anaga — live call demo</span>
       </button>
-      <p class="call-cta__hint">🗣️ Free-flow mode: the mic stays on, interrupt her any time, ask her anything — she answers and replies in your language. 🎧 Use earphones so she doesn't hear herself. 🔑 Connect Gemini (top-right) for true conversation; without it she runs a basic offline script.</p>
+      <p class="call-cta__hint">📞 Tap to call Anaga — she answers in real time and replies in your language (Telugu · Hindi · English). Interrupt her any time. 🎧 Use earphones for the best experience.</p>
     </div>
 
     <h1 class="hero__title">
@@ -105,10 +80,6 @@
     <!-- ============ PRIMARY ACTION ROW ============ -->
     <!-- The special guide button is surgically placed in the centre of the action row. -->
     <div class="cta-row">
-      <a class="btn btn--ghost" href="engineering/MULTI_AGENT_SPEC.md">
-        <span class="btn__icon">⚙︎</span> Build Spec
-      </a>
-
       <!-- ★★★ THE BUTTON THE FOUNDER ASKED FOR ★★★ -->
       <button class="btn btn--playbook" id="open-playbook" aria-haspopup="dialog" aria-controls="playbook">
         <span class="btn__pulse" aria-hidden="true"></span>
@@ -119,46 +90,10 @@
         </span>
         <span class="btn__chev" aria-hidden="true">→</span>
       </button>
-
-      <a class="btn btn--ghost" href="docs/BUSINESS_PLAN.md">
-        <span class="btn__icon">📈</span> Investor Memo
-      </a>
     </div>
     <p class="cta-hint">One button. Zero to a ₹100 Cr company — every step, in order.</p>
   </section>
 
-  <!-- ===================== VOICE LAB ===================== -->
-  <section class="voicelab" id="voicelab">
-    <div class="section-head">
-      <h2>Voice Lab</h2>
-      <p>Live frequency meter + voice modulator — shape exactly how Anaga sounds.</p>
-    </div>
-    <div class="vlab">
-      <canvas class="vlab__meter" id="vlab-meter" width="900" height="170" aria-label="Voice frequency meter"></canvas>
-      <div class="vlab__row">
-        <div class="vlab__btns">
-          <button class="vlab__btn" id="vlab-mic" type="button">🎤 Visualize my voice</button>
-          <button class="vlab__btn vlab__btn--primary" id="vlab-preview" type="button">🔊 Preview Anaga</button>
-        </div>
-        <div class="vlab__sliders">
-          <label class="vlab__slider">
-            <span>Pitch <b id="vlab-pitch-v">0%</b></span>
-            <input type="range" id="vlab-pitch" min="-50" max="50" step="1" value="0" />
-          </label>
-          <label class="vlab__slider">
-            <span>Pace <b id="vlab-pace-v">0%</b></span>
-            <input type="range" id="vlab-pace" min="-50" max="50" step="1" value="0" />
-          </label>
-          <label class="vlab__slider">
-            <span>Loudness <b id="vlab-loud-v">100%</b></span>
-            <input type="range" id="vlab-loud" min="40" max="200" step="5" value="100" />
-          </label>
-          <button class="vlab__reset" id="vlab-reset" type="button">Reset</button>
-        </div>
-      </div>
-      <p class="vlab__note" id="vlab-note"></p>
-    </div>
-  </section>
 
   <!-- ===================== AGENT FLEET ===================== -->
   <section class="fleet" id="fleet">
@@ -207,7 +142,7 @@
     </div>
   </div>
 
-  <!-- ===================== LIVE CALL OVERLAY ===================== -->
+  <!-- ===================== LIVE CALL OVERLAY (phone-call UI) ===================== -->
   <div class="call" id="call" role="dialog" aria-modal="true" aria-labelledby="call-title" hidden>
     <div class="call__scrim" data-call-close></div>
     <div class="call__panel" role="document">
@@ -222,9 +157,8 @@
             <span class="call__status" id="call-status">Connecting…</span>
           </div>
         </div>
-        <button class="call__voice" id="call-voice" type="button" title="Tap to change voice"></button>
+        <span class="call__timer" id="call-timer" aria-hidden="true"></span>
         <span class="call__brain" id="call-brain" hidden aria-live="polite"></span>
-        <button class="call__end" id="call-end">✕ End call</button>
       </header>
 
       <div class="call__transcript" id="call-transcript"><!-- bubbles injected --></div>
@@ -236,61 +170,37 @@
       <div class="call__review" id="call-review" hidden><!-- injected by app.js --></div>
 
       <div class="call__controls">
-        <button class="call__mic" id="call-mic" aria-pressed="false">
-          <span class="call__mic-ico" aria-hidden="true">🎤</span>
-          <span class="call__mic-label">Tap to speak</span>
-        </button>
-        <form class="call__textform" id="call-textform" autocomplete="off">
-          <input id="call-textinput" type="text" placeholder="…or type your reply and press Enter" aria-label="Type your reply" />
+        <form class="call__textform" id="call-textform" autocomplete="off" hidden>
+          <input id="call-textinput" type="text" placeholder="Type your reply and press Enter" aria-label="Type your reply" />
           <button type="submit" aria-label="Send">➤</button>
         </form>
-      </div>
-    </div>
-  </div>
-
-  <!-- ===================== SETTINGS / CONNECT GEMINI ===================== -->
-  <div class="settings" id="settings" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
-    <div class="settings__scrim" data-settings-close></div>
-    <div class="settings__panel" role="document">
-      <header class="settings__top">
-        <div>
-          <h2 id="settings-title">🔑 Connect Gemini</h2>
-          <p>Paste your Google Gemini API key to power Anaga's live brain from this browser.</p>
-        </div>
-        <button class="settings__close" data-settings-close aria-label="Close">✕</button>
-      </header>
-
-      <div class="settings__body">
-        <span class="settings__status" id="settings-status">Status: not connected — running the offline script.</span>
-
-        <label class="settings__label" for="settings-key">Gemini API key</label>
-        <div class="settings__keyrow">
-          <input id="settings-key" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false" />
-          <button type="button" id="settings-reveal" class="settings__reveal" aria-label="Show/hide key">👁</button>
-        </div>
-
-        <label class="settings__label" for="settings-model">Model <span>(optional)</span></label>
-        <input id="settings-model" type="text" placeholder="gemini-2.5-flash" autocomplete="off" spellcheck="false" />
-
-        <div class="settings__actions">
-          <button type="button" id="settings-connect" class="settings__connect">Connect</button>
-          <button type="button" id="settings-clear" class="settings__clear">Disconnect</button>
-        </div>
-        <p class="settings__msg" id="settings-msg" hidden></p>
-
-        <div class="settings__help">
-          <p><b>Where do I get a key?</b> <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> → Create API key.</p>
-          <p class="settings__warn">⚠️ This stores the key in <b>your browser only</b> and calls Google directly from your browser — fine for personal testing. For a <b>public</b> site, leave this empty and set <code>GEMINI_API_KEY</code> as a server env var on Vercel instead, so visitors never see your key.</p>
+        <div class="call__dock" role="group" aria-label="Call controls">
+          <button class="callbtn" id="call-mic" type="button" aria-pressed="false">
+            <span class="callbtn__ico" id="call-mic-ico" aria-hidden="true">🎙️</span>
+            <span class="callbtn__lbl" id="call-mic-label">Mute</span>
+          </button>
+          <button class="callbtn" id="call-speaker" type="button" aria-pressed="true">
+            <span class="callbtn__ico" aria-hidden="true">🔊</span>
+            <span class="callbtn__lbl">Speaker</span>
+          </button>
+          <button class="callbtn" id="call-keypad" type="button" aria-pressed="false">
+            <span class="callbtn__ico" aria-hidden="true">⌨️</span>
+            <span class="callbtn__lbl">Keypad</span>
+          </button>
+          <button class="callbtn callbtn--end" id="call-end" type="button">
+            <span class="callbtn__ico" aria-hidden="true">📞</span>
+            <span class="callbtn__lbl" id="call-end-label">End</span>
+          </button>
         </div>
       </div>
     </div>
   </div>
 
-  <script src="assets/translate.js?v=22"></script>
-  <script src="assets/llm-client.js?v=22"></script>
-  <script src="assets/noise-gate.js?v=22"></script>
-  <script src="assets/live-call.js?v=22"></script>
-  <script src="assets/playbook-data.js?v=22"></script>
-  <script src="assets/app.js?v=22"></script>
+  <script src="assets/translate.js?v=23"></script>
+  <script src="assets/llm-client.js?v=23"></script>
+  <script src="assets/noise-gate.js?v=23"></script>
+  <script src="assets/live-call.js?v=23"></script>
+  <script src="assets/playbook-data.js?v=23"></script>
+  <script src="assets/app.js?v=23"></script>
 </body>
 </html>

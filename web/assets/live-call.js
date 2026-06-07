@@ -43,6 +43,7 @@
   const IN_RATE     = 16000;   // mic is resampled to 16 kHz PCM16 before sending
   const OUT_RATE    = 24000;   // model audio is 24 kHz PCM16
   const SEND_MS     = 40;      // chunk size we ship mic audio in (latency vs. overhead)
+  const LIVE_VOICE  = 'Aoede'; // Anaga's single master voice (warm female). Alternatives: 'Leda', 'Kore'.
 
   /* Anaga's persona for the live session — mirrors api/_lib/prompts.js (SYL_RULES)
      and web/assets/llm-client.js, tuned for SPOKEN, full-duplex audio. Overridable
@@ -417,7 +418,9 @@
           // 3.1 Flash Live: keep "thinking" minimal so she speaks immediately
           // (the pre-speech reasoning was the main "analysing" delay). Verified
           // ~467ms first-audio vs ~1s with the old thinking native-audio model.
-          thinkingConfig: { thinkingLevel: 'minimal' }
+          thinkingConfig: { thinkingLevel: 'minimal' },
+          // Anaga's single, consistent master voice on every live call.
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: LIVE_VOICE } } }
         },
         systemInstruction: { parts: [{ text: systemPrompt }] },
         inputAudioTranscription: {},

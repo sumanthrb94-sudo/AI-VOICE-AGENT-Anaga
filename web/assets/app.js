@@ -6,9 +6,9 @@
 /* ---------------- agent fleet (from MULTI_AGENT_SPEC.md) ---------------- */
 const FLEET = [
   { wp: "WP-0", badge: ["base", "Foundation"], name: "Compliance foundation & repo bootstrap", desc: "Legal-to-dial + clean repo skeleton, CI, registration tracker.", dep: "none" },
-  { wp: "WP-1", badge: ["base", "Spike"], name: "Framework decision (ADR)", desc: "Pipecat vs self-hosted Bolna — decided by one real Sarvam+LLM+Plivo call each.", dep: "WP-0" },
+  { wp: "WP-1", badge: ["base", "Spike"], name: "Framework decision (ADR)", desc: "Pick the voice-pipeline approach — validated with one real end-to-end call.", dep: "WP-0" },
   { wp: "WP-2", badge: ["base", "Orchestrator"], name: "Orchestrator", desc: "Spawn/track caller agents, balance load, warm human handoff.", dep: "WP-1" },
-  { wp: "WP-3", badge: ["core", "The soul"], name: "Anaga — caller-agent pipeline", desc: "Anaga's voice: streaming STT→LLM→TTS, female Sarvam voice, turn-taking, barge-in, code-mixed calls. Over-invest here.", dep: "WP-1" },
+  { wp: "WP-3", badge: ["core", "The soul"], name: "Anaga — caller-agent pipeline", desc: "Anaga's voice: streaming STT→LLM→TTS, warm female voice, turn-taking, barge-in, code-mixed calls. Over-invest here.", dep: "WP-1" },
   { wp: "WP-4", badge: ["base", "Adapters"], name: "Provider abstraction", desc: "Swap STT/LLM/TTS/telephony via config. No vendor SDK in business logic.", dep: "WP-1" },
   { wp: "WP-5", badge: ["moat", "The moat"], name: "Compliance agent", desc: "DND scrub, disclosure, opt-out, retention, audit log. Fails closed.", dep: "WP-0, WP-2" },
   { wp: "WP-6", badge: ["base", "Backend"], name: "Backend (.NET) + tools", desc: "book_site_visit, book_callback, send_whatsapp, CRM, calendar, suppression.", dep: "WP-0" },
@@ -508,18 +508,16 @@ if (demoEl) {
       if (m) c.title = m.v ? "Uses your device voice: " + voiceLabel(m.v) : "Uses your device's default voice";
     });
     if (!note) return;
-    /* cloud voices (Sarvam Bulbul) — real, distinct, lifelike */
+    /* premium cloud voices available */
     if (CloudTTS.isOn()) {
-      const list = VOICES.map(p => p.name + ": " + p.sarvam).join(" · ");
-      note.innerHTML = "🟢 <b>Sarvam Bulbul</b> cloud voices — " + list + " (distinct &amp; lifelike).";
+      const list = VOICES.map(p => p.name).join(" · ");
+      note.innerHTML = "🟢 Premium cloud voices — <b>" + list + "</b> (distinct &amp; lifelike).";
       return;
     }
     const names = map.map(m => voiceLabel(m.v));
     const distinct = new Set(names.map(n => n.toLowerCase())).size;
     if (!voices.length) { note.textContent = ""; return; }
-    note.textContent = distinct >= 2
-      ? "On your device → " + map.map((m, i) => m.p.name + ": " + names[i]).join(" · ")
-      : "Your device exposes one TTS voice (" + names[0] + "), so the voices differ by pitch & pace. For distinct natural voices, connect Sarvam (set SARVAM_API_KEY).";
+    note.textContent = "Anaga's voices — " + VOICES.map(p => p.name).join(" · ") + ".";
   }
 
   refresh();
@@ -556,7 +554,22 @@ if (demoEl) {
   const noticeEl   = document.getElementById("call-notice");
   const reviewEl   = document.getElementById("call-review");
   const endBtn     = document.getElementById("call-end");
-  const voiceChip  = document.getElementById("call-voice");
+  const voiceChip  = document.getElementById("call-voice");   // removed from UI; guards below tolerate null
+  const timerEl    = document.getElementById("call-timer");
+  const speakerBtn = document.getElementById("call-speaker");
+  const keypadBtn  = document.getElementById("call-keypad");
+  let callTimerId = null, callStartMs = 0;
+  function startTimer() {
+    callStartMs = Date.now();
+    if (timerEl) timerEl.textContent = "0:00";
+    if (callTimerId) clearInterval(callTimerId);
+    callTimerId = setInterval(function () {
+      if (!timerEl) return;
+      var s = Math.max(0, Math.floor((Date.now() - callStartMs) / 1000));
+      timerEl.textContent = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+    }, 1000);
+  }
+  function stopTimer() { if (callTimerId) { clearInterval(callTimerId); callTimerId = null; } }
 
   /* show which voice is talking (and the Sarvam speaker when cloud is on);
      tap to cycle through the voices mid-call (applies from the next line). */
@@ -564,8 +577,8 @@ if (demoEl) {
     if (!voiceChip) return;
     const p = currentVoice();
     const cloud = window.CloudTTS && CloudTTS.isOn();
-    voiceChip.textContent = "🎙 " + p.name + (cloud ? " · " + p.sarvam : "");
-    voiceChip.title = "Voice: " + p.name + (cloud ? " (Sarvam " + p.sarvam + ")" : "") + " — tap to change";
+    voiceChip.textContent = "🎙 " + p.name;
+    voiceChip.title = "Voice: " + p.name;
   }
   if (voiceChip) voiceChip.addEventListener("click", () => {
     const ids = VOICES.map(v => v.id);
@@ -734,19 +747,19 @@ if (demoEl) {
   }
   function clearInterim() { if (interimEl) { interimEl.remove(); interimEl = null; } }
 
-  /* subtle "which brain is active" tag in the call header */
+  /* subtle "which mode is active" tag in the call header (no vendor names) */
   function setBrain(mode, src) {
     if (!brainEl) return;
     if (mode === "live") {
       brainEl.hidden = false;
       brainEl.className = "call__brain call__brain--live";
-      brainEl.innerHTML = `<i class="dot"></i> live AI${src ? " · " + src : ""}`;
-      brainEl.title = "Anaga's replies are generated live by Gemini" + (src ? " (" + src + ")." : ".");
+      brainEl.innerHTML = `<i class="dot"></i> Anaga AI`;
+      brainEl.title = "Live — Anaga is answering in real time.";
     } else if (mode === "offline") {
       brainEl.hidden = false;
       brainEl.className = "call__brain call__brain--offline";
-      brainEl.innerHTML = `<i class="dot"></i> offline script`;
-      brainEl.title = "No AI brain reachable — running the on-device qualification script.";
+      brainEl.innerHTML = `<i class="dot"></i> Basic mode`;
+      brainEl.title = "Running Anaga's on-device basic script.";
       maybeNudgeOffline();
     } else {
       brainEl.hidden = true;
@@ -754,14 +767,11 @@ if (demoEl) {
     }
   }
 
-  /* The offline rule engine can only follow a fixed flow — it can't truly
-     converse. If there's no AI brain connected, tell the user how to get one
-     (once per call). */
+  /* Basic (on-device) mode can only follow a fixed flow — note it once per call. */
   function maybeNudgeOffline() {
     if (offlineNudged) return;
     offlineNudged = true;
-    if (window.AnagaBrain && AnagaBrain.hasKey()) return;   // a brain is connected; no nudge
-    showNotice("💡 Right now I'm on a basic offline script (fixed questions only). Connect a Gemini key — 🔑 top-right — so I can truly converse, answer anything, and reply in your language.");
+    showNotice("💡 Anaga is in basic mode right now — her full real-time answers need the live connection.");
   }
 
   /* inline notice (mic blocked, etc.) */
@@ -1223,14 +1233,23 @@ if (demoEl) {
     };
   }
 
+  /* Round phone-style Mute button: reflects mute state (highlighted when muted).
+     The `on` (listening) arg is accepted for back-compat but the visual is driven
+     by micMuted / micCapable. */
   function setMic(on) {
-    micBtn.classList.toggle("is-on", on);
-    micBtn.setAttribute("aria-pressed", String(on));
-    const label = micBtn.querySelector(".call__mic-label");
-    if (micMuted) label.textContent = "🔇 Muted — tap to talk";
-    else if (liveMode) label.textContent = on ? "🔴 Live — tap to mute" : "🎤 Tap to mute";
-    else if (!micCapable) label.textContent = recog ? "🎤 Allow mic — or type below" : "🎤 Type your reply below";
-    else label.textContent = on ? "🎙️ Listening — tap to mute" : "🎤 Tap to mute";
+    const ico = document.getElementById("call-mic-ico");
+    const lbl = document.getElementById("call-mic-label");
+    if (!micCapable) {
+      micBtn.classList.remove("is-on");
+      micBtn.setAttribute("aria-pressed", "false");
+      if (ico) ico.textContent = "🎤";
+      if (lbl) lbl.textContent = "No mic";
+      return;
+    }
+    micBtn.classList.toggle("is-on", micMuted);
+    micBtn.setAttribute("aria-pressed", String(micMuted));
+    if (ico) ico.textContent = micMuted ? "🔇" : "🎙️";
+    if (lbl) lbl.textContent = micMuted ? "Unmute" : "Mute";
   }
 
   /* ---- microphone permission ---- */
@@ -1243,7 +1262,7 @@ if (demoEl) {
     const insecure = (typeof window.isSecureContext !== "undefined") && !window.isSecureContext;
     if (insecure || !md || !md.getUserMedia) {
       showNotice(insecure
-        ? "🎤 The microphone needs a secure page — open this on your deployed https:// link (Vercel) or via http://localhost. On a file:// or plain http page browsers block the mic. You can still type your replies below."
+        ? "🎤 The microphone needs a secure page — open this on the secure https:// link or via http://localhost. On a file:// or plain http page browsers block the mic. You can still type your replies below."
         : "🎤 Microphone isn't available in this browser — use Chrome or Edge, or type your replies below.");
       return Promise.resolve(false);
     }
@@ -1283,10 +1302,14 @@ if (demoEl) {
     liveMode = false; liveUserEl = liveAgentEl = null; liveUserTxt = ""; liveAgentTxt = "";
     if (window.LiveCall && LiveCall.stop) { try { LiveCall.stop(); } catch (e) {} }   // end any leaked live session
     if (endpointTimer) { clearTimeout(endpointTimer); endpointTimer = null; }
+    stopTimer(); if (timerEl) timerEl.textContent = "";
     stopSttCapture();                  // release any mic stream / recorder from a prior call
     transcript.innerHTML = "";
     if (reviewEl) { reviewEl.hidden = true; reviewEl.innerHTML = ""; }
-    if (endBtn) endBtn.textContent = "✕ End call";
+    { const l = document.getElementById("call-end-label"); if (l) l.textContent = "End"; }
+    if (textForm) textForm.setAttribute("hidden", "");   // hide keypad input until requested
+    if (keypadBtn) keypadBtn.classList.remove("is-on");
+    if (speakerBtn) { speakerBtn.setAttribute("aria-pressed", "true"); speakerBtn.classList.add("is-on"); }
     micCapable = false;
     micBtn.disabled = false;           // never a dead button; configureMicButton sets the label
     micBtn.classList.remove("is-on");
@@ -1347,6 +1370,7 @@ if (demoEl) {
     overlay.hidden = false;
     document.body.style.overflow = "hidden";
     primeAudio();                    // unlock audio within the tap (mobile)
+    startTimer();                    // phone-call timer
     updateCallVoice();
     setTimeout(updateCallVoice, 1600);   // reflect cloud speaker once the probe resolves
 
@@ -1494,9 +1518,10 @@ if (demoEl) {
     synth && synth.cancel();
     CloudTTS.stop();
     stopSttCapture();                   // stop recording + release the mic stream
+    stopTimer();
     setMic(false);
     setStatus(reason, null);
-    if (endBtn) endBtn.textContent = "✕ Close";
+    { const l = document.getElementById("call-end-label"); if (l) l.textContent = "Close"; }
     renderReview();
   }
 
@@ -1680,6 +1705,20 @@ if (demoEl) {
     if (liveMode) { showNotice("🔴 Live call is voice-only — just speak. (Typing works in the standard call.)"); return; }
     if (listening && recog) { try { recog.stop(); } catch (e) {} }
     handleUtterance(t);
+  });
+  /* Keypad: reveal/hide the type-to-reply input (phone-call keypad metaphor). */
+  if (keypadBtn) keypadBtn.addEventListener("click", () => {
+    if (!active) return;
+    const hidden = textForm.hasAttribute("hidden");
+    if (hidden) { textForm.removeAttribute("hidden"); if (textInput) textInput.focus(); }
+    else textForm.setAttribute("hidden", "");
+    keypadBtn.classList.toggle("is-on", hidden);
+  });
+  /* Speaker: visual loudspeaker toggle (web audio always uses the default output). */
+  if (speakerBtn) speakerBtn.addEventListener("click", () => {
+    const on = speakerBtn.getAttribute("aria-pressed") === "true";
+    speakerBtn.setAttribute("aria-pressed", String(!on));
+    speakerBtn.classList.toggle("is-on", !on);
   });
   overlay.addEventListener("click", e => { if (e.target.matches("[data-call-close]")) closeCall(); });
   document.addEventListener("keydown", e => { if (!overlay.hidden && e.key === "Escape") closeCall(); });
@@ -1911,7 +1950,7 @@ openBtn.addEventListener("click", () => { if (synth) synth.cancel(); CloudTTS.st
     const { lang, text } = previewLine();
     const preset = currentVoice();
     if (window.CloudTTS && CloudTTS.isOn() && ensureCtx()) {
-      setNote("Synthesizing with Sarvam " + preset.sarvam + "…");
+      setNote("Synthesizing " + preset.name + "…");
       CloudTTS.fetchAudio(text, lang, preset).then(d => {
         if (!d || !d.audio) throw new Error("no audio");
         ctx.resume && ctx.resume();
@@ -1925,14 +1964,14 @@ openBtn.addEventListener("click", () => { if (synth) synth.cancel(); CloudTTS.st
         bufSrc.onended = () => { mode = "idle"; };
         bufSrc.start();
         mode = "buffer";
-        setNote("🟢 Sarvam " + preset.name + " (" + preset.sarvam + ") — real frequencies.");
-      }).catch(() => { setNote("Couldn't reach Sarvam — using the browser voice."); browserPreview(text, lang, preset); });
+        setNote("🟢 " + preset.name + " — live frequencies.");
+      }).catch(() => { setNote("Using the on-device voice."); browserPreview(text, lang, preset); });
     } else {
       browserPreview(text, lang, preset);
     }
   }
   function browserPreview(text, lang, preset) {
-    setNote("Browser voice " + preset.name + " — synthetic meter (speech audio can't be tapped).");
+    setNote(preset.name + " — on-device voice (synthetic meter).");
     speakText(text, lang, { voice: preset });   // browserSpeak triggers vlabOnSynthetic
   }
 

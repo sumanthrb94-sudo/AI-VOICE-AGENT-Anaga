@@ -157,6 +157,7 @@ body {
   display: inline-flex; align-items: center; flex-wrap: wrap; gap: 12px;
   margin: 0 auto 30px; justify-content: center;
 }
+.voice-demo__lbl { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-faint); }
 .voice-demo__langs { display: inline-flex; gap: 6px; }
 .lang-pill {
   font-family: 'Inter', sans-serif; font-size: 12.5px; font-weight: 600; color: var(--ink-dim);
@@ -593,18 +594,31 @@ body {
 .review__new:hover { transform: translateY(-2px); }
 .review__new:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
-.call__controls { padding: 16px 20px 20px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 12px; }
-.call__mic {
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  background: var(--panel-2); border: 1px solid #34406a; color: var(--ink);
-  border-radius: 14px; padding: 14px; font-weight: 600; font-size: 15px; cursor: pointer;
-  font-family: 'Inter', sans-serif; transition: .18s var(--ease);
+/* ---- phone-call control dock (mute / speaker / keypad / red end) ---- */
+.call__controls { padding: 14px 16px 22px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 14px; }
+.call__timer { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-dim); font-size: 13px; font-weight: 600; }
+.call__dock { display: flex; align-items: flex-start; justify-content: center; gap: 18px; }
+.callbtn {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  background: none; border: none; cursor: pointer; padding: 0;
+  color: var(--ink-dim); font-family: 'Inter', sans-serif; font-size: 11.5px; font-weight: 600;
 }
-.call__mic:hover { border-color: var(--indigo); }
-.call__mic.is-on { background: linear-gradient(135deg, rgba(255,77,79,.2), rgba(255,138,61,.14)); border-color: #ff6b6b; }
-.call__mic.is-on .call__mic-ico { animation: micpulse 1s ease-in-out infinite; }
-@keyframes micpulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.25); } }
+.callbtn__ico {
+  width: 62px; height: 62px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 24px; background: var(--panel-2); border: 1px solid var(--line); color: var(--ink);
+  transition: .16s var(--ease);
+}
+.callbtn:hover .callbtn__ico { background: #1b2440; border-color: var(--indigo); }
+.callbtn.is-on .callbtn__ico { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.callbtn--end .callbtn__ico {
+  width: 66px; height: 66px; background: #e5484d; border-color: #e5484d; color: #fff;
+  box-shadow: 0 10px 26px rgba(229,72,77,.42);
+}
+.callbtn--end:hover .callbtn__ico { background: #ff5b5f; border-color: #ff5b5f; }
+.callbtn--end .callbtn__lbl { color: #ff7a7c; }
+/* type-to-reply, revealed by the Keypad button */
 .call__textform { display: flex; gap: 8px; }
+.call__textform[hidden] { display: none; }
 .call__textform input {
   flex: 1; background: var(--bg-2); border: 1px solid var(--line); color: var(--ink);
   border-radius: 12px; padding: 12px 14px; font-size: 14px; font-family: 'Inter', sans-serif;
@@ -618,18 +632,18 @@ body {
 
 @media (max-width: 720px) { .call__panel { height: 90vh; width: 96vw; } }
 
-/* Mobile: the End / Close button must always be visible — declutter the call
-   header (hide the voice chip, compact the brain tag, truncate the name) so the
-   row can't overflow and clip the button. */
+/* Mobile: keep the header tidy and the control dock comfortably in one row. */
 @media (max-width: 560px) {
   .call__top { padding: 14px 14px; gap: 10px; }
   .call__avatar { width: 42px; height: 42px; }
   .call__who { min-width: 0; }
   .call__who b { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .call__status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .call__voice { display: none; }                 /* voice is chosen on the home screen */
-  .call__brain { max-width: 30vw; overflow: hidden; padding: 4px 9px; font-size: 10px; }
-  .call__end { flex-shrink: 0; margin-left: 8px; padding: 9px 14px; font-size: 13px; }
+  .call__brain { max-width: 28vw; overflow: hidden; padding: 4px 9px; font-size: 10px; }
+  .call__dock { gap: 10px; }
+  .callbtn { font-size: 11px; }
+  .callbtn__ico { width: 56px; height: 56px; font-size: 21px; }
+  .callbtn--end .callbtn__ico { width: 60px; height: 60px; }
 }
 
 /* mic button muted state — still clickable (a tap explains + focuses the text box) */
