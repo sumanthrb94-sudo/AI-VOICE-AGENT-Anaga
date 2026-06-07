@@ -218,13 +218,13 @@
 
     const onFrames = function (float32) {
       if (!s.alive || s.muted) return;
-      // resample this device's rate down to 16 kHz, then encode + send.
+      // resample this device's rate down to 16 kHz, then buffer + send. Send a
+      // CONTINUOUS stream (no client-side gating) so Gemini's own voice-activity
+      // detection hears the silence after you stop and replies promptly. Noise is
+      // handled by getUserMedia noiseSuppression + LOW server start-sensitivity.
       const down = resample(float32, ctx.sampleRate, IN_RATE);
-      // noise gate: forward only the caller's clear speech — background noise is
-      // suppressed (so it can't trigger a false interrupt), and a speech onset is
-      // prefixed with a little pre-roll so the first words aren't clipped.
-      const sendable = s.gate ? s.gate.feed(down) : down;
-      if (sendable.length) { s.micBuf.push(sendable); s.micBufLen += sendable.length; }
+      s.micBuf.push(down);
+      s.micBufLen += down.length;
       const need = Math.round(IN_RATE * SEND_MS / 1000);
       while (s.micBufLen >= need) {
         const chunk = new Float32Array(need);
@@ -410,15 +410,17 @@
     // generationConfig.responseModalities must match the token constraint (AUDIO).
     // We enable input+output transcription so the caller can show a live
     // transcript; native-audio models pick the spoken language automatically.
+    // Disable "thinking" so she speaks immediately. The field differs by model:
+    // 2.5 native-audio uses thinkingBudget:0; 3.x flash-live uses thinkingLevel.
+    var thinkingCfg = model.indexOf('native-audio') >= 0
+      ? { thinkingBudget: 0 }
+      : { thinkingLevel: 'minimal' };
     return {
       setup: {
         model: modelResource(model),
         generationConfig: {
           responseModalities: ['AUDIO'],
-          // 3.1 Flash Live: keep "thinking" minimal so she speaks immediately
-          // (the pre-speech reasoning was the main "analysing" delay). Verified
-          // ~467ms first-audio vs ~1s with the old thinking native-audio model.
-          thinkingConfig: { thinkingLevel: 'minimal' },
+          thinkingConfig: thinkingCfg,
           // Anaga's single, consistent master voice on every live call.
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: LIVE_VOICE } } }
         },
@@ -483,7 +485,6 @@
       inCtx: new AC({ sampleRate: IN_RATE }),    // hint; browser may ignore & we resample
       micStream: null, micSource: null, micWorklet: null, micProc: null, micSink: null,
       micBuf: [], micBufLen: 0,
-      gate: (window.NoiseGate && window.NoiseGate.create) ? window.NoiseGate.create({ sampleRate: IN_RATE }) : null,
       // playback
       outCtx: new AC({ sampleRate: OUT_RATE }),
       sources: [], playHead: 0,
@@ -628,7 +629,6 @@
     try { if (s.micSource) s.micSource.disconnect(); } catch (_) {}
     s.micWorklet = s.micProc = s.micSink = s.micSource = null;
     s.micBuf = []; s.micBufLen = 0;
-    s.gate = null;
 
     // mic tracks
     try { if (s.micStream) s.micStream.getTracks().forEach(function (t) { try { t.stop(); } catch (_) {} }); } catch (_) {}

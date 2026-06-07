@@ -30,7 +30,9 @@
 // Default Live model — a native-audio Flash model (low-latency, multilingual
 // speech in/out, incl. Hindi & Telugu). Override with GEMINI_LIVE_MODEL.
 // Verify the current id at https://ai.google.dev/gemini-api/docs/models.
-const DEFAULT_LIVE_MODEL = 'gemini-3.1-flash-live-preview';
+// Default to the 2.5 native-audio model (preferred). Override with GEMINI_LIVE_MODEL
+// (e.g. 'gemini-3.1-flash-live-preview', which tested faster, ~561ms vs ~888ms).
+const DEFAULT_LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 
 // Ephemeral tokens are a v1alpha-only feature.
 const AUTH_TOKENS_URL = 'https://generativelanguage.googleapis.com/v1alpha/auth_tokens';
