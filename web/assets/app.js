@@ -680,7 +680,7 @@ if (demoEl) {
   /* ---- the flow (mirrors the versioned flow JSON) ---- */
   const FLOW = {
     greet: {
-      say: () => "Namaste! This is Anaga, an A I voice assistant from Modcon Builders, calling about our SYL Residences at Tukkuguda. Just so you know, I'm an AI voice agent. Do you have a quick minute to talk?",
+      say: () => "నమస్కారం! నేను అనగ, మోడ్‌కాన్ బిల్డర్స్ నుండి AI వాయిస్ అసిస్టెంట్. తుక్కుగూడలోని మా SYL రెసిడెన్సెస్ గురించి మాట్లాడటానికి కాల్ చేస్తున్నాను. ఇది AI వాయిస్ కాల్ అని తెలియజేస్తున్నాను. మీకు ఒక నిమిషం సమయం ఉందా?",
       next: t => optout(t) ? "optout" : (negative(t) ? "busy" : "purpose")
     },
     purpose: {
@@ -972,7 +972,7 @@ if (demoEl) {
         .catch(() => speakLine(line, endInfo, { lang: callLang, histText: line }));
       return;
     }
-    speakLine(line, endInfo, { lang: callLang });
+    speakLine(line, endInfo, { lang: opts.lang || callLang });
   }
 
   /* offline path: speak a FLOW step (mirrors the versioned flow JSON) */
@@ -982,7 +982,9 @@ if (demoEl) {
     const endInfo = step.end
       ? { reason: step.optout ? "Opt-out recorded · call ended" : "Call ended", optout: !!step.optout }
       : null;
-    deliver(step.say(), endInfo, { translate: true });
+    // The opening line is always spoken in Telugu; other steps translate to the caller's language.
+    if (id === "greet") deliver(step.say(), endInfo, { lang: "te-IN" });
+    else deliver(step.say(), endInfo, { translate: true });
   }
 
   /* arm continuous listening (no "tap to speak"): keep the mic hot for the
