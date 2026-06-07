@@ -147,9 +147,9 @@ if (location.hash === "#playbook") openPlaybook();
    Sample lines mirror caller-agent/flows/anaga.persona.json.
    =================================================================== */
 const ANAGA_LINES = {
-  "en-IN": "Hi, I'm Anaga, Modcon Builders' AI voice assistant, calling about our Agartha project. Is now a good time to talk for a couple of minutes?",
-  "hi-IN": "नमस्ते, मैं अनघा हूँ, Modcon Builders की एक ए आई वॉइस असिस्टेंट, Agartha के बारे में बात कर रही हूँ। क्या मैं आपसे दो मिनट बात कर सकती हूँ?",
-  "te-IN": "నమస్కారం, నేను అనగా, Modcon Builders నుండి ఒక ఏఐ వాయిస్ అసిస్టెంట్, Agartha గురించి మాట్లాడుతున్నాను. మీకు కొన్ని నిమిషాలు ఉంటే మాట్లాడొచ్చా?"
+  "en-IN": "Hi, I'm Anaga, Modcon Builders' AI voice assistant, calling about SYL Residences at Tukkuguda. Is now a good time to talk for a couple of minutes?",
+  "hi-IN": "नमस्ते, मैं अनघा हूँ, Modcon Builders की एक ए आई वॉइस असिस्टेंट, Tukkuguda में SYL Residences के बारे में बात कर रही हूँ। क्या मैं आपसे दो मिनट बात कर सकती हूँ?",
+  "te-IN": "నమస్కారం, నేను అనగా, Modcon Builders నుండి ఒక ఏఐ వాయిస్ అసిస్టెంట్, Tukkugudaలో SYL Residences గురించి మాట్లాడుతున్నాను. మీకు కొన్ని నిమిషాలు ఉంటే మాట్లాడొచ్చా?"
 };
 const FEMALE_HINTS = [
   "female", "samantha", "victoria", "karen", "moira", "tessa", "fiona", "veena",
@@ -654,20 +654,20 @@ if (demoEl) {
   /* offline-only mini knowledge base — lets the rule-engine Anaga actually
      ANSWER common questions (honestly, generally) instead of ignoring them. */
   const QA = [
-    { re: /price|cost|rate|how much|kitna|kitne|per sq|sq ?ft|square feet|carpet/i, a: "Pricing depends on the configuration — I'll have our team share the exact price sheet, and you can see details at agartha.in." },
-    { re: /where|location|located|area|kahan|address|connectivity|metro|airport/i, a: "Agartha is in Tukkuguda, South Hyderabad — on the 200-foot Srisailam Highway, just off ORR Exit 14, about 10 to 15 minutes from the airport. Full map and details are at agartha.in." },
-    { re: /possession|ready|hand ?over|move ?in|when.*(complete|ready)/i, a: "I'll have our manager confirm the exact possession timeline for you — you'll also find it on agartha.in." },
+    { re: /price|cost|rate|how much|kitna|kitne|per sq|sq ?ft|square feet|carpet/i, a: "Pricing depends on the configuration — I'll have our team share the exact price sheet, and the details are on modcon.in." },
+    { re: /where|location|located|area|kahan|address|connectivity|metro|airport/i, a: "SYL Residences is in Tukkuguda, South Hyderabad — on the 200-foot Srisailam Highway, just off ORR Exit 14, about 10 to 15 minutes from the airport. I'll WhatsApp you the location and a map." },
+    { re: /possession|ready|hand ?over|move ?in|when.*(complete|ready)/i, a: "I'll have our manager confirm the exact possession timeline for you on the visit." },
     { re: /loan|emi|finance|bank|mortgage/i, a: "Yes, we work with leading banks for home loans and can help with the paperwork." },
-    { re: /amenit|gym|pool|clubhouse|club|park|facilit|security/i, a: "There's a 22,000 square-foot clubhouse — infinity pool, a gym with Pilates, yoga, steam and sauna, a library, co-working spaces and a banquet. The homes are low-density, biophilic villaments with large balconies. Full list at agartha.in." },
-    { re: /commercial|shop|retail|office|business|rent/i, a: "Agartha also has a G plus 4 commercial hub — retail and dining, co-working and startups, healthcare, and business-stay suites. I can have our team share commercial options too." },
-    { re: /builder|developer|who.*(build|develop)|rera|modcon/i, a: "Agartha is by Modcon Builders — Building Beyond Expectations. You can see our credentials and the project at agartha.in." }
+    { re: /amenit|gym|pool|clubhouse|club|park|facilit|security/i, a: "There's a 22,000 square-foot clubhouse — infinity pool, a gym with Pilates, yoga, steam and sauna, a library, co-working spaces and a banquet. The homes are low-density, biophilic villaments with large balconies." },
+    { re: /commercial|shop|retail|office|business|rent/i, a: "Yes — the same Tukkuguda development has a G plus 4 commercial block: retail and dining, co-working and startups, healthcare, and business-stay suites. I can have our team share commercial options too." },
+    { re: /builder|developer|who.*(build|develop)|rera|modcon/i, a: "SYL Residences is by Modcon Builders — Building Beyond Expectations. You can see our credentials on modcon.in." }
   ];
   const quickAnswer = t => { const m = QA.find(q => q.re.test(t)); return m ? m.a : null; };
 
   /* ---- the flow (mirrors the versioned flow JSON) ---- */
   const FLOW = {
     greet: {
-      say: () => "Namaste! This is Anaga, an A I voice assistant from Modcon Builders, calling about our Agartha project. Just so you know, I'm an AI voice agent. Do you have a quick minute to talk?",
+      say: () => "Namaste! This is Anaga, an A I voice assistant from Modcon Builders, calling about our SYL Residences at Tukkuguda. Just so you know, I'm an AI voice agent. Do you have a quick minute to talk?",
       next: t => optout(t) ? "optout" : (negative(t) ? "busy" : "purpose")
     },
     purpose: {
@@ -687,7 +687,7 @@ if (demoEl) {
       next: (t) => { ctx.timeline = /month|soon|ready|immediat|next|asap|urgent/i.test(t) ? "soon" : "exploring"; return "offer"; }
     },
     offer: {
-      say: () => `Thanks for sharing all that. Based on a ${ctx.config} for ${ctx.purpose}, I really think our Agartha project would suit you. Could I book you a site visit this weekend?`,
+      say: () => `Thanks for sharing all that. Based on a ${ctx.config} for ${ctx.purpose}, I really think our SYL Residences at Tukkuguda would suit you. Could I book you a site visit this weekend?`,
       next: t => optout(t) ? "optout" : (affirmative(t) ? "book" : "callback")
     },
     book: {

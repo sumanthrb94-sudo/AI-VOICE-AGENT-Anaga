@@ -7,13 +7,13 @@
   "company": {
     "name": "Modcon Builders",
     "tagline": "Building Beyond Expectations",
-    "websites": ["modcon.in", "agartha.in", "thegreenteam.in", "modconbuilders.com"],
+    "websites": ["modcon.in", "modconbuilders.com", "thegreenteam.in"],
     "phone": "+91 95348 69999",
     "email": "info@modconbuilders.com",
     "office": "The District, 8th floor, Financial District, Hyderabad, Telangana"
   },
   "project": {
-    "name": "Agartha",
+    "name": "SYL Residences, Tukkuguda",
     "alsoKnownAs": "Modcon One",
     "type": "integrated (residential + commercial)",
     "size": "~4.5 acres",
@@ -35,6 +35,9 @@
     },
     "_todo": "Add exact unit configurations/sizes, price range, RERA number, and possession date when available."
   },
+  "otherProjects": [
+    { "name": "Agartha", "website": "agartha.in", "_note": "A SEPARATE Modcon Builders project (different location/details) — add details when available. Anaga mentions it only if the caller asks about other projects." }
+  ],
   "persona": {
     "gender": "female",
     "tone": ["warm", "confident", "respectful", "unhurried"],
@@ -54,9 +57,9 @@
   "disclosure": {
     "required": true,
     "skippable": false,
-    "te-IN": "Namaskaram, nenu Anaga — Modcon Builders nunchi oka AI voice assistant, Agartha gurinchi maatladutunnanu. Meeku konni nimishaalu unte maatladocha?",
-    "hi-IN": "Namaste, main Anaga hoon — Modcon Builders ki ek AI voice assistant, Agartha ke baare mein baat kar rahi hoon. Kya main aapse do minute baat kar sakti hoon?",
-    "en-IN": "Hi, I'm Anaga, Modcon Builders' AI voice assistant, calling about our Agartha project. Is now a good time to talk for a couple of minutes?"
+    "te-IN": "Namaskaram, nenu Anaga — Modcon Builders nunchi oka AI voice assistant, Tukkugudalo SYL Residences gurinchi maatladutunnanu. Meeku konni nimishaalu unte maatladocha?",
+    "hi-IN": "Namaste, main Anaga hoon — Modcon Builders ki ek AI voice assistant, Tukkuguda mein SYL Residences ke baare mein baat kar rahi hoon. Kya main aapse do minute baat kar sakti hoon?",
+    "en-IN": "Hi, I'm Anaga, Modcon Builders' AI voice assistant, calling about SYL Residences at Tukkuguda. Is now a good time to talk for a couple of minutes?"
   },
   "openingGoal": "Disclose AI identity (non-skippable), get consent, then qualify naturally.",
   "compliance": {
