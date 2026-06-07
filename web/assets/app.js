@@ -260,7 +260,7 @@ const CloudTTS = (function () {
       .catch(() => { available = false; return false; });
   }
   function isOn() { return available === true; }
-  function stop() { if (audio) { try { audio.pause(); } catch (e) {} audio.onended = audio.onerror = audio.onplay = null; if (playWd) { clearTimeout(playWd); playWd = null; } audio = null; } }
+  function stop() { if (audio) { try { audio.pause(); } catch (e) {} audio.onended = audio.onerror = audio.onplay = audio.onloadedmetadata = null; if (playWd) { clearTimeout(playWd); playWd = null; } audio = null; } }
   function play(src, opts, fallback) {
     stop();
     const el = audio = new Audio(src);
@@ -928,10 +928,11 @@ if (demoEl) {
       let advanced = false;
       const advance = () => { if (advanced) return; advanced = true; clearWd(); if (myToken === speakToken) speakNext(); };
       speakText(piece, lang, { voice: opts.voice, onend: advance });
-      /* watchdog: if onend never fires (stuck CloudTTS <audio>, dropped synth
-         event, empty chunk), advance anyway so the turn never freezes. Scale the
-         budget to the chunk length so we don't cut real speech short. */
-      const budget = Math.min(22000, 3500 + piece.split(/\s+/).length * 420);
+      /* watchdog: a pure "nothing fired at all" net. The CloudTTS <audio> and the
+         browser synth each resolve onend on their own (incl. their own duration
+         caps), so this only catches the case where neither calls back. Keep it
+         generous so it never clips a legitimately long line. */
+      const budget = Math.min(30000, 5000 + piece.split(/\s+/).length * 600);
       chunkWd = setTimeout(advance, budget);
     };
     speakNext();
@@ -1042,7 +1043,7 @@ if (demoEl) {
       if (brainMode === "offline") { setTimeout(nextOfflineTurn, 60); return; }
       nextLiveTurn();
     };
-    if (switchToBase && switchToBase !== callBase) applyLanguage(switchToBase).then(advance);
+    if (switchToBase && switchToBase !== callBase) applyLanguage(switchToBase).then(advance, advance);
     else advance();
   }
 
