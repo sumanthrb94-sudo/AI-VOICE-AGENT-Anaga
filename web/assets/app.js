@@ -437,6 +437,11 @@ const SarvamSTT = (function () {
 SarvamSTT.probe();
 window.SarvamSTT = SarvamSTT;
 
+/* detect the real-time Gemini Live engine (web/assets/live-call.js). When
+   available it powers a true full-duplex call using the Gemini key — and uses
+   ZERO Sarvam credits. Falls back to the turn-based demo when unavailable. */
+if (window.LiveCall && LiveCall.probe) LiveCall.probe();
+
 let curLang = "en-IN"; // controlled by the language pills (sample); call demo runs in en-IN
 
 /* language pills (shared) */
@@ -632,6 +637,10 @@ if (demoEl) {
   let autoMode = false;           // 🌐 detect the caller's language with on-device AI
   let notedLang = null;           // last language we announced a switch to (avoid spam)
   let offlineNudged = false;      // showed the "connect a brain for real conversation" nudge once
+
+  /* real-time Gemini Live call (full-duplex; 0 Sarvam credits) */
+  let liveMode = false;
+  let liveUserEl = null, liveAgentEl = null, liveUserTxt = "", liveAgentTxt = "";
 
   /* ---- intent helpers ---- */
   const has = (t, re) => re.test(t);
@@ -1218,6 +1227,7 @@ if (demoEl) {
     micBtn.setAttribute("aria-pressed", String(on));
     const label = micBtn.querySelector(".call__mic-label");
     if (micMuted) label.textContent = "🔇 Muted — tap to talk";
+    else if (liveMode) label.textContent = on ? "🔴 Live — tap to mute" : "🎤 Tap to mute";
     else if (!micCapable) label.textContent = recog ? "🎤 Allow mic — or type below" : "🎤 Type your reply below";
     else label.textContent = on ? "🎙️ Listening — tap to mute" : "🎤 Tap to mute";
   }
@@ -1269,6 +1279,8 @@ if (demoEl) {
     history = []; lastDisposition = "qualifying"; brainMode = null;
     phase = "idle"; micMuted = false; wantListen = false; offlineNudged = false;
     pendingUtter = ""; pendingEnd = null; currentSpokenNorm = "";
+    liveMode = false; liveUserEl = liveAgentEl = null; liveUserTxt = ""; liveAgentTxt = "";
+    if (window.LiveCall && LiveCall.stop) { try { LiveCall.stop(); } catch (e) {} }   // end any leaked live session
     if (endpointTimer) { clearTimeout(endpointTimer); endpointTimer = null; }
     stopSttCapture();                  // release any mic stream / recorder from a prior call
     transcript.innerHTML = "";
@@ -1338,7 +1350,7 @@ if (demoEl) {
     setTimeout(updateCallVoice, 1600);   // reflect cloud speaker once the probe resolves
 
     /* language for this call comes from the active hero language pill.
-       "auto" → detect the caller's language on the fly with on-device AI. */
+       "auto" → detect the caller's language on the fly. */
     const activePill = document.querySelector('#voice-demo .lang-pill.is-active');
     const sel = (activePill && activePill.dataset.lang) || "en-IN";
     autoMode = (sel === "auto");
@@ -1348,6 +1360,78 @@ if (demoEl) {
     notedLang = null;
     if (recog) recog.lang = callLang;
 
+    /* Prefer the REAL-TIME Gemini Live engine when available: true full-duplex,
+       natively multilingual (Telugu/Hindi/English), and 0 Sarvam credits. Falls
+       back automatically to the turn-based call if it can't start. */
+    if (window.LiveCall && LiveCall.isAvailable()) { startLiveCall(); return; }
+    startTurnBasedCall();
+  }
+
+  /* ---- real-time path (Gemini Live: Gemini hears & speaks itself) ---- */
+  function startLiveCall() {
+    liveMode = true;
+    liveUserEl = liveAgentEl = null; liveUserTxt = ""; liveAgentTxt = "";
+    setStatus("Connecting…", null);
+    setBrain("live", "Gemini Live");
+    addBubble("anaga", "🔴 Live call — just talk. Reply in English, हिंदी, or తెలుగు and I'll match you. You can interrupt me any time.");
+    let connected = false;
+    const toFallback = () => {
+      if (!active) return;
+      liveMode = false;
+      try { LiveCall.stop(); } catch (e) {}
+      setBrain(null);
+      showNotice("⚡ Real-time mode couldn't start — switching to the standard call.");
+      startTurnBasedCall();
+    };
+    LiveCall.start({
+      lang: autoMode ? "" : callLang,
+      onStatus: (state) => {
+        if (!active || !liveMode) return;
+        if (state === "connecting") setStatus("Connecting…", null);
+        else if (state === "listening") { connected = true; clearNotice(); setStatus("🔴 Live — just talk", "is-listening"); setMic(true); }
+        else if (state === "speaking") { connected = true; setStatus("Anaga is speaking… (jump in any time)", "is-speaking"); }
+        else if (state === "closed") { if (active && liveMode) finishCall({ reason: "Call ended" }); }
+      },
+      onUserText: (t) => { if (active && liveMode) liveBubble("you", t); },
+      onAgentText: (t) => { if (active && liveMode) liveBubble("anaga", t); },
+      onError: () => {
+        if (!active || !liveMode) return;
+        if (!connected) toFallback();                 // never connected → use the fallback engine
+        else { showNotice("⚠️ The live connection dropped."); finishCall({ reason: "Call ended" }); }
+      },
+      onClose: () => { /* "closed" status handles end-of-call */ }
+    }).catch(toFallback);
+  }
+
+  /* coalesce streaming Live transcripts into one bubble per speaker turn, and
+     record them in `history` so the post-call review still works. */
+  function liveBubble(who, text) {
+    if (who === "you") {
+      if (liveAgentEl) finalizeLive("anaga");
+      liveUserTxt += text;
+      if (!liveUserEl) liveUserEl = addBubble("you", "");
+      liveUserEl.querySelector(".bubble__txt").textContent = liveUserTxt;
+    } else {
+      if (liveUserEl) finalizeLive("you");
+      liveAgentTxt += text;
+      if (!liveAgentEl) liveAgentEl = addBubble("anaga", "");
+      liveAgentEl.querySelector(".bubble__txt").textContent = liveAgentTxt;
+    }
+    transcript.scrollTop = transcript.scrollHeight;
+  }
+  function finalizeLive(who) {
+    if (who === "anaga" && liveAgentEl) {
+      if (liveAgentTxt.trim()) history.push({ role: "agent", text: liveAgentTxt.trim() });
+      liveAgentEl = null; liveAgentTxt = "";
+    }
+    if (who === "you" && liveUserEl) {
+      if (liveUserTxt.trim()) history.push({ role: "user", text: liveUserTxt.trim() });
+      liveUserEl = null; liveUserTxt = "";
+    }
+  }
+
+  /* ---- turn-based path (Web Speech / Sarvam STT → brain → TTS), the fallback ---- */
+  function startTurnBasedCall() {
     setStatus("Connecting…", null);
     requestMicSafe().then(granted => {
       if (!active) return;            // closed while the prompt was open
@@ -1402,6 +1486,7 @@ if (demoEl) {
     const reason = typeof endInfo === "string" ? endInfo : (endInfo && endInfo.reason) || "Call ended";
     active = false; listening = false; wantListen = false; phase = "idle";
     speakToken++;                       // invalidate any in-flight TTS onend
+    if (liveMode) { finalizeLive("you"); finalizeLive("anaga"); try { LiveCall.stop(); } catch (e) {} liveMode = false; }
     if (endpointTimer) { clearTimeout(endpointTimer); endpointTimer = null; }
     if (recog) try { recog.abort(); } catch (e) {}
     synth && synth.cancel();
@@ -1558,6 +1643,13 @@ if (demoEl) {
   if (endBtn) endBtn.addEventListener("click", () => { if (active) finishCall({ reason: "Call ended" }); else closeCall(); });
   micBtn.addEventListener("click", () => {
     if (!active) return;
+    if (liveMode) {                          // real-time call → mute/unmute the live mic
+      micMuted = !micMuted;
+      try { LiveCall.mute(micMuted); } catch (e) {}
+      setMic(!micMuted);
+      setStatus(micMuted ? "🔇 Muted — tap to talk" : "🔴 Live — just talk", micMuted ? null : "is-listening");
+      return;
+    }
     if (!micCapable) {                       // can't listen → guide to typing (always responsive)
       showNotice(recog
         ? "🎤 Mic needs permission on a secure page (https or localhost). Type your reply below — Anaga will still respond."
@@ -1580,6 +1672,7 @@ if (demoEl) {
     e.preventDefault();
     const t = textInput.value;
     textInput.value = "";
+    if (liveMode) { showNotice("🔴 Live call is voice-only — just speak. (Typing works in the standard call.)"); return; }
     if (listening && recog) { try { recog.stop(); } catch (e) {} }
     handleUtterance(t);
   });

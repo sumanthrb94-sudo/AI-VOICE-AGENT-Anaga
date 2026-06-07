@@ -8,6 +8,7 @@
 // Fail soft: on any error the browser falls back to its on-device voice.
 
 import { ttsAvailable, synth } from './_lib/tts.js';
+import { blockedByRateLimit } from './_lib/ratelimit.js';
 
 export default async function handler(req, res) {
   // Capability probe — lets the browser decide whether to use cloud voices.
@@ -23,6 +24,9 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'method_not_allowed' });
   }
+
+  // Paid endpoint (Sarvam credits) — throttle per IP to prevent credit-drain.
+  if (blockedByRateLimit(req, res, { key: 'tts', max: 40, windowMs: 60000 })) return;
 
   let body = req.body;
   if (typeof body === 'string') {

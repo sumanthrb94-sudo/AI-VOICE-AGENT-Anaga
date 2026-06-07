@@ -43,6 +43,8 @@ const AUTH_TOKENS_URL = 'https://generativelanguage.googleapis.com/v1alpha/auth_
 
 const MINT_TIMEOUT_MS = 10000;
 
+import { blockedByRateLimit } from '../_lib/ratelimit.js';
+
 function liveModel() {
   const m = (process.env.GEMINI_LIVE_MODEL || '').trim();
   return m || DEFAULT_LIVE_MODEL;
@@ -72,6 +74,9 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'method_not_allowed' });
   }
+
+  // Each mint = one realtime Live session (the most expensive call) — throttle hard.
+  if (blockedByRateLimit(req, res, { key: 'live', max: 12, windowMs: 60000 })) return;
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {

@@ -9,6 +9,11 @@
 // Fail soft: on any error the browser falls back to its on-device Web Speech.
 
 import { sttAvailable, transcribe } from './_lib/stt.js';
+import { blockedByRateLimit } from './_lib/ratelimit.js';
+
+// Cap accepted audio (~1.5 MB base64 ≈ ~30s of 16 kHz mono PCM) so an oversized
+// upload can't force a costly Sarvam round-trip. Sarvam's sync STT is <30s anyway.
+const MAX_AUDIO_B64 = 1_500_000;
 
 export default async function handler(req, res) {
   // Capability probe — lets the browser decide whether to use cloud STT.
@@ -25,6 +30,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'method_not_allowed' });
   }
 
+  // Paid endpoint (Sarvam credits) — throttle per IP to prevent credit-drain.
+  if (blockedByRateLimit(req, res, { key: 'stt', max: 30, windowMs: 60000 })) return;
+
   let body = req.body;
   if (typeof body === 'string') {
     try { body = body.length ? JSON.parse(body) : {}; }
@@ -36,6 +44,7 @@ export default async function handler(req, res) {
 
   const audioBase64 = typeof body.audio === 'string' ? body.audio : '';
   if (!audioBase64) return res.status(400).json({ error: 'audio_required' });
+  if (audioBase64.length > MAX_AUDIO_B64) return res.status(413).json({ error: 'audio_too_large' });
   const languageCode = typeof body.language_code === 'string' ? body.language_code : 'unknown';
   const mime = typeof body.mime === 'string' ? body.mime : 'audio/wav';
 

@@ -10,12 +10,16 @@
 
 import { generate } from '../_lib/llm.js';
 import { turnPrompt, TURN_DISPOSITIONS } from '../_lib/prompts.js';
+import { blockedByRateLimit } from '../_lib/ratelimit.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'method_not_allowed' });
   }
+
+  // Paid endpoint (Gemini tokens) — throttle per IP.
+  if (blockedByRateLimit(req, res, { key: 'turn', max: 40, windowMs: 60000 })) return;
 
   // Parse body robustly: Vercel may hand us a parsed object or a raw string.
   let body = req.body;
