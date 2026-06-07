@@ -11,13 +11,13 @@ A self-contained, zero-build home screen for the Vaak AI project.
 | `assets/app.js` | Renders the agent fleet + metrics and drives the Playbook overlay |
 | `assets/playbook-data.js` | The Playbook content — edit this to change the guide |
 
-## Anaga's voices (3 selectable)
+## Anaga's voices (2 selectable)
 
-Pick **Aria / Kiara / Meher** in the hero — used by both "Hear Anaga" and the call.
+Pick **Aria / Kiara** in the hero — used by both "Hear Anaga" and the call.
 
 - **With a Sarvam key (recommended):** set `SARVAM_API_KEY` (+ optional `TTS_PROVIDER=sarvam`,
   `SARVAM_TTS_MODEL=bulbul:v2`) in Vercel. The `/api/tts` function then synthesizes real,
-  distinct, lifelike **Sarvam Bulbul** voices (Aria→Anushka, Kiara→Manisha, Meher→Vidya),
+  distinct, lifelike **Sarvam Bulbul** voices (Aria→Anushka, Kiara→Manisha),
   identical on every device. The key stays server-side. The picker shows "🟢 Sarvam Bulbul".
 - **Without a key:** falls back to the browser's built-in voices — bound to distinct installed
   voices where possible, plus strong pitch/pace contrast. The picker honestly shows which device
@@ -28,9 +28,12 @@ Pick **Aria / Kiara / Meher** in the hero — used by both "Hear Anaga" and the 
 The hero's green **Talk to Anaga — live call demo** button opens a call screen that
 actually listens and responds:
 
-- It **explicitly asks for microphone permission** first, then: your **mic** → browser
-  **SpeechRecognition** (STT) → the **conversation brain** → Anaga **speaks back** with her
-  female voice (TTS).
+- It **explicitly asks for microphone permission** first, then: your **mic** → **STT** → the
+  **conversation brain** → Anaga **speaks back** with her female voice (TTS).
+- **Auto language from your voice:** with `SARVAM_API_KEY` set, the call records each utterance
+  and sends it to **Sarvam Saarika** (`/api/stt`), which **auto-detects** Telugu / Hindi /
+  English / code-mix and returns the transcript in that script — so Anaga replies in your
+  language. Without the key it falls back to the browser's on-device **SpeechRecognition**.
 - **Two brains, automatic:** if the serverless endpoints are reachable, replies are generated
   **live by Google Gemini** (`/api/anaga/turn`) and a small **"live AI"** tag shows in the call
   header. If there's no backend/key (e.g. the plain static build), it falls back to the

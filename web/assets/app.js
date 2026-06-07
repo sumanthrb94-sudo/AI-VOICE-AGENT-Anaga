@@ -157,7 +157,7 @@ const FEMALE_HINTS = [
   "google हिन्दी", "google తెలుగు", "google uk english female", "google us english"
 ];
 
-/* ---- 3 selectable voices for Anaga ----
+/* ---- selectable voices for Anaga ----
    `idx` binds each preset to a DIFFERENT installed voice (when the device has
    several). Strong, well-separated pitch/rate make them clearly distinct even
    when the device only exposes one TTS voice — the common reason "all three
@@ -166,12 +166,11 @@ const VOICES = [
   { id: "aria",  name: "Aria",  style: "Warm & bright",  idx: 0, pitch: 1.15, rate: 1.0,  sarvam: "anushka",
     hints: ["samantha", "aria", "veena", "heera", "google us english", "zira"] },
   { id: "kiara", name: "Kiara", style: "Low & crisp",    idx: 1, pitch: 0.8,  rate: 1.12, sarvam: "manisha",
-    hints: ["google uk english female", "kalpana", "tessa", "catherine", "serena", "fiona"] },
-  { id: "meher", name: "Meher", style: "High & gentle",  idx: 2, pitch: 1.5,  rate: 0.85, sarvam: "vidya",
-    hints: ["victoria", "swara", "raveena", "moira", "karen", "nicky"] }
+    hints: ["google uk english female", "kalpana", "tessa", "catherine", "serena", "fiona"] }
 ];
 let selectedVoiceId = (function () {
-  try { return localStorage.getItem("vaak_voice") || "aria"; } catch (e) { return "aria"; }
+  let v; try { v = localStorage.getItem("vaak_voice"); } catch (e) {}
+  return VOICES.some(x => x.id === v) ? v : "aria";   // ignore a stale/removed voice (e.g. "meher")
 })();
 function currentVoice() { return VOICES.find(v => v.id === selectedVoiceId) || VOICES[0]; }
 function setSelectedVoice(id) {
@@ -344,6 +343,85 @@ function speakText(text, lang, opts = {}) {
 }
 CloudTTS.probe();   // detect cloud voices once on load
 
+/* ===================================================================
+   Cloud STT (Sarvam Saarika) — accurate Indian-language speech-to-text via
+   /api/stt with AUTOMATIC language detection. The browser records the caller's
+   utterance, we decode it to 16 kHz mono WAV, and the server returns the
+   transcript + DETECTED language so the call auto-switches languages from the
+   caller's own voice (Telugu / Hindi / English / code-mix). Falls back to the
+   browser's Web Speech recognition when unavailable. Key is server-side only.
+   =================================================================== */
+const SarvamSTT = (function () {
+  let available = null;            // null=unknown, true, false
+  let actx = null;
+  function ctx() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    if (!actx) actx = new AC();
+    return actx;
+  }
+  function probe() {
+    return fetch("/api/stt").then(r => r.ok ? r.json() : { available: false })
+      .then(d => { available = !!(d && d.available); return available; })
+      .catch(() => { available = false; return false; });
+  }
+  function isOn() { return available === true; }
+
+  /* AudioBuffer -> 16 kHz mono 16-bit PCM WAV Blob (what Saarika expects) */
+  function encodeWav(buffer, targetRate) {
+    targetRate = targetRate || 16000;
+    const numCh = buffer.numberOfChannels;
+    let mono = buffer.getChannelData(0);
+    if (numCh > 1) {
+      const m = new Float32Array(mono.length);
+      for (let c = 0; c < numCh; c++) { const d = buffer.getChannelData(c); for (let i = 0; i < d.length; i++) m[i] += d[i] / numCh; }
+      mono = m;
+    }
+    const ratio = buffer.sampleRate / targetRate;
+    const outLen = Math.max(1, Math.floor(mono.length / ratio));
+    const out = new Float32Array(outLen);
+    for (let i = 0; i < outLen; i++) out[i] = mono[Math.floor(i * ratio)] || 0;
+
+    const ab = new ArrayBuffer(44 + out.length * 2);
+    const view = new DataView(ab);
+    const wstr = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+    wstr(0, "RIFF"); view.setUint32(4, 36 + out.length * 2, true); wstr(8, "WAVE");
+    wstr(12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, targetRate, true); view.setUint32(28, targetRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    wstr(36, "data"); view.setUint32(40, out.length * 2, true);
+    let off = 44;
+    for (let i = 0; i < out.length; i++) { const s = Math.max(-1, Math.min(1, out[i])); view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true); off += 2; }
+    return new Blob([ab], { type: "audio/wav" });
+  }
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => { const s = String(fr.result || ""); resolve(s.slice(s.indexOf(",") + 1)); };
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+  }
+  /* transcribe a recorded utterance Blob -> { transcript, language_code } */
+  async function transcribe(blob, languageCode) {
+    if (!blob) throw new Error("no_audio");
+    const c = ctx();
+    if (!c) throw new Error("no_audio_ctx");
+    if (c.state === "suspended" && c.resume) { try { await c.resume(); } catch (e) {} }
+    const decoded = await c.decodeAudioData(await blob.arrayBuffer());
+    const wav = encodeWav(decoded, 16000);
+    const audio = await blobToBase64(wav);
+    const res = await fetch("/api/stt", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audio, mime: "audio/wav", language_code: languageCode || "unknown" })
+    });
+    if (!res.ok) throw new Error("stt_" + res.status);
+    return res.json();             // { transcript, language_code }
+  }
+  return { probe, isOn, transcribe };
+})();
+SarvamSTT.probe();
+window.SarvamSTT = SarvamSTT;
+
 let curLang = "en-IN"; // controlled by the language pills (sample); call demo runs in en-IN
 
 /* language pills (shared) */
@@ -392,7 +470,7 @@ if (demoEl) {
   window.addEventListener("beforeunload", () => synth.cancel());
 })();
 
-/* ---------------- voice picker (3 selectable AI voices) ---------------- */
+/* ---------------- voice picker (selectable AI voices) ---------------- */
 (function voicePicker() {
   const picker = document.getElementById("voice-picker");
   if (!picker) return;
@@ -412,17 +490,16 @@ if (demoEl) {
     if (!note) return;
     /* cloud voices (Sarvam Bulbul) — real, distinct, lifelike */
     if (CloudTTS.isOn()) {
-      const sp = VOICES.map(p => p.sarvam);
-      note.innerHTML = "🟢 <b>Sarvam Bulbul</b> cloud voices — Aria: " + sp[0] +
-        " · Kiara: " + sp[1] + " · Meher: " + sp[2] + " (distinct &amp; lifelike).";
+      const list = VOICES.map(p => p.name + ": " + p.sarvam).join(" · ");
+      note.innerHTML = "🟢 <b>Sarvam Bulbul</b> cloud voices — " + list + " (distinct &amp; lifelike).";
       return;
     }
     const names = map.map(m => voiceLabel(m.v));
     const distinct = new Set(names.map(n => n.toLowerCase())).size;
     if (!voices.length) { note.textContent = ""; return; }
     note.textContent = distinct >= 2
-      ? "On your device → Aria: " + names[0] + " · Kiara: " + names[1] + " · Meher: " + names[2]
-      : "Your device exposes one TTS voice (" + names[0] + "), so the three differ by pitch & pace. For 3 distinct natural voices, connect Sarvam (set SARVAM_API_KEY).";
+      ? "On your device → " + map.map((m, i) => m.p.name + ": " + names[i]).join(" · ")
+      : "Your device exposes one TTS voice (" + names[0] + "), so the voices differ by pitch & pace. For distinct natural voices, connect Sarvam (set SARVAM_API_KEY).";
   }
 
   refresh();
@@ -462,7 +539,7 @@ if (demoEl) {
   const voiceChip  = document.getElementById("call-voice");
 
   /* show which voice is talking (and the Sarvam speaker when cloud is on);
-     tap to cycle through the 3 voices mid-call (applies from the next line). */
+     tap to cycle through the voices mid-call (applies from the next line). */
   function updateCallVoice() {
     if (!voiceChip) return;
     const p = currentVoice();
@@ -511,6 +588,13 @@ if (demoEl) {
   let endpointTimer = null;        // debounce timer for natural end-of-turn
   let pendingUtter = "";           // accumulates the caller's words across short pauses
   let currentSpokenNorm = "";      // Anaga's current line, normalized — used to filter echo
+
+  /* Sarvam STT capture: when cloud STT is available we record each utterance and
+     send the audio to /api/stt for an accurate transcript + detected language. */
+  let sttStream = null;            // live mic stream kept alive for recording
+  let mediaRec = null;             // MediaRecorder for the current utterance
+  let recChunks = [];
+  let recording = false;
 
   /* full conversation transcript sent to the backend brain */
   let history = [];               // [{ role:"agent"|"user", text }]
@@ -685,6 +769,7 @@ if (demoEl) {
     phase = "listening";
     setStatus("Listening… (go ahead)", "is-listening");
     setMic(true);
+    startRec();                           // capture the interrupting utterance for Sarvam STT
   }
 
   /* wait for a real pause before ending the caller's turn (natural endpointing) */
@@ -694,7 +779,11 @@ if (demoEl) {
       endpointTimer = null;
       const t = pendingUtter.trim();
       pendingUtter = "";
-      if (t) handleUtterance(t);
+      if (useSarvamStt() && recording) {
+        stopRec().then(blob => { if (active) handleUtterance(t, blob); });
+      } else if (t) {
+        handleUtterance(t, null);
+      }
     }, ENDPOINT_MS);
   }
 
@@ -712,6 +801,35 @@ if (demoEl) {
       else out.push(p);
     }
     return out.length ? out : [s];
+  }
+
+  /* ---- Sarvam STT capture (records each utterance for accurate, auto-language transcription) ---- */
+  function useSarvamStt() { return window.SarvamSTT && SarvamSTT.isOn() && !!sttStream; }
+  function startRec() {
+    if (!useSarvamStt() || recording) return;
+    try {
+      recChunks = [];
+      mediaRec = new MediaRecorder(sttStream);
+      mediaRec.ondataavailable = e => { if (e.data && e.data.size) recChunks.push(e.data); };
+      mediaRec.start();
+      recording = true;
+    } catch (e) { mediaRec = null; recording = false; }
+  }
+  function stopRec() {
+    return new Promise(resolve => {
+      if (!mediaRec || !recording) { recording = false; resolve(null); return; }
+      recording = false;
+      mediaRec.onstop = () => {
+        const blob = recChunks.length ? new Blob(recChunks, { type: recChunks[0].type || "audio/webm" }) : null;
+        recChunks = []; mediaRec = null; resolve(blob);
+      };
+      try { mediaRec.stop(); } catch (e) { mediaRec = null; resolve(null); }
+    });
+  }
+  function stopSttCapture() {
+    try { if (mediaRec && recording) mediaRec.stop(); } catch (e) {}
+    recording = false; mediaRec = null; recChunks = [];
+    if (sttStream) { try { sttStream.getTracks().forEach(t => t.stop()); } catch (e) {} sttStream = null; }
   }
 
   /* ---- speaking & listening ---- */
@@ -805,40 +923,60 @@ if (demoEl) {
     if (!listening) { try { recog.start(); } catch (e) { /* already started */ } }
   }
 
-  function handleUtterance(text) {
+  /* `text` is the Web Speech transcript (or typed input); `blob`, when present,
+     is the recorded audio for accurate Sarvam transcription + language detection. */
+  function handleUtterance(text, blob) {
     if (!active || phase === "thinking") return;
-    text = (text || "").trim();
-    if (!text) { startListening(); return; }
     if (endpointTimer) { clearTimeout(endpointTimer); endpointTimer = null; }
     pendingUtter = "";
     phase = "thinking";
     setMic(false);
     clearInterim();
-    addBubble("you", text);                 // show what the caller actually said (their language)
-    setStatus("Anaga is thinking…", null);
+    text = (text || "").trim();
 
-    /* Push the caller's ACTUAL words (their language) — the LLM brain handles
-       language natively and replies in kind. Auto-detect adapts the speech
-       recognition + voice language in real time (the offline FLOW translates
-       on demand for its keyword matching). */
+    /* 🟢 Sarvam STT: transcribe the caller's own audio for an accurate transcript
+       AND the detected language (Telugu / Hindi / English / code-mix). This is
+       what makes auto language switching work from real client input. */
+    if (useSarvamStt() && blob) {
+      setStatus("Transcribing…", null);
+      SarvamSTT.transcribe(blob, autoMode ? "unknown" : callLang)
+        .then(r => {
+          if (!active) return;
+          const t = ((r && r.transcript) || text || "").trim();
+          const base = (autoMode && r && r.language_code) ? String(r.language_code).split("-")[0] : null;
+          if (!t) { startListening(); return; }
+          consumeUtterance(t, base);
+        })
+        .catch(() => { if (!active) return; if (text) consumeUtterance(text, null); else startListening(); });
+      return;
+    }
+
+    if (!text) { startListening(); return; }
+
+    /* Web Speech path: detect the language on-device (auto mode) like before. */
+    if (autoMode && window.TranslateKit && TranslateKit.available() && TranslateKit.hasDetector()) {
+      TranslateKit.detect(text)
+        .then(base => { if (!active) return; consumeUtterance(text, shouldSwitch(base, text) ? base : null); })
+        .catch(() => consumeUtterance(text, null));
+    } else {
+      consumeUtterance(text, null);
+    }
+  }
+
+  /* show the final transcript, switch language if detected, then ask the brain.
+     The caller's ACTUAL words (their language) go to the brain — the LLM replies
+     in kind; the offline FLOW translates on demand for its keyword matching. */
+  function consumeUtterance(text, switchToBase) {
+    if (!active) return;
+    addBubble("you", text);
+    setStatus("Anaga is thinking…", null);
     const advance = () => {
       history.push({ role: "user", text });
       if (brainMode === "offline") { setTimeout(nextOfflineTurn, 250); return; }
       nextLiveTurn();
     };
-
-    /* 🌐 auto-detect the caller's language with on-device AI, then adapt */
-    if (autoMode && window.TranslateKit && TranslateKit.available() && TranslateKit.hasDetector()) {
-      TranslateKit.detect(text)
-        .then(base => {
-          if (!active) return;
-          if (shouldSwitch(base, text)) applyLanguage(base).then(advance);
-          else advance();
-        })
-        .catch(advance);
-    } else {
-      advance();
-    }
+    if (switchToBase && switchToBase !== callBase) applyLanguage(switchToBase).then(advance);
+    else advance();
   }
 
   /* offline rule-engine turn (also the fallback used the moment the backend fails).
@@ -950,6 +1088,19 @@ if (demoEl) {
       listening = true;
       if (phase === "listening") { setMic(true); setStatus("Listening… speak now", "is-listening"); }
     };
+    /* speech-boundary events are language-agnostic (acoustic, not transcript) —
+       they make Sarvam capture work even when Web Speech can't transcribe the
+       caller's language (e.g. Telugu while recog.lang is still en-IN). */
+    recog.onspeechstart = () => {
+      if (!active) return;
+      if (phase === "listening") {
+        if (endpointTimer) { clearTimeout(endpointTimer); endpointTimer = null; }  // resumed → don't cut off
+        startRec();
+      }
+    };
+    recog.onspeechend = () => {
+      if (active && useSarvamStt() && recording && phase === "listening") armEndpoint();
+    };
     recog.onresult = e => {
       let interim = "", finalT = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -965,8 +1116,10 @@ if (demoEl) {
       }
       if (phase !== "listening") return;    // ignore stray results while thinking/idle
 
-      if (interim) { showInterim(pendingUtter ? pendingUtter + " " + interim : interim); armEndpoint(); }
-      if (finalT)  { pendingUtter = (pendingUtter ? pendingUtter + " " : "") + finalT.trim(); showInterim(pendingUtter); armEndpoint(); }
+      if (useSarvamStt()) startRec();        // record this utterance for accurate transcription
+      const shown = useSarvamStt() ? "…" : null;   // don't show Web Speech's garbled non-English interim
+      if (interim) { showInterim(shown || (pendingUtter ? pendingUtter + " " + interim : interim)); armEndpoint(); }
+      if (finalT)  { pendingUtter = (pendingUtter ? pendingUtter + " " : "") + finalT.trim(); showInterim(shown || pendingUtter); armEndpoint(); }
     };
     recog.onerror = ev => {
       listening = false;
@@ -1015,7 +1168,10 @@ if (demoEl) {
     setStatus("Requesting microphone…", null);
     return md.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
       .then(stream => {
-        stream.getTracks().forEach(t => t.stop()); // we only needed the permission
+        /* keep the stream alive for Sarvam STT recording; otherwise we only
+           needed the permission, so release it. */
+        if (window.SarvamSTT && SarvamSTT.isOn()) { stopSttCapture(); sttStream = stream; }
+        else { stream.getTracks().forEach(t => t.stop()); }
         clearNotice();
         return true;
       })
@@ -1043,6 +1199,7 @@ if (demoEl) {
     phase = "idle"; micMuted = false; wantListen = false; offlineNudged = false;
     pendingUtter = ""; pendingEnd = null; currentSpokenNorm = "";
     if (endpointTimer) { clearTimeout(endpointTimer); endpointTimer = null; }
+    stopSttCapture();                  // release any mic stream / recorder from a prior call
     transcript.innerHTML = "";
     if (reviewEl) { reviewEl.hidden = true; reviewEl.innerHTML = ""; }
     if (endBtn) endBtn.textContent = "✕ End call";
@@ -1178,6 +1335,7 @@ if (demoEl) {
     if (recog) try { recog.abort(); } catch (e) {}
     synth && synth.cancel();
     CloudTTS.stop();
+    stopSttCapture();                   // stop recording + release the mic stream
     setMic(false);
     setStatus(reason, null);
     if (endBtn) endBtn.textContent = "✕ Close";
