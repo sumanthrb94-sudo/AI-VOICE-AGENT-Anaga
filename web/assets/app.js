@@ -243,6 +243,7 @@ function voiceLabel(v) {
 const CloudTTS = (function () {
   let available = null;            // null=unknown, true, false
   let audio = null;
+  let playWd = null;               // watchdog: a stuck <audio> must never hang the turn
   const cache = {};                // key -> dataURL (repeat lines, e.g. greeting)
   const modKey = () => modulation.pitch + "," + modulation.pace + "," + modulation.loud;
   function reqBody(text, lang, speaker) {
@@ -259,30 +260,44 @@ const CloudTTS = (function () {
       .catch(() => { available = false; return false; });
   }
   function isOn() { return available === true; }
-  function stop() { if (audio) { try { audio.pause(); } catch (e) {} audio.onended = audio.onerror = null; audio = null; } }
+  function stop() { if (audio) { try { audio.pause(); } catch (e) {} audio.onended = audio.onerror = audio.onplay = null; if (playWd) { clearTimeout(playWd); playWd = null; } audio = null; } }
   function play(src, opts, fallback) {
     stop();
-    audio = new Audio(src);
+    const el = audio = new Audio(src);
     let done = false;
-    const finish = () => { if (done) return; done = true; opts.onend && opts.onend(); };
+    const finish = () => { if (done) return; done = true; if (playWd) { clearTimeout(playWd); playWd = null; } opts.onend && opts.onend(); };
     if (opts.onstart) audio.onplay = opts.onstart;
     audio.onended = finish;
-    audio.onerror = () => { if (!done) { done = true; fallback(); } };
-    audio.play().catch(() => { if (!done) { done = true; fallback(); } });
+    audio.onerror = () => { if (playWd) { clearTimeout(playWd); playWd = null; } if (!done) { done = true; fallback(); } };
+    /* some browsers load a data-URI <audio> but never fire `ended` (zero-length /
+       odd payloads) — bound playback so speakLine always advances. We learn the
+       real duration on metadata and extend the cap to it; default to a safe max. */
+    const arm = (ms) => { if (playWd) clearTimeout(playWd); playWd = setTimeout(() => { playWd = null; if (audio === el) finish(); }, ms); };
+    audio.onloadedmetadata = () => { const d = el.duration; if (isFinite(d) && d > 0) arm(d * 1000 + 1200); };
+    arm(20000);                       // hard ceiling until metadata refines it
+    audio.play().catch(() => { if (playWd) { clearTimeout(playWd); playWd = null; } if (!done) { done = true; fallback(); } });
   }
   function speak(text, lang, preset, opts, fallback) {
     const speaker = preset.sarvam || "anushka";
     const key = speaker + "|" + (lang || "en-IN") + "|" + modKey() + "|" + text;
     if (cache[key]) return play(cache[key], opts, fallback);
-    fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker) })
+    /* a hung /api/tts fetch must never freeze the call — abort it and fall back
+       to the browser voice so speakLine keeps moving. */
+    const ctrl = ("AbortController" in window) ? new AbortController() : null;
+    const to = setTimeout(() => { try { ctrl && ctrl.abort(); } catch (e) {} }, 7000);
+    let settled = false;
+    const bail = () => { if (settled) return; settled = true; clearTimeout(to); available = false; fallback(); };
+    fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker), signal: ctrl ? ctrl.signal : undefined })
       .then(r => { if (!r.ok) throw new Error("tts_" + r.status); return r.json(); })
       .then(d => {
+        if (settled) return;
         if (!d || !d.audio) throw new Error("no_audio");
+        settled = true; clearTimeout(to);
         const src = "data:" + (d.mime || "audio/wav") + ";base64," + d.audio;
         cache[key] = src;
         play(src, opts, fallback);
       })
-      .catch(() => { available = false; fallback(); });   // degrade to browser voice
+      .catch(bail);   // degrade to browser voice
   }
   /* fetch raw audio (used by the Voice Lab so it can analyse real frequencies) */
   function fetchAudio(text, lang, preset) {
@@ -570,7 +585,7 @@ if (demoEl) {
                  — lets them pause mid-thought without getting cut off */
   const CONTINUOUS = true;
   const BARGE_IN = true;
-  const ENDPOINT_MS = 900;
+  const ENDPOINT_MS = 550;         // snappier end-of-turn; still tolerates a mid-thought pause
   const BARGEIN_MIN_CHARS = 3;     // ignore shorter blips while Anaga speaks (echo guard)
 
   let ctx = {};
@@ -750,6 +765,16 @@ if (demoEl) {
   /* ---- free-flow helpers (echo filter, barge-in, smart endpointing) ---- */
   const norm = s => (s || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 
+  /* never let a single async step (Sarvam STT, on-device translate, a stuck
+     <audio>) hang the whole call: race it against a timeout so we always fall
+     back to the next step instead of freezing on "Transcribing…" / silence. */
+  function withTimeout(promise, ms, fallback) {
+    return Promise.race([
+      Promise.resolve(promise),
+      new Promise(res => setTimeout(() => res(fallback), ms))
+    ]);
+  }
+
   /* is this recognized text most likely Anaga's own voice echoing into the mic? */
   function isLikelyEcho(candidate) {
     if (!currentSpokenNorm) return false;
@@ -768,8 +793,15 @@ if (demoEl) {
     pendingEnd = null;
     phase = "listening";
     setStatus("Listening… (go ahead)", "is-listening");
-    setMic(true);
+    /* keep the auto-restart loop alive and make sure recognition is actually
+       running, so a barge-in never lands us in a dead, non-restarting state. */
+    if (micCapable && !micMuted) {
+      wantListen = true;
+      setMic(true);
+      if (!listening) { try { recog.start(); } catch (e) {} }
+    }
     startRec();                           // capture the interrupting utterance for Sarvam STT
+    armEndpoint();                         // a one-word interruption then silence still ends the turn
   }
 
   /* wait for a real pause before ending the caller's turn (natural endpointing) */
@@ -777,12 +809,26 @@ if (demoEl) {
     if (endpointTimer) clearTimeout(endpointTimer);
     endpointTimer = setTimeout(() => {
       endpointTimer = null;
+      if (!active || phase !== "listening") return;
       const t = pendingUtter.trim();
       pendingUtter = "";
       if (useSarvamStt() && recording) {
-        stopRec().then(blob => { if (active) handleUtterance(t, blob); });
+        /* show progress the instant the turn ends so it never feels frozen, then
+           ship the recorded audio to Sarvam (handleUtterance does the round-trip).
+           Commit to "thinking" now so a late recog result can't re-arm a 2nd
+           endpoint or double-submit while stopRec() is resolving. */
+        phase = "thinking";
+        setStatus("Anaga is thinking…", null);
+        stopRec().then(blob => {
+          if (!active) return;
+          phase = "listening";            // handleUtterance re-asserts "thinking"; this lets it run
+          if (blob || t) handleUtterance(t, blob);
+          else startListening();          // nothing captured → re-arm, never a dead state
+        });
       } else if (t) {
         handleUtterance(t, null);
+      } else {
+        startListening();                  // silence with nothing to send → keep listening
       }
     }, ENDPOINT_MS);
   }
@@ -856,7 +902,11 @@ if (demoEl) {
     const chunks = splitSentences(display);
     const myToken = ++speakToken;       // barge-in / a newer line bumps this → stale onends no-op
     let i = 0;
+    let chunkWd = null;                 // per-chunk watchdog: never wait forever on a TTS onend
+    const clearWd = () => { if (chunkWd) { clearTimeout(chunkWd); chunkWd = null; } };
+    let graceTries = 0;                 // bounded retries while a streaming end resolves
     const speakNext = () => {
+      clearWd();
       if (myToken !== speakToken || !active) return;        // superseded
       if (i >= chunks.length) {                             // whole line delivered
         currentSpokenNorm = "";
@@ -866,16 +916,23 @@ if (demoEl) {
           if (ei) return finishCall(ei);
           return (opts.onDone || startListening)();
         };
-        // streaming may resolve end-of-call a beat late — give it a short grace
-        if (typeof endInfo === "function" && endInfo() == null) { setTimeout(finalize, 500); return; }
+        // streaming may resolve end-of-call a beat late — poll a few short graces
+        // for pendingEnd, but never stall: fall through to listening after ~1.5s.
+        if (typeof endInfo === "function" && endInfo() == null && graceTries < 3) {
+          graceTries++; setTimeout(speakNext, 500); return;
+        }
         return finalize();
       }
       const piece = chunks[i++];
       if (window.CloudTTS && CloudTTS.isOn() && chunks[i]) CloudTTS.prefetch(chunks[i], lang, opts.voice || currentVoice());
-      speakText(piece, lang, {
-        voice: opts.voice,
-        onend: () => { if (myToken === speakToken) speakNext(); }
-      });
+      let advanced = false;
+      const advance = () => { if (advanced) return; advanced = true; clearWd(); if (myToken === speakToken) speakNext(); };
+      speakText(piece, lang, { voice: opts.voice, onend: advance });
+      /* watchdog: if onend never fires (stuck CloudTTS <audio>, dropped synth
+         event, empty chunk), advance anyway so the turn never freezes. Scale the
+         budget to the chunk length so we don't cut real speech short. */
+      const budget = Math.min(22000, 3500 + piece.split(/\s+/).length * 420);
+      chunkWd = setTimeout(advance, budget);
     };
     speakNext();
   }
@@ -887,7 +944,9 @@ if (demoEl) {
     opts = opts || {};
     if (opts.translate && translateOn && callBase !== "en" && window.TranslateKit) {
       setStatus("Anaga is speaking…", "is-speaking");
-      TranslateKit.out(line, callBase)
+      /* time-box the on-device translate so a wedged model can't leave Anaga
+         silent — fall back to speaking the English line on timeout. */
+      withTimeout(TranslateKit.out(line, callBase), 5000, null)
         .then(tr => speakLine(tr || line, endInfo, { lang: callLang, histText: line }))
         .catch(() => speakLine(line, endInfo, { lang: callLang, histText: line }));
       return;
@@ -936,15 +995,21 @@ if (demoEl) {
 
     /* 🟢 Sarvam STT: transcribe the caller's own audio for an accurate transcript
        AND the detected language (Telugu / Hindi / English / code-mix). This is
-       what makes auto language switching work from real client input. */
-    if (useSarvamStt() && blob) {
+       what makes auto language switching work from real client input.
+       LATENCY: the round-trip only earns its keep when we need language detection
+       (auto mode) OR when Web Speech gave us nothing to work with. In a fixed-
+       language call where Web Speech already produced words, skip the upload and
+       advance instantly — no per-turn round-trip, no "Transcribing…" pause. */
+    if (useSarvamStt() && blob && !(text && !autoMode)) {
       setStatus("Transcribing…", null);
-      SarvamSTT.transcribe(blob, autoMode ? "unknown" : callLang)
+      /* if Web Speech already gave us words, fall back faster — no need to wait long. */
+      const ms = text ? 6000 : 9000;
+      withTimeout(SarvamSTT.transcribe(blob, autoMode ? "unknown" : callLang), ms, null)
         .then(r => {
           if (!active) return;
           const t = ((r && r.transcript) || text || "").trim();
           const base = (autoMode && r && r.language_code) ? String(r.language_code).split("-")[0] : null;
-          if (!t) { startListening(); return; }
+          if (!t) { startListening(); return; }       // nothing heard → re-arm, never stuck
           consumeUtterance(t, base);
         })
         .catch(() => { if (!active) return; if (text) consumeUtterance(text, null); else startListening(); });
@@ -972,7 +1037,9 @@ if (demoEl) {
     setStatus("Anaga is thinking…", null);
     const advance = () => {
       history.push({ role: "user", text });
-      if (brainMode === "offline") { setTimeout(nextOfflineTurn, 250); return; }
+      /* tiny defer just lets the "you" bubble paint before Anaga replies — keep it
+         short so the offline path doesn't feel laggy. */
+      if (brainMode === "offline") { setTimeout(nextOfflineTurn, 60); return; }
       nextLiveTurn();
     };
     if (switchToBase && switchToBase !== callBase) applyLanguage(switchToBase).then(advance);
@@ -1002,7 +1069,10 @@ if (demoEl) {
       sayStep(nextId);
     };
     if (translateOn && callBase !== "en" && window.TranslateKit && said) {
-      TranslateKit.in(said, callBase).then(en => proceed(en || said)).catch(() => proceed(said));
+      /* never let a wedged on-device translator strand the turn in "thinking" —
+         time-box it and proceed with the original words on timeout. */
+      withTimeout(TranslateKit.in(said, callBase), 5000, said)
+        .then(en => proceed(en || said)).catch(() => proceed(said));
     } else {
       proceed(said);
     }
