@@ -1701,11 +1701,23 @@ if (demoEl) {
       setStatus(micMuted ? "🔇 Muted — tap to talk" : "🔴 Live — just talk", micMuted ? null : "is-listening");
       return;
     }
-    if (!micCapable) {                       // can't listen → guide to typing (always responsive)
-      showNotice(recog
-        ? "🎤 Mic needs permission on a secure page (https or localhost). Type your reply below — Anaga will still respond."
-        : "🎤 Voice input isn't supported in this browser (try Chrome/Edge). Type your reply below — Anaga will still respond.");
-      if (textInput) textInput.focus();
+    if (!micCapable) {
+      // Mic isn't enabled yet — but a tap is a fresh user gesture, so RETRY the
+      // permission instead of dying as "No mic". This recovers the common mobile
+      // case where the first request timed out before the user tapped "Allow".
+      if (!recog) {
+        showNotice("🎤 Voice input isn't supported in this browser (try Chrome/Edge). Type your reply below — Anaga will still respond.");
+        if (textInput) textInput.focus();
+        return;
+      }
+      showNotice("🎤 Enabling microphone…");
+      requestMic().then(granted => {
+        if (!active) return;
+        micAllowed = granted;
+        configureMicButton(granted);           // updates micCapable + the button label
+        if (granted) { clearNotice(); micMuted = false; startListening(); }   // now a working Mute toggle
+        else if (textInput) textInput.focus(); // still blocked → fall back to typing
+      });
       return;
     }
     /* continuous mic: tap to mute while listening; tap to (re)arm otherwise.
