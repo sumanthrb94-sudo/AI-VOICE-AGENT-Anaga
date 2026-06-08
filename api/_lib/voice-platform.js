@@ -1,17 +1,17 @@
 // api/_lib/voice-platform.js
 //
 // Outbound-call adapter for the managed voice platform that runs Anaga on a REAL
-// phone line (PSTN via an Exotel "bring-your-own" SIP number). Default provider is
-// Vapi; swappable to Retell with VOICE_PLATFORM=retell. Business logic only ever
-// calls triggerOutboundCall() and never knows which platform answered — the same
+// phone line. DEFAULT provider is Sarvam Samvaad — India-native (Telugu-first
+// STT/LLM/TTS), self-serve, and it natively carries voice + WhatsApp; Vapi and
+// Retell remain available via VOICE_PLATFORM. Business logic only ever calls
+// triggerOutboundCall() and never knows which platform answered — the same
 // provider-abstraction boundary as api/_lib/llm.js ("no vendor in business logic").
 //
-// ONE source of truth for the persona: SYL_RULES from api/_lib/prompts.js becomes
-// the phone assistant's system prompt, and Anaga ALWAYS opens in Telugu, then
-// mirrors the caller. Prefer configuring the assistant in the platform dashboard
-// (set VAPI_ASSISTANT_ID) so you can pick a Telugu-capable voice/transcriber
-// visually; the inline assistant below is a zero-config bootstrap so a call works
-// the moment the keys are set.
+// ONE source of truth for the persona: SYL_RULES from api/_lib/prompts.js. For
+// Samvaad you paste SYL_RULES + the Telugu opening into the agent you build in
+// the Samvaad dashboard (the call references it by SAMVAAD_AGENT_ID). For Vapi,
+// SYL_RULES is sent inline (or set VAPI_ASSISTANT_ID). Anaga ALWAYS opens in
+// Telugu, then mirrors the caller.
 //
 // No npm deps: global fetch (Node 18+).
 
@@ -25,14 +25,15 @@ export const TELUGU_OPENING =
   'ఇది AI వాయిస్ కాల్ అని తెలియజేస్తున్నాను. మీకు ఒక నిమిషం సమయం ఉందా?';
 
 export function voicePlatform() {
-  return (process.env.VOICE_PLATFORM || 'vapi').toLowerCase();
+  return (process.env.VOICE_PLATFORM || 'samvaad').toLowerCase();
 }
 
 export function voicePlatformConfigured() {
   switch (voicePlatform()) {
-    case 'vapi':   return !!(process.env.VAPI_API_KEY && process.env.VAPI_PHONE_NUMBER_ID);
-    case 'retell': return !!(process.env.RETELL_API_KEY && process.env.RETELL_FROM_NUMBER);
-    default:       return false;
+    case 'samvaad': return !!(process.env.SARVAM_API_KEY && process.env.SAMVAAD_OUTBOUND_URL && process.env.SAMVAAD_AGENT_ID);
+    case 'vapi':    return !!(process.env.VAPI_API_KEY && process.env.VAPI_PHONE_NUMBER_ID);
+    case 'retell':  return !!(process.env.RETELL_API_KEY && process.env.RETELL_FROM_NUMBER);
+    default:        return false;
   }
 }
 
@@ -44,10 +45,50 @@ export function voicePlatformConfigured() {
 export async function triggerOutboundCall({ to, metadata = {} } = {}) {
   if (!to) throw new Error('missing_to');
   switch (voicePlatform()) {
-    case 'vapi':   return callVapi({ to, metadata });
-    case 'retell': return callRetell({ to, metadata });
-    default:       throw new Error('unsupported_voice_platform');
+    case 'samvaad': return callSamvaad({ to, metadata });
+    case 'vapi':    return callVapi({ to, metadata });
+    case 'retell':  return callRetell({ to, metadata });
+    default:        throw new Error('unsupported_voice_platform');
   }
+}
+
+// ---- Sarvam Samvaad (https://docs.sarvam.ai) — India-native, self-serve ------
+// Samvaad is a dashboard platform: you BUILD the Anaga agent there (paste
+// SYL_RULES as the instructions + the Telugu TELUGU_OPENING as the first line,
+// pick a Sarvam Telugu FEMALE voice, enable language-switching, connect your
+// telephony e.g. Exotel and/or WhatsApp). The call then references that agent by
+// SAMVAAD_AGENT_ID. Sarvam's auth header is `api-subscription-key`. The exact
+// outbound endpoint + body live in YOUR Samvaad dashboard's API docs, so the URL
+// is taken from env (SAMVAAD_OUTBOUND_URL) — nothing here is a guessed path.
+async function callSamvaad({ to, metadata }) {
+  const apiKey = process.env.SARVAM_API_KEY;
+  const url = process.env.SAMVAAD_OUTBOUND_URL;   // from dashboard.sarvam.ai (Samvaad → API)
+  const agentId = process.env.SAMVAAD_AGENT_ID;   // the Anaga agent you built in Samvaad
+  if (!apiKey || !url || !agentId) throw new Error('samvaad_not_configured');
+
+  const payload = { agent_id: agentId, to_number: to, metadata };
+  if (process.env.SAMVAAD_FROM_NUMBER) payload.from_number = process.env.SAMVAAD_FROM_NUMBER;
+
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 12000);
+  let resp;
+  try {
+    resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'api-subscription-key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: ctrl.signal,
+    });
+  } catch (err) {
+    throw new Error(`voice_platform_request_failed: ${err && err.name === 'AbortError' ? 'timeout' : 'network'}`);
+  } finally { clearTimeout(t); }
+
+  if (!resp.ok) {
+    let d = ''; try { d = (await resp.text()).slice(0, 300); } catch (_) {}
+    throw new Error(`voice_platform_${resp.status}${d ? ': ' + d : ''}`);
+  }
+  const data = await resp.json().catch(() => ({}));
+  return { ok: true, id: data.call_id || data.id || '', raw: data };
 }
 
 // ---- Vapi (https://docs.vapi.ai) — verify fields against current docs --------
