@@ -48,7 +48,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'invalid_history' });
   }
 
-  const { system, user } = summaryPrompt(history);
+  const direction = body.direction === 'inbound' ? 'inbound' : 'outbound';
+  const { system, user } = summaryPrompt(history, direction);
 
   let out;
   try {

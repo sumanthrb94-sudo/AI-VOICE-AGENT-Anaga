@@ -159,13 +159,13 @@ body {
 }
 .voice-demo__lbl { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-faint); }
 .voice-demo__langs { display: inline-flex; gap: 6px; }
-.lang-pill {
+.lang-pill, .dir-pill {
   font-family: 'Inter', sans-serif; font-size: 12.5px; font-weight: 600; color: var(--ink-dim);
   background: var(--panel); border: 1px solid var(--line); border-radius: 100px;
   padding: 7px 14px; cursor: pointer; transition: .18s var(--ease);
 }
-.lang-pill:hover { color: var(--ink); border-color: #353c59; }
-.lang-pill.is-active {
+.lang-pill:hover, .dir-pill:hover { color: var(--ink); border-color: #353c59; }
+.lang-pill.is-active, .dir-pill.is-active {
   color: #1a1206; border-color: transparent;
   background: linear-gradient(135deg, var(--saffron), var(--saffron-2));
 }

@@ -15,14 +15,24 @@
 //
 // No npm deps: global fetch (Node 18+).
 
-import { SYL_RULES } from './prompts.js';
+import { rulesFor } from './prompts.js';
 
-// Anaga's opening line — ALWAYS Telugu (then she mirrors the caller). Mirrors
-// caller-agent/flows/real-estate-qualify.flow.json (greet) and anaga.persona.json.
+// Anaga's opening lines — ALWAYS Telugu (then she mirrors the caller). Mirror
+// caller-agent/flows/*.flow.json and anaga.persona.json. OUTBOUND = we called the
+// lead; INBOUND = the customer called Modcon and Anaga answers as a receptionist.
 export const TELUGU_OPENING =
   'నమస్కారం! నేను అనగ, మోడ్‌కాన్ బిల్డర్స్ నుండి AI వాయిస్ అసిస్టెంట్. ' +
   'తుక్కుగూడలోని మా SYL రెసిడెన్సెస్ గురించి మాట్లాడటానికి కాల్ చేస్తున్నాను. ' +
   'ఇది AI వాయిస్ కాల్ అని తెలియజేస్తున్నాను. మీకు ఒక నిమిషం సమయం ఉందా?';
+
+export const TELUGU_INBOUND_OPENING =
+  'నమస్కారం! మీరు మోడ్‌కాన్ బిల్డర్స్‌కి కాల్ చేశారు. నేను అనగ, ఒక AI అసిస్టెంట్‌ని. ' +
+  'నేను మీకు ఎలా సహాయం చేయగలను?';
+
+// The opening line for a direction.
+function openingFor(direction) {
+  return direction === 'inbound' ? TELUGU_INBOUND_OPENING : TELUGU_OPENING;
+}
 
 export function voicePlatform() {
   return (process.env.VOICE_PLATFORM || 'samvaad').toLowerCase();
@@ -98,9 +108,11 @@ async function callVapi({ to, metadata }) {
   if (!apiKey || !phoneNumberId) throw new Error('vapi_not_configured');
 
   const payload = { phoneNumberId, customer: { number: to }, metadata };
-  // Prefer a dashboard-configured assistant; else send an inline bootstrap.
+  // Outbound dialer → the outbound agent. Prefer a dashboard-configured assistant;
+  // else send an inline bootstrap. (Inbound is handled by the platform answering a
+  // call; configure that agent in the dashboard with buildAssistant('inbound').)
   if (process.env.VAPI_ASSISTANT_ID) payload.assistantId = process.env.VAPI_ASSISTANT_ID;
-  else payload.assistant = buildVapiAssistant();
+  else payload.assistant = buildVapiAssistant('outbound');
 
   const data = await postJSON('https://api.vapi.ai/call', apiKey, payload);
   return { ok: true, id: (data && data.id) || '', raw: data };
@@ -111,13 +123,13 @@ async function callVapi({ to, metadata }) {
 // the ids against current Vapi docs and make sure the matching provider keys are
 // set in your Vapi dashboard. For best Telugu quality, set a Telugu-capable
 // transcriber + voice (e.g. Sarvam) via the VOICE_* envs or the dashboard.
-function buildVapiAssistant() {
+export function buildVapiAssistant(direction = 'outbound') {
   const assistant = {
-    firstMessage: TELUGU_OPENING,
+    firstMessage: openingFor(direction),
     model: {
       provider: process.env.VOICE_LLM_PROVIDER || 'google',
       model: process.env.VOICE_LLM_MODEL || 'gemini-2.0-flash',
-      messages: [{ role: 'system', content: SYL_RULES }],
+      messages: [{ role: 'system', content: rulesFor(direction) }],
     },
   };
   if (process.env.VOICE_TTS_PROVIDER && process.env.VOICE_TTS_VOICE_ID) {

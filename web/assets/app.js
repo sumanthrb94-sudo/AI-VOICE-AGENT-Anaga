@@ -454,6 +454,13 @@ if (demoEl) {
       curLang = pill.dataset.lang;
     });
   });
+  /* call-direction pills: outbound (we call them) | inbound (they call us) */
+  demoEl.querySelectorAll(".dir-pill").forEach(pill => {
+    pill.addEventListener("click", () => {
+      demoEl.querySelectorAll(".dir-pill").forEach(p => p.classList.remove("is-active"));
+      pill.classList.add("is-active");
+    });
+  });
 }
 
 /* ---------------- Hear Anaga (one-shot sample) ---------------- */
@@ -647,6 +654,7 @@ if (demoEl) {
      caller's speech is translated back to English for the rule engine. */
   let callLang = "en-IN";
   let callBase = "en";
+  let callDir = "outbound";       // outbound (Anaga calls the lead) | inbound (lead calls Anaga)
   let translateOn = false;
   let autoMode = false;           // 🌐 detect the caller's language with on-device AI
   let notedLang = null;           // last language we announced a switch to (avoid spam)
@@ -681,8 +689,10 @@ if (demoEl) {
   /* ---- the flow (mirrors the versioned flow JSON) ---- */
   const FLOW = {
     greet: {
-      say: () => "నమస్కారం! నేను అనగ, మోడ్‌కాన్ బిల్డర్స్ నుండి AI వాయిస్ అసిస్టెంట్. తుక్కుగూడలోని మా SYL రెసిడెన్సెస్ గురించి మాట్లాడటానికి కాల్ చేస్తున్నాను. ఇది AI వాయిస్ కాల్ అని తెలియజేస్తున్నాను. మీకు ఒక నిమిషం సమయం ఉందా?",
-      next: t => optout(t) ? "optout" : (negative(t) ? "busy" : "purpose")
+      say: () => callDir === "inbound"
+        ? "నమస్కారం! మీరు మోడ్‌కాన్ బిల్డర్స్‌కి కాల్ చేశారు. నేను అనగ, ఒక AI అసిస్టెంట్‌ని. నేను మీకు ఎలా సహాయం చేయగలను?"
+        : "నమస్కారం! నేను అనగ, మోడ్‌కాన్ బిల్డర్స్ నుండి AI వాయిస్ అసిస్టెంట్. తుక్కుగూడలోని మా SYL రెసిడెన్సెస్ గురించి మాట్లాడటానికి కాల్ చేస్తున్నాను. ఇది AI వాయిస్ కాల్ అని తెలియజేస్తున్నాను. మీకు ఒక నిమిషం సమయం ఉందా?",
+      next: t => optout(t) ? "optout" : (callDir === "inbound" ? "purpose" : (negative(t) ? "busy" : "purpose"))
     },
     purpose: {
       say: () => "Wonderful, thank you. Are you looking for a home to live in, or more as an investment?",
@@ -1130,7 +1140,7 @@ if (demoEl) {
     return fetch(TURN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lang: CALL_LANG, history })
+      body: JSON.stringify({ lang: CALL_LANG, history, direction: callDir })
     }).then(res => {
       if (!res.ok) throw new Error("turn_unavailable_" + res.status);
       return res.json();
@@ -1397,6 +1407,8 @@ if (demoEl) {
        "auto" → detect the caller's language on the fly. */
     const activePill = document.querySelector('#voice-demo .lang-pill.is-active');
     const sel = (activePill && activePill.dataset.lang) || "en-IN";
+    const activeDir = document.querySelector('#voice-demo .dir-pill.is-active');
+    callDir = (activeDir && activeDir.dataset.dir === "inbound") ? "inbound" : "outbound";
     autoMode = (sel === "auto");
     callLang = autoMode ? "en-IN" : sel;
     callBase = callLang.split("-")[0];
@@ -1430,6 +1442,7 @@ if (demoEl) {
     };
     LiveCall.start({
       lang: autoMode ? "" : callLang,
+      direction: callDir,
       onStatus: (state) => {
         if (!active || !liveMode) return;
         if (state === "connecting") setStatus("Connecting…", null);
@@ -1666,7 +1679,7 @@ if (demoEl) {
       : fetch(SUMMARY_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ history })
+          body: JSON.stringify({ history, direction: callDir })
         }).then(res => {
           if (!res.ok) throw new Error("summary_unavailable_" + res.status);
           return res.json();

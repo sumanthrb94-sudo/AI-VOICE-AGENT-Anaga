@@ -47,7 +47,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'invalid_history' });
   }
 
-  const { system, user } = turnPrompt(history);
+  // Which agent: outbound (we called them) or inbound (they called us). Default outbound.
+  const direction = body.direction === 'inbound' ? 'inbound' : 'outbound';
+
+  const { system, user } = turnPrompt(history, direction);
 
   let out;
   try {
