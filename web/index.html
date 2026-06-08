@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/styles.css?v=26" />
+  <link rel="stylesheet" href="assets/styles.css?v=27" />
 </head>
 <body>
   <!-- ambient background -->
@@ -142,26 +142,29 @@
     </div>
   </div>
 
-  <!-- ===================== LIVE CALL OVERLAY (phone-call UI) ===================== -->
+  <!-- ===================== LIVE CALL OVERLAY (real phone-call UI) ===================== -->
   <div class="call" id="call" role="dialog" aria-modal="true" aria-labelledby="call-title" hidden>
     <div class="call__scrim" data-call-close></div>
     <div class="call__panel" role="document">
       <header class="call__top">
-        <div class="call__id">
-          <span class="call__avatar" id="call-avatar" aria-hidden="true">
-            <span class="call__rings"><i></i><i></i></span>
-            <span class="call__wave"><i></i><i></i><i></i><i></i><i></i></span>
-          </span>
-          <div class="call__who">
-            <b id="call-title">Anaga</b>
-            <span class="call__status" id="call-status">Connecting…</span>
-          </div>
-        </div>
-        <span class="call__timer" id="call-timer" aria-hidden="true"></span>
+        <span class="call__brandline">अनघा · Anaga</span>
         <span class="call__brain" id="call-brain" hidden aria-live="polite"></span>
       </header>
 
-      <div class="call__transcript" id="call-transcript"><!-- bubbles injected --></div>
+      <!-- the call "face" — a real phone call: photo, name, status, timer -->
+      <div class="call__stage" id="call-stage">
+        <span class="call__avatar" id="call-avatar" aria-hidden="true">
+          <span class="call__rings"><i></i><i></i></span>
+          <span class="call__wave"><i></i><i></i><i></i><i></i><i></i></span>
+        </span>
+        <b class="call__name" id="call-title">Anaga</b>
+        <span class="call__org">Modcon Builders</span>
+        <span class="call__status" id="call-status">Connecting…</span>
+        <span class="call__timer" id="call-timer" aria-hidden="true"></span>
+      </div>
+
+      <!-- captions + typing: hidden by default, revealed by the Captions button -->
+      <div class="call__transcript" id="call-transcript" hidden><!-- bubbles injected --></div>
 
       <!-- inline notice (e.g. microphone blocked) -->
       <div class="call__notice" id="call-notice" role="status" aria-live="polite" hidden></div>
@@ -185,7 +188,7 @@
           </button>
           <button class="callbtn" id="call-keypad" type="button" aria-pressed="false">
             <span class="callbtn__ico" aria-hidden="true">⌨️</span>
-            <span class="callbtn__lbl">Keypad</span>
+            <span class="callbtn__lbl">Captions</span>
           </button>
           <button class="callbtn callbtn--end" id="call-end" type="button">
             <span class="callbtn__ico" aria-hidden="true">📞</span>
@@ -196,11 +199,11 @@
     </div>
   </div>
 
-  <script src="assets/translate.js?v=26"></script>
-  <script src="assets/llm-client.js?v=26"></script>
-  <script src="assets/noise-gate.js?v=26"></script>
-  <script src="assets/live-call.js?v=26"></script>
-  <script src="assets/playbook-data.js?v=26"></script>
-  <script src="assets/app.js?v=26"></script>
+  <script src="assets/translate.js?v=27"></script>
+  <script src="assets/llm-client.js?v=27"></script>
+  <script src="assets/noise-gate.js?v=27"></script>
+  <script src="assets/live-call.js?v=27"></script>
+  <script src="assets/playbook-data.js?v=27"></script>
+  <script src="assets/app.js?v=27"></script>
 </body>
 </html>

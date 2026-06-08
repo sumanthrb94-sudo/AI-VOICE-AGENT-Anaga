@@ -489,6 +489,24 @@ body {
 .call__avatar.is-listening .call__wave i { background: #06281c; }
 .call__who b { font-family: 'Sora', sans-serif; font-size: 18px; display: block; }
 .call__status { font-size: 12.5px; color: var(--ink-dim); }
+
+/* ---- real phone-call "face": brand line + big avatar, name, status, timer ---- */
+.call__brandline { font-family: 'Sora', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: .4px; color: var(--ink-dim); }
+.call__stage {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 24px 22px; text-align: center;
+}
+.call__stage[hidden] { display: none; }
+.call__stage .call__avatar { width: 120px; height: 120px; }
+.call__stage .call__wave { height: 30px; gap: 5px; }
+.call__stage .call__wave i { width: 4px; }
+.call__name { font-family: 'Sora', sans-serif; font-size: 27px; font-weight: 700; line-height: 1.1; }
+.call__org { font-size: 13px; color: var(--ink-dim); margin-top: -4px; }
+.call__stage .call__status { font-size: 14px; }
+.call__stage .call__timer { margin: 2px 0 0; font-size: 16px; font-weight: 600; color: var(--ink); }
+/* transcript is a toggled captions panel now — keep the `hidden` attribute authoritative */
+.call__transcript[hidden] { display: none; }
 .call__end {
   margin-left: auto; background: rgba(255,77,79,.12); color: #ff7a7c;
   border: 1px solid rgba(255,77,79,.3); border-radius: 100px; padding: 9px 16px;
@@ -548,6 +566,7 @@ body {
   box-shadow: var(--shadow); animation: rise .3s var(--ease);
 }
 .call__review[hidden] { display: none; }
+.call__review:not([hidden]) { flex: 1 1 auto; min-height: 0; overflow-y: auto; }   /* fills the panel after the call face is hidden */
 .review__head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .review__head h3 { font-family: 'Sora', sans-serif; font-size: 16px; font-weight: 700; }
 .review__source {
@@ -644,6 +663,10 @@ body {
   .callbtn { font-size: 11px; }
   .callbtn__ico { width: 56px; height: 56px; font-size: 21px; }
   .callbtn--end .callbtn__ico { width: 60px; height: 60px; }
+  /* the call "face" scales down on phones */
+  .call__stage { gap: 10px; padding: 16px; }
+  .call__stage .call__avatar { width: 104px; height: 104px; }
+  .call__name { font-size: 23px; }
 }
 
 /* mic button muted state — still clickable (a tap explains + focuses the text box) */

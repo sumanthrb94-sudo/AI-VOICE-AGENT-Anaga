@@ -558,6 +558,7 @@ if (demoEl) {
   const timerEl    = document.getElementById("call-timer");
   const speakerBtn = document.getElementById("call-speaker");
   const keypadBtn  = document.getElementById("call-keypad");
+  const stageEl    = document.getElementById("call-stage");   // the phone-call "face"
   let callTimerId = null, callStartMs = 0;
   function startTimer() {
     callStartMs = Date.now();
@@ -746,6 +747,23 @@ if (demoEl) {
     transcript.scrollTop = transcript.scrollHeight;
   }
   function clearInterim() { if (interimEl) { interimEl.remove(); interimEl = null; } }
+
+  /* A real phone call shows a "face" (the stage: avatar, name, status, timer) — not
+     a chat log. Captions/typing live behind the Captions button: tap to read the
+     live transcript or type a reply. We auto-reveal them when voice can't be used,
+     so the caller can always fall back to typing. Only the mic + speaker are used. */
+  function setCaptions(on) {
+    if (on) {
+      if (stageEl) stageEl.setAttribute("hidden", "");
+      transcript.removeAttribute("hidden");
+      if (textForm) textForm.removeAttribute("hidden");
+    } else {
+      transcript.setAttribute("hidden", "");
+      if (textForm) textForm.setAttribute("hidden", "");
+      if (stageEl) stageEl.removeAttribute("hidden");
+    }
+    if (keypadBtn) { keypadBtn.classList.toggle("is-on", !!on); keypadBtn.setAttribute("aria-pressed", String(!!on)); }
+  }
 
   /* subtle "which mode is active" tag in the call header (no vendor names) */
   function setBrain(mode, src) {
@@ -1309,8 +1327,7 @@ if (demoEl) {
     transcript.innerHTML = "";
     if (reviewEl) { reviewEl.hidden = true; reviewEl.innerHTML = ""; }
     { const l = document.getElementById("call-end-label"); if (l) l.textContent = "End"; }
-    if (textForm) textForm.setAttribute("hidden", "");   // hide keypad input until requested
-    if (keypadBtn) keypadBtn.classList.remove("is-on");
+    setCaptions(false);                                  // start on the phone "face" (captions hidden)
     if (speakerBtn) { speakerBtn.setAttribute("aria-pressed", "true"); speakerBtn.classList.add("is-on"); }
     micCapable = false;
     micBtn.disabled = false;           // never a dead button; configureMicButton sets the label
@@ -1400,7 +1417,7 @@ if (demoEl) {
     liveMode = true;
     liveUserEl = liveAgentEl = null; liveUserTxt = ""; liveAgentTxt = "";
     setStatus("Connecting…", null);
-    setBrain("live", "Gemini Live");
+    setBrain("live");
     addBubble("anaga", "🔴 Live call — just talk. Reply in English, हिंदी, or తెలుగు and I'll match you. You can interrupt me any time.");
     let connected = false;
     const toFallback = () => {
@@ -1465,6 +1482,7 @@ if (demoEl) {
       if (!active) return;            // closed while the prompt was open
       micAllowed = granted;
       configureMicButton(granted);
+      if (!recog || !granted) setCaptions(true);   // no voice → reveal captions so they can read + type
       if (!recog) {
         addBubble("anaga", "(Speech recognition isn't available in this browser — you can type your replies. Chrome or Edge give the full voice experience.)");
       } else if (!granted) {
@@ -1523,6 +1541,7 @@ if (demoEl) {
     stopTimer();
     setMic(false);
     setStatus(reason, null);
+    if (stageEl) stageEl.setAttribute("hidden", "");    // swap the call face for the review card
     { const l = document.getElementById("call-end-label"); if (l) l.textContent = "Close"; }
     renderReview();
   }
@@ -1708,13 +1727,12 @@ if (demoEl) {
     if (listening && recog) { try { recog.stop(); } catch (e) {} }
     handleUtterance(t);
   });
-  /* Keypad: reveal/hide the type-to-reply input (phone-call keypad metaphor). */
+  /* Captions: show/hide the live transcript + type-to-reply panel over the call face. */
   if (keypadBtn) keypadBtn.addEventListener("click", () => {
     if (!active) return;
-    const hidden = textForm.hasAttribute("hidden");
-    if (hidden) { textForm.removeAttribute("hidden"); if (textInput) textInput.focus(); }
-    else textForm.setAttribute("hidden", "");
-    keypadBtn.classList.toggle("is-on", hidden);
+    const turnOn = transcript.hasAttribute("hidden");   // captions currently hidden → show them
+    setCaptions(turnOn);
+    if (turnOn && textInput) textInput.focus();
   });
   /* Speaker: visual loudspeaker toggle (web audio always uses the default output). */
   if (speakerBtn) speakerBtn.addEventListener("click", () => {
