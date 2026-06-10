@@ -15,7 +15,7 @@
   "project": {
     "name": "MODCON SYL, Thukkuguda",
     "type": "4.5-acre integrated residential + commercial project",
-    "residentialName": "MODCON SYL Residences (villas)",
+    "residentialName": "MODCON SYL Residences (villaments)",
     "commercialName": "MODCON ONE",
     "size": "~4.5 acres (commercial ~1.5 acres; clubhouse 22,000 sft)",
     "location": "Thukkuguda, South Hyderabad — on a 200-ft approach road; 'Gateway to Hyderabad's 4th City' around the RGIA growth corridor",
@@ -27,7 +27,7 @@
     },
     "residential": {
       "name": "MODCON SYL Residences",
-      "style": "low-density, biophilic 'villas' with large private balconies, forest & sunrise views, abundant natural light & ventilation, green corridors; community-focused living",
+      "style": "low-density, biophilic 'villaments' with large private balconies, forest & sunrise views, abundant natural light & ventilation, green corridors; community-focused living",
       "clubhouse": "22,000 sft biophilic wellness retreat: natural chemical-free bio-pool, yoga & meditation pavilion, fitness & wellness spaces, landscaped social zones, Express Mart, open sunlit indoor-outdoor interiors",
       "community": "secured gated community; adequate parking for every flat"
     },
@@ -53,8 +53,8 @@
       "website": "agartha.in",
       "handle": "agartha_by_modcon",
       "phone": "+91 95348 69999",
-      "type": "25-acre bespoke eco farmhouse community — FARM LAND with custom, Bali-style farmhouses (2 acres resort + clubhouse)",
-      "concept": "Permaculture / edible-landscape 'food forest' living; custom, Bali-style farmhouses built with natural materials (bamboo, mud, lime, CSCB stabilised-earth bricks); community living.",
+      "type": "25-acre bespoke eco community — sells FARM-LAND plots; Modcon builds a custom Bali-style farmhouse for buyers who like its construction style (2 acres resort + clubhouse)",
+      "concept": "Permaculture / edible-landscape 'food forest' living; farm-land plots, and for buyers who like Modcon's build style, custom Bali-style farmhouses built in natural materials (bamboo, mud, lime, CSCB stabilised-earth bricks); community living.",
       "location": "Moosapet village, Narsapur mandal, near Hyderabad, Telangana",
       "connectivity": {
         "100m": ["upcoming RRR (Regional Ring Road)"],

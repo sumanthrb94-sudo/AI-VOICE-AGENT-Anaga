@@ -17,11 +17,10 @@
 - **Why it's planned this way:** smooth traffic flow, optimal space use, future-ready
   infrastructure — a structured, sustainable environment for living and business.
 
-## 2. Residential — MODCON SYL Residences (villas)
+## 2. Residential — MODCON SYL Residences (villaments)
 - A biophilic residential enclave overlooking forest landscapes; serene living with
   abundant **natural light, ventilation and sunrise views** — "luxury meets nature."
-- **Villas** feature **large private balconies** over lush forest views.
-  _(The brochure used the word "villament"; per Modcon the product is referred to as **villas** — Anaga says villas.)_
+- **Villaments** feature **large private balconies** over lush forest views.
 - Highlights → advantages:
   - Low-density planning with open spaces → natural light & ventilation.
   - Biophilic design & green corridors → calm, private, community-focused living.

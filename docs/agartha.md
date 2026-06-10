@@ -17,7 +17,8 @@
 ## Why Agartha
 - Peaceful living surrounded by nature; homes designed for comfort, sustainability
   and a healthy lifestyle.
-- Custom, **Bali-style** farmhouses on **farm land** (eco-friendly, custom-designed).
+- Sells **farm-land plots**; for buyers who like Modcon's construction style, Modcon
+  builds them a **custom, Bali-style** farmhouse (eco-friendly, custom-designed).
 - Private backyard with a **food forest**.
 - Access to the resort and clubhouse.
 - Community living with like-minded people.
