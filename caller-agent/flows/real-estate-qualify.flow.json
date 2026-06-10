@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "persona": "anaga",
   "vertical": "real-estate",
-  "project": { "name": "SYL Residences, Tukkuguda", "alsoKnownAs": "Modcon One", "builder": "Modcon Builders", "website": "modcon.in", "otherProjects": ["Agartha (agartha.in) — separate project"] },
+  "project": { "name": "SYL Residences, Thukkuguda", "alsoKnownAs": "Modcon One", "builder": "Modcon Builders", "website": "modcon.in", "otherProjects": ["Agartha (agartha.in) — separate project"] },
   "goal": "Disclose AI, get consent, qualify (purpose/budget/config/timeline), book a site visit, handle opt-out.",
   "notes": "This is the versioned source of truth for the conversation. The browser demo in web/assets/app.js mirrors it (English) for an offline preview. In production the caller-agent (WP-3) loads this flow as data and the LLM handles free-form turns; opt-out is enforced by the compliance-agent (WP-5), fail-closed.",
   "globals": {

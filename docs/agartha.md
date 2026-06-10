@@ -17,7 +17,7 @@
 ## Why Agartha
 - Peaceful living surrounded by nature; homes designed for comfort, sustainability
   and a healthy lifestyle.
-- Eco-friendly, custom-designed homes.
+- Custom, **Bali-style** farmhouses on **farm land** (eco-friendly, custom-designed).
 - Private backyard with a **food forest**.
 - Access to the resort and clubhouse.
 - Community living with like-minded people.

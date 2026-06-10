@@ -9,7 +9,7 @@
 
 ## 1. Project overview & master plan
 - **Developer / brand:** MODCON — *Building Beyond Expectations*.
-- **Project:** a **4.5-acre integrated commercial + residential** project at **Tukkuguda**.
+- **Project:** a **4.5-acre integrated commercial + residential** project at **Thukkuguda**.
 - **Zones (master plan):** entry at the **commercial zone**, **central park**, "Elur"
   (as labelled), **200-ft wide road access** with entry/exit points; clearly defined
   residential & commercial zones, wide internal roads, organised plot layouts, green
@@ -17,10 +17,11 @@
 - **Why it's planned this way:** smooth traffic flow, optimal space use, future-ready
   infrastructure — a structured, sustainable environment for living and business.
 
-## 2. Residential — MODCON SYL Residences (villament living)
+## 2. Residential — MODCON SYL Residences (villas)
 - A biophilic residential enclave overlooking forest landscapes; serene living with
   abundant **natural light, ventilation and sunrise views** — "luxury meets nature."
-- **Villaments** feature **large private balconies** over lush forest views.
+- **Villas** feature **large private balconies** over lush forest views.
+  _(The brochure used the word "villament"; per Modcon the product is referred to as **villas** — Anaga says villas.)_
 - Highlights → advantages:
   - Low-density planning with open spaces → natural light & ventilation.
   - Biophilic design & green corridors → calm, private, community-focused living.
@@ -47,7 +48,7 @@
 - **Adequate parking for every flat.**
 
 ## 5. Location & growth advantage
-- **Tukkuguda** — positioned as the **"Gateway to Hyderabad's 4th City"**, aligned
+- **Thukkuguda** — positioned as the **"Gateway to Hyderabad's 4th City"**, aligned
   with the proposed Fourth City vision and the growth around **Rajiv Gandhi
   International Airport (RGIA)**.
 - Direct access via a planned **200-ft approach road**; strong connectivity to the
