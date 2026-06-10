@@ -29,9 +29,17 @@ export const TELUGU_INBOUND_OPENING =
   'నమస్కారం! మీరు మోడ్‌కాన్ బిల్డర్స్‌కి కాల్ చేశారు. నేను అనగ, ఒక AI అసిస్టెంట్‌ని. ' +
   'నేను మీకు ఎలా సహాయం చేయగలను?';
 
+// COMMERCIAL = outbound, leads with MODCON ONE (the commercial development).
+export const TELUGU_COMMERCIAL_OPENING =
+  'నమస్కారం! నేను అనగ, మోడ్‌కాన్ బిల్డర్స్ నుండి AI వాయిస్ అసిస్టెంట్. ' +
+  'తుక్కుగూడలోని మా MODCON ONE కమర్షియల్ ప్రాజెక్ట్ గురించి మాట్లాడటానికి కాల్ చేస్తున్నాను. ' +
+  'ఇది AI వాయిస్ కాల్ అని తెలియజేస్తున్నాను. మీకు ఒక నిమిషం సమయం ఉందా?';
+
 // The opening line for a direction.
 function openingFor(direction) {
-  return direction === 'inbound' ? TELUGU_INBOUND_OPENING : TELUGU_OPENING;
+  if (direction === 'inbound') return TELUGU_INBOUND_OPENING;
+  if (direction === 'commercial') return TELUGU_COMMERCIAL_OPENING;
+  return TELUGU_OPENING;
 }
 
 export function voicePlatform() {

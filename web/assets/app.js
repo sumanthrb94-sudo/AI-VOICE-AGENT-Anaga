@@ -691,6 +691,8 @@ if (demoEl) {
     greet: {
       say: () => callDir === "inbound"
         ? "నమస్కారం! మీరు మోడ్‌కాన్ బిల్డర్స్‌కి కాల్ చేశారు. నేను అనగ, ఒక AI అసిస్టెంట్‌ని. నేను మీకు ఎలా సహాయం చేయగలను?"
+        : callDir === "commercial"
+        ? "నమస్కారం! నేను అనగ, మోడ్‌కాన్ బిల్డర్స్ నుండి AI వాయిస్ అసిస్టెంట్. తుక్కుగూడలోని మా MODCON ONE కమర్షియల్ ప్రాజెక్ట్ గురించి మాట్లాడటానికి కాల్ చేస్తున్నాను. ఇది AI వాయిస్ కాల్ అని తెలియజేస్తున్నాను. మీకు ఒక నిమిషం సమయం ఉందా?"
         : "నమస్కారం! నేను అనగ, మోడ్‌కాన్ బిల్డర్స్ నుండి AI వాయిస్ అసిస్టెంట్. తుక్కుగూడలోని మా SYL రెసిడెన్సెస్ గురించి మాట్లాడటానికి కాల్ చేస్తున్నాను. ఇది AI వాయిస్ కాల్ అని తెలియజేస్తున్నాను. మీకు ఒక నిమిషం సమయం ఉందా?",
       next: t => optout(t) ? "optout" : (callDir === "inbound" ? "purpose" : (negative(t) ? "busy" : "purpose"))
     },
@@ -1408,7 +1410,7 @@ if (demoEl) {
     const activePill = document.querySelector('#voice-demo .lang-pill.is-active');
     const sel = (activePill && activePill.dataset.lang) || "en-IN";
     const activeDir = document.querySelector('#voice-demo .dir-pill.is-active');
-    callDir = (activeDir && activeDir.dataset.dir === "inbound") ? "inbound" : "outbound";
+    { const d = activeDir && activeDir.dataset.dir; callDir = (d === "inbound" || d === "commercial") ? d : "outbound"; }
     autoMode = (sel === "auto");
     callLang = autoMode ? "en-IN" : sel;
     callBase = callLang.split("-")[0];

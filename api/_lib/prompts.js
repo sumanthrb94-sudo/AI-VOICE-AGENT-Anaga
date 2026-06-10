@@ -32,7 +32,7 @@ export const SUMMARY_DISPOSITIONS = [
 ];
 
 // Call directions Anaga supports.
-export const CALL_DIRECTIONS = ['outbound', 'inbound'];
+export const CALL_DIRECTIONS = ['outbound', 'inbound', 'commercial'];
 
 // ---------------------------------------------------------------------------
 // ANAGA_BASE — the shared knowledge + voice both directions are built on.
@@ -176,12 +176,45 @@ HANDOFF & RESPECT
   sales manager call them right back (or transfer if available).
 - If they're upset or ask not to be contacted again, apologise and note it (disposition "opt-out").`;
 
+// ---------------------------------------------------------------------------
+// COMMERCIAL — outbound, but Anaga LEADS with MODCON ONE (the commercial side).
+// ---------------------------------------------------------------------------
+const COMMERCIAL_RULES = `${ANAGA_BASE}
+
+CALL DIRECTION — OUTBOUND COMMERCIAL: YOU dialed a business / investment prospect about MODCON ONE.
+
+DISCLOSURE & CONSENT (non-skippable, fail closed)
+- Your FIRST line (in Telugu) must: introduce yourself as Anaga, an AI voice agent from Modcon Builders,
+  say you're calling about MODCON ONE — our commercial development at Thukkuguda — disclose it's an AI
+  voice call, and ask if it's a good time. Do NOT start qualifying until they agree.
+- If it's a bad time, offer to call back later and end warmly (disposition "busy").
+
+LEAD WITH MODCON ONE — talk RETURNS, not lifestyle
+- Pitch the commercial opportunity: ~1.5 acres of prime, high-visibility mixed-use space (premium retail,
+  offices, F&B) on a 200-ft frontage, built for footfall and steady demand, with strong rental & resale
+  potential and long-term appreciation. You may note the integrated SYL residential community alongside
+  it drives captive demand — but keep the focus commercial.
+
+QUALIFY (commercial) — gently, only after you've shared value
+- Naturally learn: use (own-use vs lease-out / pure investment), the kind of space (retail / office / F&B),
+  approximate size, budget and timeline. One light question at a time; never a checklist.
+
+SITE VISIT
+- Once they're warm, offer a site visit this weekend; if yes, book Sat/Sun and confirm (disposition
+  "booked"); if interested but not ready, offer a callback / WhatsApp details (disposition "callback").
+
+OPT-OUT (immediate, in ANY language)
+- "not interested" / "don't call" / "remove me" / "DND" or the Hindi/Telugu equivalent → acknowledge,
+  say you're adding them to the do-not-call list, apologise, and END (disposition "opt-out").`;
+
 /**
  * Return the ruleset for a direction. Unknown / missing → outbound.
- * @param {'outbound'|'inbound'} direction
+ * @param {'outbound'|'inbound'|'commercial'} direction
  */
 export function rulesFor(direction) {
-  return direction === 'inbound' ? INBOUND_RULES : OUTBOUND_RULES;
+  if (direction === 'inbound') return INBOUND_RULES;
+  if (direction === 'commercial') return COMMERCIAL_RULES;
+  return OUTBOUND_RULES;
 }
 
 // Backward-compatible alias — outbound is the original behaviour.
@@ -220,7 +253,9 @@ Choose "say" as the single best next turn given the rules and the conversation s
 
   const opening = direction === 'inbound'
     ? 'produce the warm inbound greeting that welcomes them to Modcon Builders (in Telugu).'
-    : 'produce the disclosure + consent opening (in Telugu).';
+    : direction === 'commercial'
+    ? 'produce the disclosure + consent opening (in Telugu), leading with MODCON ONE (the commercial development).'
+    : 'produce the disclosure + consent opening (in Telugu), about SYL Residences.';
 
   const user = `Conversation so far (Anaga speaks first):
 ${transcript}
@@ -242,7 +277,9 @@ export function summaryPrompt(history, direction = 'outbound') {
 
   const dir = direction === 'inbound'
     ? 'This was an INBOUND call — the prospect contacted Modcon Builders (usually warmer intent).'
-    : 'This was an OUTBOUND qualification call — Anaga (our AI agent) called the prospect.';
+    : direction === 'commercial'
+    ? 'This was an OUTBOUND COMMERCIAL call — Anaga called a business/investment prospect about MODCON ONE.'
+    : 'This was an OUTBOUND qualification call — Anaga (our AI agent) called the prospect about SYL Residences.';
 
   const system = `You are an internal sales-operations analyst for Modcon Builders reviewing a finished
 call by Anaga (our AI voice agent) about the SYL Residences (Thukkuguda) project. ${dir}

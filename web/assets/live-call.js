@@ -132,6 +132,20 @@
     "have the sales manager call them right back."
   ]).join(' ');
 
+  const COMMERCIAL_PERSONA = BASE_PERSONA.concat([
+    "CALL DIRECTION — OUTBOUND COMMERCIAL: YOU called a business / investment prospect about MODCON ONE.",
+    "DISCLOSURE: your first line (in Telugu) says you're an AI voice agent from Modcon Builders calling",
+    "about MODCON ONE — our commercial development at Thukkuguda — and checks it's a good time; don't",
+    "qualify until they agree. If it's a bad time, offer to call later and end warmly.",
+    "LEAD WITH MODCON ONE — talk RETURNS, not lifestyle: ~1.5 acres of prime, high-visibility mixed-use",
+    "space (retail / office / F&B) on a 200-ft frontage, built for footfall, with strong rental & resale",
+    "potential; the SYL residential community alongside drives captive demand. Keep the focus commercial.",
+    "QUALIFY (commercial): naturally learn use (own-use vs lease-out / investment), kind of space, size,",
+    "budget and timeline — one light question at a time, never a checklist.",
+    "SITE VISIT: once warm, offer a site visit this weekend; if yes, book Saturday or Sunday and confirm.",
+    "OPT-OUT: if they want out, acknowledge, add them to the do-not-call list, apologise, and end."
+  ]).join(' ');
+
   // Back-compat export name; outbound is the default behaviour.
   const DEFAULT_PERSONA = OUTBOUND_PERSONA;
 
@@ -438,6 +452,8 @@
         try {
           var greetText = s.direction === 'inbound'
             ? 'A caller just phoned Modcon Builders and you answered. Speak your FIRST line now, IN TELUGU: warmly welcome them, say you are Anaga — an AI assistant from Modcon Builders — and ask how you can help today. Keep it short. After this, continue in whatever language the caller replies in.'
+            : s.direction === 'commercial'
+            ? 'The call just connected. Speak your FIRST line now, IN TELUGU: briefly introduce yourself as Anaga, an AI voice agent from Modcon Builders, calling about MODCON ONE — our commercial development at Thukkuguda — and ask if it is a good time. Keep it short. After this opening, continue in whatever language the caller replies in.'
             : 'The call just connected. Speak your FIRST line now, IN TELUGU: briefly introduce yourself as Anaga, an AI voice agent from Modcon Builders calling about SYL Residences at Thukkuguda, and ask if it is a good time. Keep it short. After this opening, continue in whatever language the caller replies in.';
           s.ws.send(JSON.stringify({ clientContent: {
             turns: [{ role: 'user', parts: [{ text: greetText }] }],
@@ -563,7 +579,7 @@
       speaking: false,
       lastState: null,
       greetOnConnect: opts.greetOnConnect !== false,
-      direction: opts.direction === 'inbound' ? 'inbound' : 'outbound',
+      direction: (opts.direction === 'inbound' || opts.direction === 'commercial') ? opts.direction : 'outbound',
       cb: {
         onStatus: opts.onStatus, onAgentText: opts.onAgentText, onUserText: opts.onUserText,
         onError: opts.onError, onClose: opts.onClose
@@ -586,7 +602,9 @@
 
     const persona = (typeof opts.systemPrompt === 'string' && opts.systemPrompt.trim())
       ? opts.systemPrompt
-      : (s.direction === 'inbound' ? INBOUND_PERSONA : OUTBOUND_PERSONA);
+      : (s.direction === 'inbound' ? INBOUND_PERSONA
+        : s.direction === 'commercial' ? COMMERCIAL_PERSONA
+        : OUTBOUND_PERSONA);
     // Optional explicit-language nudge layered on top of the persona.
     const langHint = (typeof opts.lang === 'string' && opts.lang)
       ? '\n\nThe caller is likely speaking ' + opts.lang +

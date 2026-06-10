@@ -47,8 +47,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'invalid_history' });
   }
 
-  // Which agent: outbound (we called them) or inbound (they called us). Default outbound.
-  const direction = body.direction === 'inbound' ? 'inbound' : 'outbound';
+  // Which agent: outbound (residential), inbound (they called us), or commercial
+  // (outbound, leads with MODCON ONE). Default outbound.
+  const direction = (body.direction === 'inbound' || body.direction === 'commercial')
+    ? body.direction : 'outbound';
 
   const { system, user } = turnPrompt(history, direction);
 
