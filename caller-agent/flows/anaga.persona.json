@@ -13,27 +13,38 @@
     "office": "The District, 8th floor, Financial District, Hyderabad, Telangana"
   },
   "project": {
-    "name": "SYL Residences, Tukkuguda",
-    "alsoKnownAs": "Modcon One",
-    "type": "integrated (residential + commercial)",
-    "size": "~4.5 acres",
-    "location": "Tukkuguda, South Hyderabad — on the 200-ft Srisailam Highway, just off ORR Exit-14",
+    "name": "MODCON SYL, Tukkuguda",
+    "type": "4.5-acre integrated residential + commercial project",
+    "residentialName": "MODCON SYL Residences (villament living)",
+    "commercialName": "MODCON ONE",
+    "size": "~4.5 acres (commercial ~1.5 acres; clubhouse 22,000 sft)",
+    "location": "Tukkuguda, South Hyderabad — on a 200-ft approach road; 'Gateway to Hyderabad's 4th City' around the RGIA growth corridor",
+    "masterPlan": "Defined residential & commercial zones; entry at the commercial zone; central park; wide internal roads; organised plots; green & utility areas; 200-ft road access with entry/exit",
     "connectivity": {
-      "5min": ["Fab City", "Pedda Golconda", "Manchester Global School"],
-      "10-15min": ["RGI / Shamshabad Airport", "Aga Khan Academy", "Statue of Equality", "Wonderla"],
-      "30-45min": ["Financial District", "Gachibowli", "Kondapur", "Jubilee Hills", "Apollo Hospital", "Ramoji Film City"]
+      "2-5min": ["ORR Exit-14", "Fab City", "Pedda Golconda"],
+      "10-15min": ["RGI / Shamshabad Airport", "The Aga Khan Academy", "Manchester Global School", "Statue of Equality", "Wonderla"],
+      "30-45min": ["Apollo Hospital", "Kamineni Hospital", "Gachibowli", "Financial District", "Kondapur", "Jubilee Hills", "LB Nagar", "Ramoji Film City"]
     },
     "residential": {
-      "name": "SYL Residences",
-      "style": "low-density biophilic villaments; large private balconies; forest & sunrise views",
-      "clubhouse": "22,000 sft G+2 — infinity pool, gym with Pilates, yoga pavilion, steam & sauna, library, co-working, banquet & guest rooms, indoor/outdoor play",
-      "specs": "RCC structure (wind/seismic), double-charged vitrified flooring, GROHE fittings, EV charging, 4 high-speed lifts + fire lift, 100% DG backup, CCTV/access control, biophilic landscaping"
+      "name": "MODCON SYL Residences",
+      "style": "low-density, biophilic 'villaments' with large private balconies, forest & sunrise views, abundant natural light & ventilation, green corridors; community-focused living",
+      "clubhouse": "22,000 sft biophilic wellness retreat: natural chemical-free bio-pool, yoga & meditation pavilion, fitness & wellness spaces, landscaped social zones, Express Mart, open sunlit indoor-outdoor interiors",
+      "community": "secured gated community; adequate parking for every flat"
     },
     "commercial": {
-      "size": "~1.5 acres, G+4, prime 200-ft highway frontage",
-      "mix": "G+1 retail/F&B/banking; 2nd floor co-working & startups; 3rd healthcare & diagnostics; 4th-5th business suites & hospitality (business-stay)"
+      "name": "MODCON ONE",
+      "size": "~1.5 acres, prime high-visibility frontage",
+      "mix": "premium retail, offices, and food & beverage — mixed-use, footfall-driven",
+      "investment": "strong rental & resale potential, efficient layouts, future-ready, long-term capital appreciation"
     },
-    "_todo": "Add exact unit configurations/sizes, price range, RERA number, and possession date when available."
+    "unitSpecs": {
+      "structure": "RCC framed structure designed for wind & seismic loads",
+      "walls": "200 mm external walls; AAC / fly-ash blocks (chemical bonding)",
+      "doors": "teak / engineered-wood frames (polish/melamine); veneered/laminated flush shutters (main 2250x1150 mm, internal 2250x950 mm); reputed-make hardware",
+      "windows": "UPVC glazing; sliding/casement with mosquito-mesh provision; translucent float-glass top-hung ventilators; 2250 mm lintel height"
+    },
+    "_source": "docs/syl.md (SYL data sheet) — authoritative.",
+    "_todo": "STILL PENDING: exact unit configurations/sizes, price range, RERA number, possession date."
   },
   "otherProjects": [
     {

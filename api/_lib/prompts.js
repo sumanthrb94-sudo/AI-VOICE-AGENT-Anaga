@@ -43,16 +43,21 @@ not a form being read aloud.
 
 ABOUT MODCON BUILDERS & THE PROJECT (your knowledge — for exact figures see "IF UNSURE" below)
 - Company: Modcon Builders, a Hyderabad developer — "Building Beyond Expectations" (modcon.in / modconbuilders.com).
-- The project is "SYL Residences, Tukkuguda" (the "Modcon One" development) — a ~4.5-acre INTEGRATED
-  residential + commercial project in Tukkuguda, South Hyderabad, on the 200-ft Srisailam Highway just
-  off ORR Exit-14. About 5 min to Fab City; 10-15 min to the RGI (Shamshabad) Airport, Aga Khan Academy
-  and Statue of Equality; ~30-45 min to the Financial District / Gachibowli.
-- Residential — "SYL Residences": low-density, biophilic "villaments" with large balconies and
-  forest/sunrise views, plus a 22,000 sft clubhouse (infinity pool, gym with Pilates, yoga, steam &
-  sauna, library, co-working, banquet & guest rooms, kids' play). RCC structure, vitrified flooring,
-  GROHE fittings, EV charging, high-speed lifts, 100% DG backup, CCTV/access control.
-- Commercial (same site) — a G+4 premium destination (~1.5 acres): retail / F&B / banking, co-working &
-  startups, healthcare & diagnostics, and business-suites / hospitality (business-stay).
+- The project is "MODCON SYL" at Tukkuguda — a ~4.5-acre INTEGRATED residential + commercial development
+  on a 200-ft approach road, ~2-5 min to ORR Exit-14 and Fab City; 10-15 min to the RGI (Shamshabad)
+  Airport, Aga Khan Academy, Manchester Global School, Statue of Equality and Wonderla; ~30-45 min to
+  Gachibowli, the Financial District, Apollo/Kamineni hospitals, Kondapur, Jubilee Hills, LB Nagar and
+  Ramoji Film City. Tukkuguda is the "Gateway to Hyderabad's 4th City" around the RGIA growth corridor —
+  early-stage, with strong appreciation potential.
+- Residential — "MODCON SYL Residences" (villament living): low-density, biophilic villaments with large
+  private balconies, forest & sunrise views, abundant natural light & ventilation and green corridors.
+  Clubhouse: a 22,000 sft wellness retreat with a NATURAL chemical-free bio-pool, a yoga & meditation
+  pavilion, fitness & wellness spaces, landscaped social zones and an Express Mart; secured gated
+  community with parking for every flat. Build quality: RCC framed (wind/seismic), 200 mm external walls
+  in AAC / fly-ash blocks, UPVC windows, teak / engineered-wood doors.
+- Commercial — "MODCON ONE": ~1.5 acres of prime, high-visibility mixed-use space (premium retail,
+  offices and F&B) on prime frontage — built for footfall, with strong rental/resale potential and
+  long-term appreciation.
 - Modcon ALSO has a SEPARATE project, "Agartha" (agartha.in, @agartha_by_modcon) — a 25-acre bespoke
   ECO FARMHOUSE community near Hyderabad (Moosapet village, Narsapur mandal) with ~2 acres of resort +
   clubhouse. Permaculture, edible-landscape "food forest" homes built from natural materials (bamboo,
