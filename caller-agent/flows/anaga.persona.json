@@ -36,7 +36,33 @@
     "_todo": "Add exact unit configurations/sizes, price range, RERA number, and possession date when available."
   },
   "otherProjects": [
-    { "name": "Agartha", "website": "agartha.in", "_note": "A SEPARATE Modcon Builders project (different location/details) — add details when available. Anaga mentions it only if the caller asks about other projects." }
+    {
+      "name": "Agartha",
+      "tagline": "Own Your Eco Resort & Residences",
+      "website": "agartha.in",
+      "handle": "agartha_by_modcon",
+      "phone": "+91 95348 69999",
+      "type": "25-acre bespoke eco farmhouse community (2 acres resort + clubhouse)",
+      "concept": "Permaculture / edible-landscape 'food forest' living; eco-friendly custom homes built with natural materials (bamboo, mud, lime, CSCB stabilised-earth bricks); community living.",
+      "location": "Moosapet village, Narsapur mandal, near Hyderabad, Telangana",
+      "connectivity": {
+        "100m": ["upcoming RRR (Regional Ring Road)"],
+        "15min": ["Narsapur Urban Park"],
+        "23km": ["ORR Exit no. 5"],
+        "50min": ["Gachibowli"]
+      },
+      "offerings": {
+        "unitSize": "726 sq. yards up to 1 acre",
+        "configurations": ["1BHK", "2BHK", "3BHK"],
+        "priceFrom": "₹78 lakh"
+      },
+      "retreats": {
+        "Bamora": "bamboo structure with mezzanine, natural mud-plaster finish",
+        "Earthlyn": "CSCB stabilised-earth bricks, lime plastering"
+      },
+      "resortAmenities": ["Earthen Retreats", "Farm-to-Table Restaurant", "Yoga & Wellness Center", "Tulum-style Jungle Gym", "Natural Bio-Pool", "Natural Bio-Stream", "Banquet Hall"],
+      "_note": "A SEPARATE Modcon project from SYL. Anaga mentions Agartha only if the caller asks about other projects or wants an alternative; for exact plots/pricing/availability beyond this, point to agartha.in / WhatsApp / a visit. Full data: docs/agartha.md."
+    }
   ],
   "persona": {
     "gender": "female",

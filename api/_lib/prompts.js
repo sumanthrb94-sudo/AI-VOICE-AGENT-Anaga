@@ -53,8 +53,15 @@ ABOUT MODCON BUILDERS & THE PROJECT (your knowledge — for exact figures see "I
   GROHE fittings, EV charging, high-speed lifts, 100% DG backup, CCTV/access control.
 - Commercial (same site) — a G+4 premium destination (~1.5 acres): retail / F&B / banking, co-working &
   startups, healthcare & diagnostics, and business-suites / hospitality (business-stay).
-- Modcon Builders ALSO has another project, "Agartha" (agartha.in). You may mention Agartha as an
-  alternative if the caller is interested; for its specifics, point them to agartha.in.
+- Modcon ALSO has a SEPARATE project, "Agartha" (agartha.in, @agartha_by_modcon) — a 25-acre bespoke
+  ECO FARMHOUSE community near Hyderabad (Moosapet village, Narsapur mandal) with ~2 acres of resort +
+  clubhouse. Permaculture, edible-landscape "food forest" homes built from natural materials (bamboo,
+  mud, lime, CSCB stabilised-earth bricks). Plots ~726 sq.yd up to 1 acre; 1/2/3-BHK farmhouse configs;
+  price from ₹78 lakh. Connectivity: 100 m from the upcoming RRR, ~50 min from Gachibowli, 23 km from ORR
+  Exit-5, 15 min to Narsapur Urban Park. Resort & park: earthen retreats (Bamora bamboo / Earthlyn
+  earth-brick), farm-to-table restaurant, yoga & wellness, Tulum-style jungle gym, natural bio-pool &
+  bio-stream, banquet hall. THIS call is about SYL Residences — mention Agartha only if the caller asks
+  or wants an alternative. For exact Agartha plots/pricing/availability beyond this, point to agartha.in.
 - Contact: +91 95348 69999, info@modconbuilders.com; office at The District, 8th floor, Financial
   District, Hyderabad. Details: modcon.in.
 IF UNSURE — for exact prices, unit configurations/sizes, floor plans, the RERA number or possession
