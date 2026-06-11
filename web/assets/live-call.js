@@ -43,6 +43,10 @@
   const IN_RATE     = 16000;   // mic is resampled to 16 kHz PCM16 before sending
   const OUT_RATE    = 24000;   // model audio is 24 kHz PCM16
   const SEND_MS     = 40;      // chunk size we ship mic audio in (latency vs. overhead)
+  // Sustained speech (ms) the gate must stay open before we open a turn. Much
+  // higher while Anaga is speaking, so background voices / echo can't barge in.
+  const LISTEN_CONFIRM_MS  = 90;   // to START a turn while listening
+  const BARGEIN_CONFIRM_MS = 380;  // to INTERRUPT Anaga while she's speaking
   const LIVE_VOICE  = 'Aoede'; // Anaga's single master voice (warm female). Alternatives: 'Leda', 'Kore'.
 
   /* Anaga's persona for the live session — mirrors api/_lib/prompts.js, tuned for
@@ -288,37 +292,62 @@
         // explicitly. Server auto-VAD on streamed mic audio was unreliable — it
         // failed to detect end-of-turn, causing the 30-40s reply gaps. With manual
         // signals the model replies ~1s after the caller stops (verified).
+        //
+        // NOISE ROBUSTNESS: we never signal a turn on the gate's first frame. We
+        // hold the audio in a small pending buffer and only open the turn once
+        // speech has been SUSTAINED past a confirmation window — short while
+        // listening, long while Anaga is speaking (so background voices / echo
+        // can't barge in and cut her off). If the gate closes before that, it was
+        // a blip → discard it silently (no activityStart, no audio sent).
         const out = s.gate.feed(down);            // frames while speaking (onset prefix + hangover), else empty
+        const frameMs = (down.length / IN_RATE) * 1000;
         if (out.length) {
-          if (!s.userActive) { s.userActive = true; s.actStart = Date.now(); sendJSON(s, { realtimeInput: { activityStart: {} } }); }
-          s.micBuf.push(out); s.micBufLen += out.length;
-          if (Date.now() - s.actStart > 20000) {  // safety: never let one turn hang open
-            s.userActive = false; flushMic(s); sendJSON(s, { realtimeInput: { activityEnd: {} } });
+          if (s.userActive) {
+            s.micBuf.push(out); s.micBufLen += out.length;
+            if (Date.now() - s.actStart > 20000) endUserTurn(s);   // safety: never let one turn hang open
+          } else {
+            s.pendBuf.push(out); s.pendLen += out.length; s.pendMs += frameMs;
+            const guard = s.speaking ? BARGEIN_CONFIRM_MS : LISTEN_CONFIRM_MS;
+            if (s.pendMs >= guard) {
+              s.userActive = true; s.actStart = Date.now();
+              sendJSON(s, { realtimeInput: { activityStart: {} } });
+              for (let i = 0; i < s.pendBuf.length; i++) { s.micBuf.push(s.pendBuf[i]); s.micBufLen += s.pendBuf[i].length; }
+              s.pendBuf = []; s.pendLen = 0; s.pendMs = 0;
+            }
           }
-        } else if (s.userActive) {                // gate went quiet past its hangover → end of turn
-          s.userActive = false;
-          flushMic(s);
-          sendJSON(s, { realtimeInput: { activityEnd: {} } });
+        } else {
+          if (s.userActive) endUserTurn(s);        // gate quiet past hangover → end of turn
+          else if (s.pendMs > 0) { s.pendBuf = []; s.pendLen = 0; s.pendMs = 0; }  // unconfirmed blip → drop
         }
       } else {
         s.micBuf.push(down); s.micBufLen += down.length;
       }
-      const need = Math.round(IN_RATE * SEND_MS / 1000);
-      while (s.micBufLen >= need) {
-        const chunk = new Float32Array(need);
-        let off = 0;
-        while (off < need && s.micBuf.length) {
-          const head = s.micBuf[0];
-          const take = Math.min(head.length, need - off);
-          chunk.set(head.subarray(0, take), off);
-          off += take;
-          if (take === head.length) s.micBuf.shift();
-          else s.micBuf[0] = head.subarray(take);
+      // Only stream audio once a turn is actually open (or in the no-gate path).
+      if (!s.gate || s.userActive) {
+        const need = Math.round(IN_RATE * SEND_MS / 1000);
+        while (s.micBufLen >= need) {
+          const chunk = new Float32Array(need);
+          let off = 0;
+          while (off < need && s.micBuf.length) {
+            const head = s.micBuf[0];
+            const take = Math.min(head.length, need - off);
+            chunk.set(head.subarray(0, take), off);
+            off += take;
+            if (take === head.length) s.micBuf.shift();
+            else s.micBuf[0] = head.subarray(take);
+          }
+          s.micBufLen -= need;
+          sendAudioChunk(s, floatToB64PCM16(chunk));
         }
-        s.micBufLen -= need;
-        sendAudioChunk(s, floatToB64PCM16(chunk));
       }
     };
+
+    // End the caller's turn: flush any buffered mic audio, then signal activityEnd.
+    function endUserTurn(s) {
+      s.userActive = false;
+      flushMic(s);
+      sendJSON(s, { realtimeInput: { activityEnd: {} } });
+    }
 
     if (typeof ctx.audioWorklet !== 'undefined' && typeof AudioWorkletNode === 'function') {
       const blobUrl = URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'application/javascript' }));
@@ -589,11 +618,17 @@
       inCtx: new AC({ sampleRate: IN_RATE }),    // hint; browser may ignore & we resample
       micStream: null, micSource: null, micWorklet: null, micProc: null, micSink: null,
       micBuf: [], micBufLen: 0,
-      // client-side VAD for manual turn-taking (activityStart/activityEnd)
+      // client-side VAD for manual turn-taking (activityStart/activityEnd).
+      // Tuned to lock onto the near-field CONSUMER voice and ignore background:
+      // strong margin over the room floor (thresholdDb), a real-presence absolute
+      // floor (absFloor), and sustained onset so transient noise can't open it.
       gate: (window.NoiseGate && window.NoiseGate.create)
-        ? window.NoiseGate.create({ sampleRate: IN_RATE, hangoverMs: 600, prefixMs: 200 })
+        ? window.NoiseGate.create({ sampleRate: IN_RATE, thresholdDb: 14, absFloor: 0.0065, onsetMs: 150, hangoverMs: 650, prefixMs: 250 })
         : null,
       userActive: false,
+      // sustained-speech confirmation before we signal a turn (and a much higher
+      // bar to interrupt Anaga while she's speaking — kills noise/echo barge-in).
+      pendBuf: [], pendLen: 0, pendMs: 0,
       // playback
       outCtx: new AC({ sampleRate: OUT_RATE }),
       sources: [], playHead: 0,
@@ -740,6 +775,7 @@
     try { if (s.micSource) s.micSource.disconnect(); } catch (_) {}
     s.micWorklet = s.micProc = s.micSink = s.micSource = null;
     s.micBuf = []; s.micBufLen = 0;
+    s.pendBuf = []; s.pendLen = 0; s.pendMs = 0;
     s.gate = null; s.userActive = false;
 
     // mic tracks

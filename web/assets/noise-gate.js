@@ -46,11 +46,11 @@
   /* ---- defaults: tuned for noise robustness without clipping speech ---- */
   const DEFAULTS = {
     sampleRate: 16000,   // frames are expected at this rate (post-resample `down`)
-    prefixMs: 150,       // how much pre-onset audio to prepend so onsets aren't clipped
-    hangoverMs: 250,     // keep the gate open this long after energy drops (word gaps)
-    thresholdDb: 9,      // speech must be this many dB above the adaptive noise floor
-    absFloor: 0.004,     // minimum RMS to ever count as speech (dead-silent mic guard)
-    onsetMs: 40,         // consecutive "loud" time required before we declare speech
+    prefixMs: 200,       // how much pre-onset audio to prepend so onsets aren't clipped
+    hangoverMs: 350,     // keep the gate open this long after energy drops (word gaps)
+    thresholdDb: 13,     // speech must be this many dB above the adaptive noise floor (~4.5x) — ignore background
+    absFloor: 0.006,     // minimum RMS to ever count as speech — wants a near-field (close-mic) voice, not the room
+    onsetMs: 130,        // sustained "loud" time before we declare speech — transient noise/clicks won't open it
     floorAttackMs: 200,  // EMA time constant when the floor RISES (noise got louder)
     floorReleaseMs: 800  // EMA time constant when the floor FALLS (slower = stable)
   };
