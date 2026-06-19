@@ -29,7 +29,7 @@ const METRICS = [
 
 /* ---------------- render fleet ---------------- */
 const fleetGrid = document.getElementById("fleet-grid");
-fleetGrid.innerHTML = FLEET.map(a => `
+if (fleetGrid) fleetGrid.innerHTML = FLEET.map(a => `
   <article class="agent-card">
     <div class="agent-card__top">
       <span class="agent-card__wp">${a.wp}</span>
@@ -43,7 +43,7 @@ fleetGrid.innerHTML = FLEET.map(a => `
 
 /* ---------------- render metrics ---------------- */
 const metricsGrid = document.getElementById("metrics-grid");
-metricsGrid.innerHTML = METRICS.map(m => `
+if (metricsGrid) metricsGrid.innerHTML = METRICS.map(m => `
   <div class="metric">
     <div class="metric__num">${m.num}<span class="u"> ${m.u}</span></div>
     <div class="metric__label">${m.label}</div>
@@ -63,6 +63,7 @@ let current = 0;
 let lastFocus = null;
 
 /* tabs */
+if (overlay && Array.isArray(PB)) {
 tabsEl.innerHTML = PB.map((ph, i) => `
   <button class="ptab" data-i="${i}">
     <span class="ptab__idx">${i}</span>
@@ -139,7 +140,8 @@ document.addEventListener("keydown", e => {
 });
 
 /* deep-link: open with #playbook */
-if (location.hash === "#playbook") openPlaybook();
+  if (location.hash === "#playbook") openPlaybook();
+} /* end playbook (UI removed for production) */
 
 /* ===================================================================
    VOICE — shared female-voice synthesis (Web Speech API), used by both
@@ -566,6 +568,13 @@ if (demoEl) {
   const speakerBtn = document.getElementById("call-speaker");
   const keypadBtn  = document.getElementById("call-keypad");
   const stageEl    = document.getElementById("call-stage");   // the phone-call "face"
+  const controlsEl = document.getElementById("call-controls");
+  const leadGate   = document.getElementById("call-lead");     // name+phone gate before the call
+  const leadForm   = document.getElementById("lead-form");
+  const leadNameEl = document.getElementById("lead-name");
+  const leadPhoneEl= document.getElementById("lead-phone");
+  const leadHpEl   = document.getElementById("lead-website");  // honeypot
+  const leadCancel = document.getElementById("lead-cancel");
   let callTimerId = null, callStartMs = 0;
   function startTimer() {
     callStartMs = Date.now();
@@ -655,6 +664,8 @@ if (demoEl) {
   let callLang = "en-IN";
   let callBase = "en";
   let callDir = "outbound";       // outbound (Anaga calls the lead) | inbound (lead calls Anaga)
+  let leadName = "", leadPhone = "";   // captured before the call
+  let capturedThisCall = false;        // guard: log the lead once per call
   let translateOn = false;
   let autoMode = false;           // 🌐 detect the caller's language with on-device AI
   let notedLang = null;           // last language we announced a switch to (avoid spam)
@@ -1340,6 +1351,9 @@ if (demoEl) {
     if (reviewEl) { reviewEl.hidden = true; reviewEl.innerHTML = ""; }
     { const l = document.getElementById("call-end-label"); if (l) l.textContent = "End"; }
     setCaptions(false);                                  // start on the phone "face" (captions hidden)
+    capturedThisCall = false;
+    if (leadGate) leadGate.hidden = true;                // hide the lead gate; show the dock
+    if (controlsEl) controlsEl.removeAttribute("hidden");
     if (speakerBtn) { speakerBtn.setAttribute("aria-pressed", "true"); speakerBtn.classList.add("is-on"); }
     micCapable = false;
     micBtn.disabled = false;           // never a dead button; configureMicButton sets the label
@@ -1659,9 +1673,10 @@ if (demoEl) {
       <button class="review__new" id="call-new" type="button">↻ New call</button>
     `;
     reviewEl.hidden = false;
+    captureLead(r);                                      // log lead (name+phone+review) once
     transcript.scrollTop = transcript.scrollHeight;
     const newBtn = reviewEl.querySelector("#call-new");
-    if (newBtn) newBtn.addEventListener("click", startCall);
+    if (newBtn) newBtn.addEventListener("click", openLeadGate);
     newBtn && newBtn.focus();
   }
 
@@ -1703,7 +1718,56 @@ if (demoEl) {
   /* pre-warm the live engine (pre-mint the ephemeral token) the instant the call
      button is pressed, so the click→first-audio path skips the mint round-trip. */
   startBtn.addEventListener("pointerdown", () => { if (window.LiveCall && LiveCall.prewarm) LiveCall.prewarm(); }, { passive: true });
-  startBtn.addEventListener("click", startCall);
+
+  /* Tap "Talk to Anaga" → open the lead gate (name + phone) BEFORE connecting. */
+  function openLeadGate() {
+    if (!leadGate) { startCall(); return; }   // no gate in DOM → just call
+    overlay.hidden = false;
+    document.body.style.overflow = "hidden";
+    leadGate.hidden = false;
+    if (stageEl) stageEl.setAttribute("hidden", "");
+    if (controlsEl) controlsEl.setAttribute("hidden", "");
+    transcript.setAttribute("hidden", "");
+    if (reviewEl) reviewEl.hidden = true;
+    if (noticeEl) noticeEl.hidden = true;
+    if (leadHpEl) leadHpEl.value = "";
+    if (leadNameEl) { leadNameEl.value = ""; setTimeout(() => { try { leadNameEl.focus(); } catch (e) {} }, 60); }
+    if (leadPhoneEl) leadPhoneEl.value = "";
+  }
+  if (startBtn) startBtn.addEventListener("click", openLeadGate);
+
+  if (leadForm) leadForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (leadHpEl && leadHpEl.value) return;                 // honeypot → bot, ignore
+    const nm = (leadNameEl && leadNameEl.value || "").trim();
+    const ph = (leadPhoneEl && leadPhoneEl.value || "").trim();
+    if (!nm || ph.replace(/\D/g, "").length < 7) {          // need a name + plausible phone
+      showNotice("Please enter your name and a valid phone number.");
+      return;
+    }
+    leadName = nm; leadPhone = ph;
+    leadGate.hidden = true;
+    if (controlsEl) controlsEl.removeAttribute("hidden");
+    startCall();                                            // now connect
+  });
+  if (leadCancel) leadCancel.addEventListener("click", () => { if (leadGate) leadGate.hidden = true; closeCall(); });
+
+  /* POST the captured lead + the call review to the public capture endpoint. */
+  function captureLead(r) {
+    if (capturedThisCall || !leadName || !leadPhone) return;
+    capturedThisCall = true;
+    try {
+      fetch("/api/lead-capture", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: leadName, phone: leadPhone, language: callLang, callType: callDir,
+          disposition: r && r.disposition, score: r && r.score, interested: r && r.interested,
+          summary: r && r.summary, nextAction: r && r.nextAction, comment: r && r.comment,
+          source: "web-agent",
+        }),
+      }).catch(() => {});
+    } catch (e) {}
+  }
   /* End call: hang up and SHOW the review (overlay stays). If the call already
      ended (review on screen), the same button dismisses the overlay. */
   if (endBtn) endBtn.addEventListener("click", () => { if (active) finishCall({ reason: "Call ended" }); else closeCall(); });
@@ -1772,7 +1836,7 @@ if (demoEl) {
 })();
 
 /* stop any speech when the Playbook opens */
-openBtn.addEventListener("click", () => { if (synth) synth.cancel(); CloudTTS.stop(); });
+if (openBtn) openBtn.addEventListener("click", () => { if (synth) synth.cancel(); CloudTTS.stop(); });
 
 /* ===================================================================
    SETTINGS — "Connect Gemini" (bring-your-own-key, stored in this browser)
@@ -2053,4 +2117,73 @@ openBtn.addEventListener("click", () => { if (synth) synth.cancel(); CloudTTS.st
   syncSliders();
   setNote("Tap “Preview Anaga” to hear & see the current voice, or visualize your mic. Move the sliders to modulate.");
   requestAnimationFrame(loop);
+})();
+
+/* ===================================================================
+   VIEW SWITCH (Agent / Dashboard) + lead dashboard (via /api/dashboard).
+   =================================================================== */
+(function dashboard() {
+  const agentBtn  = document.getElementById("view-agent-btn");
+  const dashBtn   = document.getElementById("view-dash-btn");
+  const agentView = document.getElementById("view-agent");
+  const dashView  = document.getElementById("view-dashboard");
+  if (!agentBtn || !dashBtn || !dashView) return;
+
+  function show(view) {
+    const isDash = view === "dashboard";
+    if (agentView) agentView.hidden = isDash;
+    dashView.hidden = !isDash;
+    agentBtn.classList.toggle("is-active", !isDash);
+    dashBtn.classList.toggle("is-active", isDash);
+    if (isDash) loadIfReady();
+  }
+  agentBtn.addEventListener("click", () => show("agent"));
+  dashBtn.addEventListener("click", () => show("dashboard"));
+
+  const gate    = document.getElementById("dash-gate");
+  const passEl  = document.getElementById("dash-pass");
+  const msgEl   = document.getElementById("dash-msg");
+  const tableEl = document.getElementById("dash-table");
+  const KEY = "anaga_dash_pass";
+
+  function loadIfReady() {
+    const saved = sessionStorage.getItem(KEY);
+    if (saved) { if (passEl && !passEl.value) passEl.value = saved; load(saved); }
+  }
+  if (gate) gate.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const p = (passEl && passEl.value || "").trim();
+    if (p) load(p);
+  });
+
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+  async function load(pass) {
+    if (msgEl) msgEl.textContent = "Loading…";
+    try {
+      const res = await fetch("/api/dashboard", { headers: { Authorization: "Bearer " + pass } });
+      if (res.status === 401) { if (msgEl) msgEl.textContent = "Wrong passcode."; sessionStorage.removeItem(KEY); return; }
+      if (res.status === 503) { if (msgEl) msgEl.textContent = "Dashboard isn't enabled yet (needs DASHBOARD_PASSCODE + Supabase in Vercel)."; return; }
+      if (!res.ok) { if (msgEl) msgEl.textContent = "Couldn't load (HTTP " + res.status + ")."; return; }
+      const data = await res.json();
+      sessionStorage.setItem(KEY, pass);
+      if (msgEl) msgEl.textContent = "";
+      render(data.leads || []);
+    } catch (e) { if (msgEl) msgEl.textContent = "Network error — try again."; }
+  }
+
+  function render(leads) {
+    if (!tableEl) return;
+    tableEl.hidden = false;
+    if (!leads.length) { tableEl.innerHTML = '<p class="dash__empty">No leads yet. Conversations captured via the agent will appear here.</p>'; return; }
+    const cols = [["created_at", "When"], ["name", "Name"], ["phone", "Phone"], ["callType", "Type"], ["disposition", "Disposition"], ["score", "Score"], ["summary", "Summary"], ["nextAction", "Next action"]];
+    const head = cols.map(c => `<th>${c[1]}</th>`).join("");
+    const rows = leads.map(L => "<tr>" + cols.map(c => {
+      let v = L[c[0]];
+      if (c[0] === "created_at" && v) { try { v = new Date(v).toLocaleString(); } catch (e) {} }
+      return `<td>${esc(v)}</td>`;
+    }).join("") + "</tr>").join("");
+    tableEl.innerHTML = `<div class="dash__count">${leads.length} lead${leads.length === 1 ? "" : "s"}</div>
+      <div class="dash__scroll"><table class="dash__t"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
 })();

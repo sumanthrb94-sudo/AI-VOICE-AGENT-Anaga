@@ -46,6 +46,24 @@ export async function appendLead(lead) {
   }
 }
 
+/**
+ * List recent leads (newest first). Supabase only (Sheets read not implemented).
+ * Returns { ok, leads }.
+ */
+export async function listLeads({ limit = 100 } = {}) {
+  if (!leadStoreConfigured() || leadStore() !== 'supabase') return { ok: false, leads: [] };
+  const base = process.env.SUPABASE_URL.replace(/\/$/, '');
+  const key = process.env.SUPABASE_SERVICE_KEY;
+  const table = process.env.SUPABASE_LEADS_TABLE || 'leads';
+  const n = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
+  const resp = await fetch(`${base}/rest/v1/${table}?select=*&order=created_at.desc&limit=${n}`, {
+    headers: { apikey: key, Authorization: 'Bearer ' + key },
+  });
+  if (!resp.ok) { let d = ''; try { d = (await resp.text()).slice(0, 200); } catch (_) {} throw new Error('supabase_list_' + resp.status + (d ? ': ' + d : '')); }
+  const leads = await resp.json();
+  return { ok: true, leads: Array.isArray(leads) ? leads : [] };
+}
+
 function normalizeLead(l) {
   l = l || {};
   return {

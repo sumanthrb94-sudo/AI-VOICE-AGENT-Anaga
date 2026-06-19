@@ -888,3 +888,54 @@ body {
     }
   }
 }
+
+/* ===================================================================
+   PRODUCTION UI — view switch, lead gate, dashboard
+   =================================================================== */
+.hp { position: absolute !important; left: -9999px !important; width: 1px; height: 1px; opacity: 0; }
+[hidden] { display: none !important; }
+
+/* nav view switch (Agent / Dashboard) */
+.viewsw { display: inline-flex; gap: 6px; margin-left: auto; }
+.viewsw__btn {
+  font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; color: var(--ink-dim);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 100px;
+  padding: 7px 14px; cursor: pointer; transition: .18s var(--ease);
+}
+.viewsw__btn:hover { color: var(--ink); border-color: #C4AE91; }
+.viewsw__btn.is-active { color: #1a1206; border-color: transparent; background: linear-gradient(135deg, var(--saffron), var(--saffron-2)); }
+
+/* lead gate (name + phone before the call) */
+.call__lead {
+  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px; padding: 26px 22px; text-align: center;
+}
+.call__leadhint { font-size: 13.5px; color: var(--ink-dim); max-width: 320px; }
+.call__leadform { display: flex; flex-direction: column; gap: 10px; width: min(330px, 86%); margin-top: 6px; }
+.call__leadform input {
+  background: var(--panel); border: 1px solid var(--line); color: var(--ink);
+  border-radius: 12px; padding: 13px 15px; font-size: 15px; font-family: 'Inter', sans-serif;
+}
+.call__leadform input:focus { outline: none; border-color: var(--saffron); }
+.call__leadform .btn--call { justify-content: center; margin-top: 4px; }
+
+/* dashboard */
+.dash { position: relative; z-index: 1; padding: clamp(36px,6vw,72px) clamp(16px,5vw,48px); max-width: 1100px; margin: 0 auto; }
+.dash__panel { max-width: 1040px; margin: 0 auto; }
+.dash__gate { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: center; margin-bottom: 22px; }
+.dash__gate input {
+  background: var(--panel); border: 1px solid var(--line); color: var(--ink);
+  border-radius: 12px; padding: 11px 15px; font-size: 14px; min-width: 220px; font-family: 'Inter', sans-serif;
+}
+.dash__gate input:focus { outline: none; border-color: var(--saffron); }
+.dash__msg { flex-basis: 100%; text-align: center; color: var(--ink-dim); font-size: 13px; }
+.dash__empty { text-align: center; color: var(--ink-faint); padding: 32px; }
+.dash__count { color: var(--ink-dim); font-size: 13px; margin-bottom: 10px; }
+.dash__scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+.dash__t { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--panel); }
+.dash__t th, .dash__t td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); vertical-align: top; white-space: nowrap; }
+.dash__t th { font-family: 'Sora', sans-serif; font-size: 11.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--ink-faint); background: var(--panel-2); position: sticky; top: 0; }
+.dash__t td:nth-child(7) { white-space: normal; min-width: 220px; }
+.dash__t tbody tr:hover { background: var(--panel-2); }
+.dash__link { background: none; border: none; color: var(--ink-dim); font-size: 13px; cursor: pointer; text-decoration: underline; font-family: 'Inter', sans-serif; }
+.dash__link:hover { color: var(--ink); }
