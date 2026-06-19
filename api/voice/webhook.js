@@ -10,6 +10,7 @@
 // problem we log server-side and move on.
 
 import { sendWhatsAppText, whatsappConfigured, readRawBody } from '../_lib/whatsapp.js';
+import { appendLead, leadStoreConfigured } from '../_lib/leadstore.js';
 
 function authorized(req) {
   const secret = process.env.VOICE_WEBHOOK_SECRET;
@@ -40,6 +41,15 @@ export default async function handler(req, res) {
       if (ev.nextAction) lines.push('', 'Next: ' + ev.nextAction);
       await sendWhatsAppText({ to: ev.notify, body: lines.join('\n') }).catch(() => {});
     }
+    // Auto-log every finished call as a row (Google Sheet / Supabase) — fail soft.
+    if (ev.type === 'end-of-call' && leadStoreConfigured()) {
+      appendLead({
+        name: ev.name, phone: ev.to, language: ev.language, callType: ev.direction || 'outbound',
+        disposition: ev.outcome, score: ev.score, interested: ev.interested,
+        summary: ev.summary, nextAction: ev.nextAction, comment: ev.comment,
+        bookingDay: ev.bookingDay, callId: ev.callId, source: ev.source || 'phone', recording: ev.recording,
+      }).catch((e) => console.error('lead_log_failed', String(e).slice(0, 160)));
+    }
   } catch (e) {
     console.error('voice_webhook_failed', String(e).slice(0, 200));
   }
@@ -58,9 +68,19 @@ function normalizeEvent(body) {
   return {
     type: isEnd ? 'end-of-call' : type,
     notify: metadata.notify || '',
+    name: metadata.name || '',
+    direction: metadata.direction || '',
+    source: metadata.source || '',
+    language: structured.language || '',
     to: (call.customer && call.customer.number) || body.to_number || '',
     outcome: m.endedReason || analysis.successEvaluation || structured.disposition ||
       body.disconnection_reason || '',
+    score: structured.score != null ? structured.score : '',
+    interested: structured.interested,
+    comment: structured.comment || '',
+    bookingDay: structured.bookingDay || structured.day || '',
+    callId: (call && call.id) || m.callId || body.call_id || '',
+    recording: m.recordingUrl || (call && call.recordingUrl) || body.recording_url || '',
     summary: m.summary || analysis.summary ||
       (body.call_analysis && body.call_analysis.call_summary) || '',
     nextAction: structured.nextAction || '',
