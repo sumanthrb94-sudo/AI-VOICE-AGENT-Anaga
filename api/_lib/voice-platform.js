@@ -49,6 +49,7 @@ export function voicePlatform() {
 export function voicePlatformConfigured() {
   switch (voicePlatform()) {
     case 'samvaad': return !!(process.env.SARVAM_API_KEY && process.env.SAMVAAD_OUTBOUND_URL && process.env.SAMVAAD_AGENT_ID);
+    case 'bolna':   return !!(process.env.BOLNA_API_KEY && process.env.BOLNA_AGENT_ID);
     case 'vapi':    return !!(process.env.VAPI_API_KEY && process.env.VAPI_PHONE_NUMBER_ID);
     case 'retell':  return !!(process.env.RETELL_API_KEY && process.env.RETELL_FROM_NUMBER);
     default:        return false;
@@ -64,10 +65,26 @@ export async function triggerOutboundCall({ to, metadata = {} } = {}) {
   if (!to) throw new Error('missing_to');
   switch (voicePlatform()) {
     case 'samvaad': return callSamvaad({ to, metadata });
+    case 'bolna':   return callBolna({ to, metadata });
     case 'vapi':    return callVapi({ to, metadata });
     case 'retell':  return callRetell({ to, metadata });
     default:        throw new Error('unsupported_voice_platform');
   }
+}
+
+// ---- Bolna (https://docs.bolna.ai) — self-serve, India-native, supports Sarvam --
+// The self-serve replacement for Samvaad: build the "Anaga" agent at bolna.ai
+// (paste SYL_RULES + the Telugu first line, pick a Sarvam Telugu voice, connect a
+// Bolna/your number), then trigger calls by agent id. Bearer auth.
+async function callBolna({ to, metadata }) {
+  const apiKey = process.env.BOLNA_API_KEY;
+  const agentId = process.env.BOLNA_AGENT_ID;
+  if (!apiKey || !agentId) throw new Error('bolna_not_configured');
+  const url = process.env.BOLNA_OUTBOUND_URL || 'https://api.bolna.ai/call';
+  const payload = { agent_id: agentId, recipient_phone_number: to, variables: metadata };
+  if (process.env.BOLNA_FROM_NUMBER) payload.from_phone_number = process.env.BOLNA_FROM_NUMBER;
+  const data = await postJSON(url, apiKey, payload);
+  return { ok: true, id: (data && (data.call_id || data.id || data.execution_id)) || '', raw: data };
 }
 
 // ---- Sarvam Samvaad (https://docs.sarvam.ai) — India-native, self-serve ------
