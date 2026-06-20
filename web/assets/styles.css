@@ -1049,3 +1049,35 @@ body {
 .campaign-preview:empty { display: none; }
 .campaign-preview p { margin-bottom: 10px; color: var(--ink-dim); }
 
+/* ---------- knowledge test panel ---------- */
+.kb-try {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line-soft);
+  max-width: 600px;
+}
+.kb-try h3 { font-family: 'Sora', sans-serif; font-size: 16px; margin-bottom: 12px; }
+.kb-tryform { display: flex; gap: 10px; }
+.kb-tryform input {
+  flex: 1;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: 'Inter', sans-serif;
+  color: var(--ink);
+}
+.kb-tryform input:focus { outline: none; border-color: var(--saffron); }
+.kb-answer {
+  margin-top: 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: var(--ink);
+}
+

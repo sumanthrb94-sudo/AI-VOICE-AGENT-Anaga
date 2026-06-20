@@ -23,6 +23,10 @@ function authorized(req) {
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
+    // Production health/status report (public — for uptime monitors).  /api/health
+    if (req.query && (req.query.health || req.query.status)) {
+      return res.status(200).json(healthReport());
+    }
     return res.status(200).json({ available: leadStoreConfigured(), store: leadStore(), fields: LEAD_FIELDS });
   }
   if (req.method !== 'POST') { res.setHeader('Allow', 'GET, POST'); return res.status(405).json({ error: 'method_not_allowed' }); }
@@ -50,6 +54,33 @@ export default async function handler(req, res) {
     console.error('lead_log_failed', String(e).slice(0, 200));
     return res.status(503).json({ error: 'lead_log_failed' });
   }
+}
+
+// Production health/status — reports which integrations are configured (no secrets).
+function healthReport() {
+  const has = (k) => !!process.env[k];
+  return {
+    ok: true,
+    service: 'anaga-modcon',
+    tenant: process.env.TENANT_ID || 'modcon',
+    time: new Date().toISOString(),
+    integrations: {
+      gemini: has('GEMINI_API_KEY'),
+      leadStore: leadStoreConfigured(),
+      store: leadStore(),
+      supabase: has('SUPABASE_URL') && has('SUPABASE_SERVICE_KEY'),
+      knowledgeBase: has('GEMINI_API_KEY') && has('SUPABASE_URL') && has('SUPABASE_SERVICE_KEY'),
+      whatsapp: has('WHATSAPP_TOKEN') && has('WHATSAPP_PHONE_NUMBER_ID'),
+      voicePlatform: process.env.VOICE_PLATFORM || 'bolna',
+      voiceConfigured: has('BOLNA_API_KEY') || has('VAPI_API_KEY') || has('RETELL_API_KEY') || has('SAMVAAD_AGENT_ID'),
+      calendar: has('GOOGLE_SERVICE_ACCOUNT_EMAIL') && has('GOOGLE_PRIVATE_KEY'),
+      dashboard: has('DASHBOARD_PASSCODE'),
+      followupQueue: has('SUPABASE_URL') && has('SUPABASE_SERVICE_KEY'),
+      crmSync: has('CRM_WEBHOOK_URL'),
+      salesAlerts: has('SALES_NOTIFY_WHATSAPP'),
+      admin: has('ADMIN_API_KEY'),
+    },
+  };
 }
 
 async function handlePublicCapture(req, res) {

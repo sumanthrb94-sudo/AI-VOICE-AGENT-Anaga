@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/styles.css?v=41" />
+  <link rel="stylesheet" href="assets/styles.css?v=42" />
 </head>
 <body>
   <!-- ambient background -->
@@ -26,6 +26,7 @@
       <button class="viewsw__btn is-active" id="view-agent-btn" data-view="agent">🎙 Agent</button>
       <button class="viewsw__btn" id="view-dash-btn" data-view="dashboard">📊 Dashboard</button>
       <button class="viewsw__btn" id="view-campaign-btn" data-view="campaign">📤 Campaign</button>
+      <button class="viewsw__btn" id="view-kb-btn" data-view="knowledge">🧠 Knowledge</button>
     </div>
   </header>
 
@@ -144,6 +145,44 @@
     </div>
   </section>
 
+  <!-- ===================== KNOWLEDGE VIEW ===================== -->
+  <section class="dash" id="view-knowledge" hidden>
+    <div class="section-head">
+      <h2>Anaga's Knowledge</h2>
+      <p>Paste your project brochures, FAQs and price sheets. Anaga answers customers from this — update it anytime, no code.</p>
+    </div>
+    <div class="dash__panel">
+      <form class="campaign-form" id="kb-form" autocomplete="off">
+        <div class="campaign-row">
+          <label class="campaign-lbl" for="kb-secret">Admin key (ADMIN_API_KEY)</label>
+          <input id="kb-secret" type="password" placeholder="Your admin key" aria-label="Admin key" autocomplete="off" required />
+        </div>
+        <div class="campaign-row">
+          <label class="campaign-lbl" for="kb-title">Title</label>
+          <input id="kb-title" type="text" placeholder="e.g. SYL Residences — pricing & specs" />
+        </div>
+        <div class="campaign-row">
+          <label class="campaign-lbl" for="kb-content">Content (brochure text, FAQ, price list…)</label>
+          <textarea id="kb-content" rows="10" placeholder="Paste the document text here. Long docs are auto-split into chunks and embedded." required></textarea>
+        </div>
+        <button type="submit" class="btn btn--call">
+          <span class="btn--call__ico" aria-hidden="true">🧠</span>
+          <span class="btn--call__label">Add to Anaga's brain</span>
+        </button>
+        <p class="dash__msg" id="kb-result" role="status" aria-live="polite"></p>
+      </form>
+
+      <div class="kb-try">
+        <h3>Test it</h3>
+        <form class="kb-tryform" id="kb-try-form" autocomplete="off">
+          <input id="kb-question" type="text" placeholder="Ask Anaga a question (uses the knowledge above)…" aria-label="Test question" />
+          <button class="btn btn--sm" type="submit">Ask</button>
+        </form>
+        <div class="kb-answer" id="kb-answer" hidden></div>
+      </div>
+    </div>
+  </section>
+
   <footer class="foot">
     <span>Anaga · अनघा · Modcon Builders — Thukkuguda, Hyderabad · <a href="https://modcon.in" target="_blank" rel="noopener">modcon.in</a></span>
   </footer>
@@ -218,10 +257,10 @@
     </div>
   </div>
 
-  <script src="assets/translate.js?v=41"></script>
-  <script src="assets/llm-client.js?v=41"></script>
-  <script src="assets/noise-gate.js?v=41"></script>
-  <script src="assets/live-call.js?v=41"></script>
-  <script src="assets/app.js?v=41"></script>
+  <script src="assets/translate.js?v=42"></script>
+  <script src="assets/llm-client.js?v=42"></script>
+  <script src="assets/noise-gate.js?v=42"></script>
+  <script src="assets/live-call.js?v=42"></script>
+  <script src="assets/app.js?v=42"></script>
 </body>
 </html>

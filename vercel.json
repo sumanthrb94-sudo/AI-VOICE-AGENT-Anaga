@@ -9,8 +9,12 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [
+    { "source": "/api/health",            "destination": "/api/leads?health=1" },
     { "source": "/api/anaga/turn",        "destination": "/api/anaga?action=turn" },
     { "source": "/api/anaga/summary",     "destination": "/api/anaga?action=summary" },
+    { "source": "/api/anaga/care",        "destination": "/api/anaga?action=care" },
+    { "source": "/api/knowledge/add",     "destination": "/api/anaga?action=kb-add" },
+    { "source": "/api/knowledge/search",  "destination": "/api/anaga?action=kb-search" },
     { "source": "/api/tts",               "destination": "/api/speech?type=tts" },
     { "source": "/api/stt",               "destination": "/api/speech?type=stt" },
     { "source": "/api/booking/slots",     "destination": "/api/booking" },

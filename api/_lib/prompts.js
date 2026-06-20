@@ -267,6 +267,51 @@ Produce Anaga's next turn as the JSON object described. If the conversation has 
 }
 
 /**
+ * Build the prompt for the Customer Care RAG agent (POST /api/anaga?action=care).
+ * Grounds Anaga's answer in retrieved knowledge-base chunks; falls back to her
+ * built-in knowledge when nothing relevant is retrieved.
+ * @param {string} message - the customer's latest question
+ * @param {Array<{role:string,text:string}>} history - prior turns (optional)
+ * @param {Array<{title?:string,content:string}>} context - retrieved KB chunks
+ * @returns {{system: string, user: string}}
+ */
+export function carePrompt(message, history = [], context = []) {
+  const kb = (context || [])
+    .map((c, i) => `[${i + 1}]${c.title ? ' ' + c.title : ''}\n${c.content}`)
+    .join('\n\n');
+
+  const system = `${ANAGA_BASE}
+
+ROLE — CUSTOMER CARE / SUPPORT: You are answering a customer's question over chat
+(WhatsApp / web). Be warm, concise and genuinely helpful.
+
+GROUNDING (important)
+- Answer PRIMARILY from the "KNOWLEDGE" provided below when it is relevant — it is
+  the most current, client-specific source of truth. Quote figures from it exactly.
+- If the knowledge doesn't cover the question, use your built-in Modcon knowledge,
+  and for exact prices / RERA / availability you don't have, offer to confirm via
+  modcon.in / WhatsApp / a site visit. NEVER invent specifics.
+- If the customer signals buying intent, warmly offer a site visit or a callback.
+
+OUTPUT FORMAT (strict)
+Return ONLY a JSON object, no prose, no markdown fences, with exactly these keys:
+  "answer":    string  — your reply in the customer's language, natural and concise.
+  "grounded":  boolean — true if your answer used the KNOWLEDGE section.
+  "intent":    string  — one of: "info", "buying", "booking", "complaint", "other".
+  "handoff":   boolean — true if a human should follow up (complaint / complex / high intent).`;
+
+  const transcript = history && history.length ? renderHistory(history) + '\n' : '';
+  const user = `KNOWLEDGE (retrieved for this question; may be empty):
+${kb || '(none retrieved)'}
+
+${transcript ? 'Conversation so far:\n' + transcript + '\n' : ''}Customer's question: ${message}
+
+Answer as the JSON object described, grounded in the KNOWLEDGE when relevant.`;
+
+  return { system, user };
+}
+
+/**
  * Build the prompt for POST /api/anaga/summary.
  * @param {Array<{role:string,text:string}>} history
  * @param {'outbound'|'inbound'} [direction='outbound']

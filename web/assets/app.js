@@ -2146,24 +2146,29 @@ if (openBtn) openBtn.addEventListener("click", () => { if (synth) synth.cancel()
   const agentBtn    = document.getElementById("view-agent-btn");
   const dashBtn     = document.getElementById("view-dash-btn");
   const campaignBtn = document.getElementById("view-campaign-btn");
+  const kbBtn       = document.getElementById("view-kb-btn");
   const agentView   = document.getElementById("view-agent");
   const dashView    = document.getElementById("view-dashboard");
   const campaignView= document.getElementById("view-campaign");
+  const kbView      = document.getElementById("view-knowledge");
   if (!agentBtn || !dashBtn || !dashView) return;
 
   function show(view) {
     if (agentView)    agentView.hidden    = view !== "agent";
     if (dashView)     dashView.hidden     = view !== "dashboard";
     if (campaignView) campaignView.hidden = view !== "campaign";
+    if (kbView)       kbView.hidden       = view !== "knowledge";
     agentBtn.classList.toggle("is-active", view === "agent");
     dashBtn.classList.toggle("is-active", view === "dashboard");
     if (campaignBtn) campaignBtn.classList.toggle("is-active", view === "campaign");
+    if (kbBtn) kbBtn.classList.toggle("is-active", view === "knowledge");
     if (view === "dashboard") { loadIfReady(); startAutoRefresh(); }
     else stopAutoRefresh();
   }
   agentBtn.addEventListener("click", () => show("agent"));
   dashBtn.addEventListener("click", () => show("dashboard"));
   if (campaignBtn) campaignBtn.addEventListener("click", () => show("campaign"));
+  if (kbBtn) kbBtn.addEventListener("click", () => show("knowledge"));
 
   // Auto-refresh the dashboard every 15s while it's open, so new leads appear
   // without a manual reload. Pauses when the tab is hidden.
@@ -2404,6 +2409,73 @@ if (openBtn) openBtn.addEventListener("click", () => { if (synth) synth.cancel()
         `✅ Campaign dispatched — ${data.queued || 0} calls triggered, ${data.failed || 0} failed, ${data.skipped || 0} skipped.`;
     } catch (err) {
       if (resultEl) resultEl.textContent = "Network error — check the secret and try again.";
+    }
+  });
+})();
+
+/* ===================================================================
+   KNOWLEDGE VIEW — load Anaga's brain (RAG) + test a question.
+   =================================================================== */
+(function knowledge() {
+  const form     = document.getElementById("kb-form");
+  const secretEl = document.getElementById("kb-secret");
+  const titleEl  = document.getElementById("kb-title");
+  const contentEl= document.getElementById("kb-content");
+  const resultEl = document.getElementById("kb-result");
+  const tryForm  = document.getElementById("kb-try-form");
+  const qEl      = document.getElementById("kb-question");
+  const answerEl = document.getElementById("kb-answer");
+  if (!form) return;
+
+  const SKEY = "anaga_admin_key";
+  // Pre-fill the admin key from this session if we've used it before.
+  const savedKey = sessionStorage.getItem(SKEY);
+  if (savedKey && secretEl) secretEl.value = savedKey;
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const secret  = (secretEl && secretEl.value || "").trim();
+    const title   = (titleEl && titleEl.value || "").trim();
+    const content = (contentEl && contentEl.value || "").trim();
+    if (!secret) { if (resultEl) resultEl.textContent = "Admin key required."; return; }
+    if (!content) { if (resultEl) resultEl.textContent = "Paste some content first."; return; }
+    if (resultEl) resultEl.textContent = "Embedding & saving…";
+    try {
+      const res = await fetch("/api/anaga?action=kb-add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + secret },
+        body: JSON.stringify({ title, content }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) { if (resultEl) resultEl.textContent = "Wrong admin key."; return; }
+      if (!res.ok) { if (resultEl) resultEl.textContent = "Error: " + (data.error || res.status); return; }
+      sessionStorage.setItem(SKEY, secret);
+      if (resultEl) resultEl.textContent = `✅ Added — ${data.chunks || 1} chunk(s) embedded into Anaga's brain.`;
+      if (contentEl) contentEl.value = "";
+      if (titleEl) titleEl.value = "";
+    } catch (err) {
+      if (resultEl) resultEl.textContent = "Network error — try again.";
+    }
+  });
+
+  if (tryForm) tryForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const q = (qEl && qEl.value || "").trim();
+    if (!q) return;
+    if (answerEl) { answerEl.hidden = false; answerEl.textContent = "Anaga is thinking…"; }
+    try {
+      const res = await fetch("/api/anaga?action=care", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: q }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { if (answerEl) answerEl.textContent = "Error: " + (data.error || res.status); return; }
+      const src = (data.sources && data.sources.length) ? `\n\n📚 Sources: ${data.sources.join(", ")}` : "";
+      const grounded = data.grounded ? " ✓ from your knowledge" : " (general knowledge)";
+      if (answerEl) answerEl.textContent = (data.answer || "—") + grounded + src;
+    } catch (err) {
+      if (answerEl) answerEl.textContent = "Network error — try again.";
     }
   });
 })();

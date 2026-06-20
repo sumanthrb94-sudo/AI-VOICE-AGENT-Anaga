@@ -109,6 +109,46 @@ create index if not exists fq_lead_phone_idx on public.followup_queue (lead_phon
 alter table public.followup_queue enable row level security;
 
 -- ============================================================
+-- 5b. KNOWLEDGE BASE (RAG — Gemini embeddings + pgvector)
+--     The blueprint's "Pinecone" tier, free on Supabase.
+-- ============================================================
+create extension if not exists vector;
+
+create table if not exists public.knowledge_base (
+  id          bigint generated always as identity primary key,
+  created_at  timestamptz default now() not null,
+  client_id   text default 'modcon' not null,
+  title       text,
+  content     text not null,
+  source      text,
+  embedding   vector(768),               -- Gemini text-embedding-004
+  metadata    jsonb
+);
+
+create index if not exists kb_client_id_idx on public.knowledge_base (client_id);
+create index if not exists kb_embedding_idx on public.knowledge_base
+  using ivfflat (embedding vector_cosine_ops) with (lists = 100);
+
+alter table public.knowledge_base enable row level security;
+
+create or replace function public.match_knowledge(
+  query_embedding vector(768),
+  match_client_id text,
+  match_count int default 5,
+  min_similarity float default 0.25
+) returns table (id bigint, title text, content text, similarity float)
+language sql stable as $$
+  select kb.id, kb.title, kb.content,
+         1 - (kb.embedding <=> query_embedding) as similarity
+  from public.knowledge_base kb
+  where kb.client_id = match_client_id
+    and kb.embedding is not null
+    and 1 - (kb.embedding <=> query_embedding) > min_similarity
+  order by kb.embedding <=> query_embedding
+  limit match_count;
+$$;
+
+-- ============================================================
 -- 5. CAMPAIGNS TABLE (track outbound campaign batches)
 -- ============================================================
 create table if not exists public.campaigns (
