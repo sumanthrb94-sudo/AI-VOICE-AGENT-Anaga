@@ -37,13 +37,30 @@ export function leadStoreConfigured() {
  * Never throws to the caller in the not-configured case (fail soft).
  */
 export async function appendLead(lead) {
-  if (!leadStoreConfigured()) return { ok: false, skipped: 'not_configured' };
   const row = normalizeLead(lead);
+  // Mirror every lead to an external CRM webhook (HubSpot / Zoho / Pipedrive /
+  // n8n / Make / Salesforce inbound webhook) if configured. Fire-and-forget.
+  mirrorToCrm(row);
+  if (!leadStoreConfigured()) return { ok: false, skipped: 'not_configured' };
   switch (leadStore()) {
     case 'sheets':   return appendSheets(row);
     case 'supabase': return appendSupabase(row);
     default:         return { ok: false, skipped: 'unsupported' };
   }
+}
+
+// Generic CRM connector — POST the lead to CRM_WEBHOOK_URL. Works with any CRM
+// that accepts an inbound JSON webhook. Never blocks the caller or throws.
+function mirrorToCrm(row) {
+  const url = process.env.CRM_WEBHOOK_URL;
+  if (!url) return;
+  try {
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'anaga', tenant: process.env.TENANT_ID || 'modcon', lead: row }),
+    }).catch((e) => console.error('crm_sync_failed', String(e).slice(0, 120)));
+  } catch (e) { console.error('crm_sync_failed', String(e).slice(0, 120)); }
 }
 
 /**
