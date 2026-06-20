@@ -1748,11 +1748,31 @@ if (demoEl) {
     leadName = nm; leadPhone = ph;
     leadGate.hidden = true;
     if (controlsEl) controlsEl.removeAttribute("hidden");
+    // Capture name+phone immediately — before the call starts.
+    // This guarantees the lead is stored even if the call ends prematurely.
+    captureLeadEarly();
     startCall();                                            // now connect
   });
   if (leadCancel) leadCancel.addEventListener("click", () => { if (leadGate) leadGate.hidden = true; closeCall(); });
 
-  /* POST the captured lead + the call review to the public capture endpoint. */
+  /* Fire-and-forget: save name+phone as soon as the lead form submits.
+     This is the primary capture — even a 5-second call lands in the DB. */
+  function captureLeadEarly() {
+    if (!leadName || !leadPhone) return;
+    try {
+      fetch("/api/lead-capture", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: leadName, phone: leadPhone, language: callLang, callType: callDir,
+          disposition: "started", source: "web-agent",
+        }),
+      }).catch(() => {});
+    } catch (e) {}
+  }
+
+  /* POST enriched review data after the call summary arrives.
+     Updates the lead with score/disposition/summary via the same endpoint.
+     Uses a separate call so the review data layers on top of the early capture. */
   function captureLead(r) {
     if (capturedThisCall || !leadName || !leadPhone) return;
     capturedThisCall = true;
@@ -2120,31 +2140,40 @@ if (openBtn) openBtn.addEventListener("click", () => { if (synth) synth.cancel()
 })();
 
 /* ===================================================================
-   VIEW SWITCH (Agent / Dashboard) + lead dashboard (via /api/dashboard).
+   VIEW SWITCH (Agent / Dashboard / Campaign) + lead dashboard.
    =================================================================== */
 (function dashboard() {
-  const agentBtn  = document.getElementById("view-agent-btn");
-  const dashBtn   = document.getElementById("view-dash-btn");
-  const agentView = document.getElementById("view-agent");
-  const dashView  = document.getElementById("view-dashboard");
+  const agentBtn    = document.getElementById("view-agent-btn");
+  const dashBtn     = document.getElementById("view-dash-btn");
+  const campaignBtn = document.getElementById("view-campaign-btn");
+  const agentView   = document.getElementById("view-agent");
+  const dashView    = document.getElementById("view-dashboard");
+  const campaignView= document.getElementById("view-campaign");
   if (!agentBtn || !dashBtn || !dashView) return;
 
   function show(view) {
-    const isDash = view === "dashboard";
-    if (agentView) agentView.hidden = isDash;
-    dashView.hidden = !isDash;
-    agentBtn.classList.toggle("is-active", !isDash);
-    dashBtn.classList.toggle("is-active", isDash);
-    if (isDash) loadIfReady();
+    if (agentView)    agentView.hidden    = view !== "agent";
+    if (dashView)     dashView.hidden     = view !== "dashboard";
+    if (campaignView) campaignView.hidden = view !== "campaign";
+    agentBtn.classList.toggle("is-active", view === "agent");
+    dashBtn.classList.toggle("is-active", view === "dashboard");
+    if (campaignBtn) campaignBtn.classList.toggle("is-active", view === "campaign");
+    if (view === "dashboard") loadIfReady();
   }
   agentBtn.addEventListener("click", () => show("agent"));
   dashBtn.addEventListener("click", () => show("dashboard"));
+  if (campaignBtn) campaignBtn.addEventListener("click", () => show("campaign"));
 
   const gate    = document.getElementById("dash-gate");
   const passEl  = document.getElementById("dash-pass");
   const msgEl   = document.getElementById("dash-msg");
   const tableEl = document.getElementById("dash-table");
+  const statsEl = document.getElementById("dash-stats");
+  const filterEl= document.getElementById("dash-filter");
   const KEY = "anaga_dash_pass";
+
+  let currentLeads = [];
+  let currentPass = "";
 
   function loadIfReady() {
     const saved = sessionStorage.getItem(KEY);
@@ -2156,34 +2185,210 @@ if (openBtn) openBtn.addEventListener("click", () => { if (synth) synth.cancel()
     if (p) load(p);
   });
 
+  const exportBtn = document.getElementById("dash-export");
+  if (exportBtn) exportBtn.addEventListener("click", () => {
+    if (!currentPass) return;
+    const url = "/api/dashboard/export";
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "anaga-leads.csv";
+    // Pass auth via a temp link with headers is not possible for <a> tags,
+    // so open in new tab with Authorization header via fetch + blob URL.
+    fetch(url, { headers: { Authorization: "Bearer " + currentPass } })
+      .then((r) => r.ok ? r.blob() : null)
+      .then((blob) => {
+        if (!blob) return;
+        const burl = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = burl;
+        link.download = `anaga-leads-${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(burl);
+      })
+      .catch(() => {});
+  });
+
+  if (filterEl) filterEl.addEventListener("change", () => {
+    const val = filterEl.value;
+    const filtered = val ? currentLeads.filter((l) => l.disposition === val) : currentLeads;
+    renderTable(filtered);
+  });
+
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
   async function load(pass) {
+    currentPass = pass;
     if (msgEl) msgEl.textContent = "Loading…";
     try {
-      const res = await fetch("/api/dashboard", { headers: { Authorization: "Bearer " + pass } });
-      if (res.status === 401) { if (msgEl) msgEl.textContent = "Wrong passcode."; sessionStorage.removeItem(KEY); return; }
-      if (res.status === 503) { if (msgEl) msgEl.textContent = "Dashboard isn't enabled yet (needs DASHBOARD_PASSCODE + Supabase in Vercel)."; return; }
-      if (!res.ok) { if (msgEl) msgEl.textContent = "Couldn't load (HTTP " + res.status + ")."; return; }
-      const data = await res.json();
+      const [leadsRes, statsRes] = await Promise.all([
+        fetch("/api/dashboard", { headers: { Authorization: "Bearer " + pass } }),
+        fetch("/api/dashboard/stats", { headers: { Authorization: "Bearer " + pass } }),
+      ]);
+      if (leadsRes.status === 401) { if (msgEl) msgEl.textContent = "Wrong passcode."; sessionStorage.removeItem(KEY); return; }
+      if (leadsRes.status === 503) { if (msgEl) msgEl.textContent = "Dashboard isn't enabled yet. Set DASHBOARD_PASSCODE + SUPABASE_SERVICE_KEY in Vercel."; return; }
+      if (!leadsRes.ok) { if (msgEl) msgEl.textContent = "Couldn't load (HTTP " + leadsRes.status + ")."; return; }
+      const data = await leadsRes.json();
+      const stats = statsRes.ok ? await statsRes.json() : null;
       sessionStorage.setItem(KEY, pass);
       if (msgEl) msgEl.textContent = "";
-      render(data.leads || []);
+      currentLeads = data.leads || [];
+      if (stats && stats.ok) renderStats(stats);
+      renderTable(currentLeads);
     } catch (e) { if (msgEl) msgEl.textContent = "Network error — try again."; }
   }
 
-  function render(leads) {
+  function renderStats(s) {
+    if (!statsEl) return;
+    const cards = [
+      { label: "Total leads", value: s.total, cls: "" },
+      { label: "Booked visits", value: s.booked, cls: "stat--good" },
+      { label: "Hot leads (70+)", value: s.hot, cls: "stat--hot" },
+      { label: "Opt-outs", value: s.optOut, cls: "stat--bad" },
+      { label: "Conversion", value: (s.conversionRate || 0) + "%", cls: "" },
+    ];
+    statsEl.innerHTML = cards.map((c) =>
+      `<div class="stat-card ${c.cls}"><b>${esc(c.value)}</b><span>${esc(c.label)}</span></div>`
+    ).join("");
+    statsEl.hidden = false;
+  }
+
+  function renderTable(leads) {
     if (!tableEl) return;
     tableEl.hidden = false;
-    if (!leads.length) { tableEl.innerHTML = '<p class="dash__empty">No leads yet. Conversations captured via the agent will appear here.</p>'; return; }
-    const cols = [["created_at", "When"], ["name", "Name"], ["phone", "Phone"], ["callType", "Type"], ["disposition", "Disposition"], ["score", "Score"], ["summary", "Summary"], ["nextAction", "Next action"]];
-    const head = cols.map(c => `<th>${c[1]}</th>`).join("");
-    const rows = leads.map(L => "<tr>" + cols.map(c => {
-      let v = L[c[0]];
-      if (c[0] === "created_at" && v) { try { v = new Date(v).toLocaleString(); } catch (e) {} }
-      return `<td>${esc(v)}</td>`;
-    }).join("") + "</tr>").join("");
-    tableEl.innerHTML = `<div class="dash__count">${leads.length} lead${leads.length === 1 ? "" : "s"}</div>
+    if (!leads.length) {
+      tableEl.innerHTML = '<p class="dash__empty">No leads yet. Conversations captured via the agent will appear here.</p>';
+      return;
+    }
+    const cols = [
+      ["created_at", "When"], ["name", "Name"], ["phone", "Phone"],
+      ["callType", "Type"], ["disposition", "Outcome"], ["score", "Score"],
+      ["language", "Lang"], ["summary", "Summary"], ["nextAction", "Next action"],
+    ];
+    const head = cols.map((c) => `<th>${c[1]}</th>`).join("");
+    const rows = leads.map((L) => {
+      const disp = L.disposition || "";
+      const cls = disp === "booked" ? "row--booked"
+                : disp === "opt-out" ? "row--optout"
+                : parseInt(L.score, 10) >= 70 ? "row--hot" : "";
+      return `<tr class="${cls}">` + cols.map((c) => {
+        let v = L[c[0]];
+        if (c[0] === "created_at" && v) { try { v = new Date(v).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" }); } catch (e) {} }
+        if (c[0] === "score" && v) v = v + "/100";
+        return `<td>${esc(v)}</td>`;
+      }).join("") + "</tr>";
+    }).join("");
+    tableEl.innerHTML = `
+      <div class="dash__toolbar">
+        <span class="dash__count">${leads.length} lead${leads.length === 1 ? "" : "s"}</span>
+        <button class="btn btn--sm" id="dash-refresh">↻ Refresh</button>
+        <button class="btn btn--sm" id="dash-export">⬇ Export CSV</button>
+      </div>
       <div class="dash__scroll"><table class="dash__t"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+
+    // Re-bind export/refresh inside re-rendered HTML
+    const expBtn = tableEl.querySelector("#dash-export");
+    if (expBtn) expBtn.addEventListener("click", () => {
+      if (!currentPass) return;
+      fetch("/api/dashboard/export", { headers: { Authorization: "Bearer " + currentPass } })
+        .then((r) => r.ok ? r.blob() : null)
+        .then((blob) => {
+          if (!blob) return;
+          const burl = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = burl;
+          link.download = `anaga-leads-${new Date().toISOString().slice(0,10)}.csv`;
+          document.body.appendChild(link); link.click(); link.remove();
+          URL.revokeObjectURL(burl);
+        }).catch(() => {});
+    });
+    const refBtn = tableEl.querySelector("#dash-refresh");
+    if (refBtn) refBtn.addEventListener("click", () => load(currentPass));
   }
+})();
+
+/* ===================================================================
+   CAMPAIGN VIEW — upload CSV and fire outbound calls in bulk.
+   =================================================================== */
+(function campaign() {
+  const form       = document.getElementById("campaign-form");
+  const fileInput  = document.getElementById("campaign-file");
+  const phoneInput = document.getElementById("campaign-phones");
+  const dirSelect  = document.getElementById("campaign-dir");
+  const previewEl  = document.getElementById("campaign-preview");
+  const resultEl   = document.getElementById("campaign-result");
+  const secretInput= document.getElementById("campaign-secret");
+  if (!form) return;
+
+  function parseCSV(text) {
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) return [];
+    const header = lines[0].toLowerCase().split(",").map((h) => h.trim());
+    const nameIdx = header.indexOf("name");
+    const phoneIdx = header.findIndex((h) => h === "phone" || h === "mobile" || h === "number");
+    if (phoneIdx === -1) return [];
+    return lines.slice(1).map((row) => {
+      const cells = row.split(",");
+      return {
+        name: nameIdx >= 0 ? (cells[nameIdx] || "").trim() : "",
+        phone: (cells[phoneIdx] || "").trim(),
+      };
+    }).filter((r) => r.phone);
+  }
+
+  function showPreview(leads) {
+    if (!previewEl) return;
+    if (!leads.length) { previewEl.innerHTML = '<p class="dash__empty">No valid leads found. CSV must have a "phone" column.</p>'; return; }
+    const rows = leads.slice(0, 5).map((l) =>
+      `<tr><td>${l.name || "—"}</td><td>${l.phone}</td></tr>`
+    ).join("");
+    previewEl.innerHTML = `<p><b>${leads.length}</b> leads loaded${leads.length > 5 ? ` (showing first 5)` : ""}:</p>
+      <table class="dash__t"><thead><tr><th>Name</th><th>Phone</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  if (fileInput) fileInput.addEventListener("change", () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const leads = parseCSV(e.target.result);
+      form._csvLeads = leads;
+      showPreview(leads);
+    };
+    reader.readAsText(file);
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const secret = (secretInput && secretInput.value || "").trim();
+    const dir = (dirSelect && dirSelect.value) || "outbound";
+    if (!secret) { if (resultEl) resultEl.textContent = "Campaign secret required."; return; }
+
+    let leads = form._csvLeads || [];
+    if (!leads.length && phoneInput && phoneInput.value.trim()) {
+      // Manual phone list (newline-separated)
+      leads = phoneInput.value.trim().split(/\r?\n/).map((l) => {
+        const parts = l.split(",");
+        return { phone: (parts[1] || parts[0] || "").trim(), name: parts.length > 1 ? (parts[0] || "").trim() : "" };
+      }).filter((l) => l.phone);
+    }
+
+    if (!leads.length) { if (resultEl) resultEl.textContent = "No leads to call. Upload a CSV or paste phone numbers."; return; }
+    if (resultEl) resultEl.textContent = `Dispatching ${leads.length} calls…`;
+
+    try {
+      const res = await fetch("/api/campaign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + secret },
+        body: JSON.stringify({ leads, direction: dir }),
+      });
+      const data = await res.json();
+      if (!res.ok) { if (resultEl) resultEl.textContent = "Error: " + (data.error || res.status); return; }
+      if (resultEl) resultEl.textContent =
+        `✅ Campaign dispatched — ${data.queued || 0} calls triggered, ${data.failed || 0} failed, ${data.skipped || 0} skipped.`;
+    } catch (err) {
+      if (resultEl) resultEl.textContent = "Network error — check the secret and try again.";
+    }
+  });
 })();

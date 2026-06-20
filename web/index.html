@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Anaga — Modcon Builders</title>
-  <meta name="description" content="Anaga — Modcon Builders' AI voice agent. Real-time, multilingual (Telugu / Hindi / English) calls about SYL Residences & MODCON ONE at Thukkuguda, Hyderabad." />
+  <meta name="description" content="Anaga — Modcon Builders' AI voice agent. Real-time, multilingual (Telugu / Hindi / English) calls about SYL Residences &amp; MODCON ONE at Thukkuguda, Hyderabad." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/styles.css?v=39" />
+  <link rel="stylesheet" href="assets/styles.css?v=40" />
 </head>
 <body>
   <!-- ambient background -->
@@ -25,6 +25,7 @@
     <div class="viewsw" role="group" aria-label="View">
       <button class="viewsw__btn is-active" id="view-agent-btn" data-view="agent">🎙 Agent</button>
       <button class="viewsw__btn" id="view-dash-btn" data-view="dashboard">📊 Dashboard</button>
+      <button class="viewsw__btn" id="view-campaign-btn" data-view="campaign">📤 Campaign</button>
     </div>
   </header>
 
@@ -84,7 +85,7 @@
   <section class="dash" id="view-dashboard" hidden>
     <div class="section-head">
       <h2>Lead Dashboard</h2>
-      <p>Conversations Anaga has captured.</p>
+      <p>All conversations Anaga has captured, with scores and summaries.</p>
     </div>
     <div class="dash__panel">
       <form class="dash__gate" id="dash-gate" autocomplete="off">
@@ -92,7 +93,54 @@
         <button class="btn" id="dash-load" type="submit">View leads</button>
         <p class="dash__msg" id="dash-msg" role="status" aria-live="polite"></p>
       </form>
+      <!-- Stats row — populated by JS -->
+      <div class="dash__stats" id="dash-stats" hidden></div>
+      <!-- Lead table — populated by JS -->
       <div class="dash__wrap" id="dash-table" hidden></div>
+    </div>
+  </section>
+
+  <!-- ===================== CAMPAIGN VIEW ===================== -->
+  <section class="dash" id="view-campaign" hidden>
+    <div class="section-head">
+      <h2>Campaign Dispatcher</h2>
+      <p>Upload a CSV of leads and Anaga calls them all in parallel — qualifying in Telugu, Hindi or English.</p>
+    </div>
+    <div class="dash__panel">
+      <form class="campaign-form" id="campaign-form" autocomplete="off">
+        <div class="campaign-row">
+          <label class="campaign-lbl" for="campaign-secret">Campaign secret (CALL_TRIGGER_SECRET)</label>
+          <input id="campaign-secret" type="password" placeholder="Your campaign secret" aria-label="Campaign secret" autocomplete="off" required />
+        </div>
+
+        <div class="campaign-row">
+          <label class="campaign-lbl" for="campaign-dir">Call type</label>
+          <select id="campaign-dir" class="campaign-select">
+            <option value="outbound">📤 Outbound — SYL Residences</option>
+            <option value="commercial">🏢 Commercial — MODCON ONE</option>
+            <option value="inbound">📥 Inbound script test</option>
+          </select>
+        </div>
+
+        <div class="campaign-row">
+          <label class="campaign-lbl" for="campaign-file">Upload CSV (columns: name, phone)</label>
+          <input id="campaign-file" type="file" accept=".csv,text/csv" />
+        </div>
+
+        <div class="campaign-row">
+          <label class="campaign-lbl" for="campaign-phones">Or paste numbers (one per line: Name, Phone)</label>
+          <textarea id="campaign-phones" rows="5" placeholder="Ravi Kumar, 9876543210&#10;Priya Reddy, 9123456789"></textarea>
+        </div>
+
+        <!-- Preview populated by JS after CSV upload -->
+        <div id="campaign-preview" class="campaign-preview"></div>
+
+        <button type="submit" class="btn btn--call">
+          <span class="btn--call__ico" aria-hidden="true">📞</span>
+          <span class="btn--call__label">Dispatch calls</span>
+        </button>
+        <p class="dash__msg" id="campaign-result" role="status" aria-live="polite"></p>
+      </form>
     </div>
   </section>
 
@@ -170,10 +218,10 @@
     </div>
   </div>
 
-  <script src="assets/translate.js?v=39"></script>
-  <script src="assets/llm-client.js?v=39"></script>
-  <script src="assets/noise-gate.js?v=39"></script>
-  <script src="assets/live-call.js?v=39"></script>
-  <script src="assets/app.js?v=39"></script>
+  <script src="assets/translate.js?v=40"></script>
+  <script src="assets/llm-client.js?v=40"></script>
+  <script src="assets/noise-gate.js?v=40"></script>
+  <script src="assets/live-call.js?v=40"></script>
+  <script src="assets/app.js?v=40"></script>
 </body>
 </html>
