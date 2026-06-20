@@ -8,18 +8,29 @@
   },
   "cleanUrls": true,
   "trailingSlash": false,
+  "rewrites": [
+    { "source": "/api/anaga/turn",        "destination": "/api/anaga?action=turn" },
+    { "source": "/api/anaga/summary",     "destination": "/api/anaga?action=summary" },
+    { "source": "/api/tts",               "destination": "/api/speech?type=tts" },
+    { "source": "/api/stt",               "destination": "/api/speech?type=stt" },
+    { "source": "/api/booking/slots",     "destination": "/api/booking" },
+    { "source": "/api/booking/create",    "destination": "/api/booking" },
+    { "source": "/api/calls/outbound",    "destination": "/api/calls" },
+    { "source": "/api/dashboard/stats",   "destination": "/api/dashboard?view=stats" },
+    { "source": "/api/dashboard/export",  "destination": "/api/dashboard?view=export" },
+    { "source": "/api/followup/trigger",  "destination": "/api/followup?action=trigger" },
+    { "source": "/api/followup/process",  "destination": "/api/followup?action=process" },
+    { "source": "/api/admin/clients",     "destination": "/api/admin" },
+    { "source": "/api/lead-capture",      "destination": "/api/leads?capture=1" }
+  ],
   "headers": [
     {
       "source": "/assets/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
-      ]
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate" }]
     },
     {
       "source": "/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
-      ]
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate" }]
     }
   ]
 }
