@@ -27,13 +27,16 @@ export default async function handler(req, res) {
   }
   if (req.method !== 'POST') { res.setHeader('Allow', 'GET, POST'); return res.status(405).json({ error: 'method_not_allowed' }); }
 
-  // Public capture path (browser form / early gate save)
-  const isCapture = String(req.query && req.query.capture || '') === '1';
-  if (isCapture) return handlePublicCapture(req, res);
+  // Routing:
+  //  • explicit ?capture=1  → public hardened capture (browser form / early gate)
+  //  • valid CALL_TRIGGER_SECRET → server-to-server append (full field set)
+  //  • anything else (unauthenticated POST) → public hardened capture
+  // This means the browser capture works even if a rewrite drops the ?capture flag.
+  const captureFlag = String(req.query && req.query.capture || '') === '1';
+  if (captureFlag || !authorized(req)) return handlePublicCapture(req, res);
 
   // Secret-gated server-to-server append
   if (blockedByRateLimit(req, res, { key: 'leads', max: 60, windowMs: 60000 })) return;
-  if (!authorized(req)) return res.status(401).json({ error: 'unauthorized' });
 
   let body = req.body;
   if (typeof body === 'string') { try { body = body.length ? JSON.parse(body) : {}; } catch { return res.status(400).json({ error: 'invalid_json' }); } }

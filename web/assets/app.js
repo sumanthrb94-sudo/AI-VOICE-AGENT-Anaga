@@ -257,7 +257,7 @@ const CloudTTS = (function () {
     });
   }
   function probe() {
-    return fetch("/api/tts").then(r => r.ok ? r.json() : { available: false })
+    return fetch("/api/speech?type=tts").then(r => r.ok ? r.json() : { available: false })
       .then(d => { available = !!(d && d.available); return available; })
       .catch(() => { available = false; return false; });
   }
@@ -289,7 +289,7 @@ const CloudTTS = (function () {
     const to = setTimeout(() => { try { ctrl && ctrl.abort(); } catch (e) {} }, 7000);
     let settled = false;
     const bail = () => { if (settled) return; settled = true; clearTimeout(to); available = false; fallback(); };
-    fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker), signal: ctrl ? ctrl.signal : undefined })
+    fetch("/api/speech?type=tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker), signal: ctrl ? ctrl.signal : undefined })
       .then(r => { if (!r.ok) throw new Error("tts_" + r.status); return r.json(); })
       .then(d => {
         if (settled) return;
@@ -304,7 +304,7 @@ const CloudTTS = (function () {
   /* fetch raw audio (used by the Voice Lab so it can analyse real frequencies) */
   function fetchAudio(text, lang, preset) {
     const speaker = preset.sarvam || "anushka";
-    return fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker) })
+    return fetch("/api/speech?type=tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker) })
       .then(r => { if (!r.ok) throw new Error("tts_" + r.status); return r.json(); });
   }
   /* warm the cache for the NEXT sentence while the current one plays — keeps
@@ -314,7 +314,7 @@ const CloudTTS = (function () {
     const speaker = (preset && preset.sarvam) || "anushka";
     const key = speaker + "|" + (lang || "en-IN") + "|" + modKey() + "|" + text;
     if (cache[key]) return;
-    fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker) })
+    fetch("/api/speech?type=tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker) })
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d && d.audio) cache[key] = "data:" + (d.mime || "audio/wav") + ";base64," + d.audio; })
       .catch(() => {});
@@ -378,7 +378,7 @@ const SarvamSTT = (function () {
     return actx;
   }
   function probe() {
-    return fetch("/api/stt").then(r => r.ok ? r.json() : { available: false })
+    return fetch("/api/speech?type=stt").then(r => r.ok ? r.json() : { available: false })
       .then(d => { available = !!(d && d.available); return available; })
       .catch(() => { available = false; return false; });
   }
@@ -427,7 +427,7 @@ const SarvamSTT = (function () {
     const decoded = await c.decodeAudioData(await blob.arrayBuffer());
     const wav = encodeWav(decoded, 16000);
     const audio = await blobToBase64(wav);
-    const res = await fetch("/api/stt", {
+    const res = await fetch("/api/speech?type=stt", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ audio, mime: "audio/wav", language_code: languageCode || "unknown" })
     });
@@ -605,8 +605,8 @@ if (demoEl) {
   });
 
   /* backend endpoints (relative — work behind the same origin / Vercel functions) */
-  const TURN_URL    = "/api/anaga/turn";
-  const SUMMARY_URL = "/api/anaga/summary";
+  const TURN_URL    = "/api/anaga?action=turn";
+  const SUMMARY_URL = "/api/anaga?action=summary";
   const CALL_LANG   = "en-IN";
 
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1760,7 +1760,7 @@ if (demoEl) {
   function captureLeadEarly() {
     if (!leadName || !leadPhone) return;
     try {
-      fetch("/api/lead-capture", {
+      fetch("/api/leads?capture=1", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: leadName, phone: leadPhone, language: callLang, callType: callDir,
@@ -1777,7 +1777,7 @@ if (demoEl) {
     if (capturedThisCall || !leadName || !leadPhone) return;
     capturedThisCall = true;
     try {
-      fetch("/api/lead-capture", {
+      fetch("/api/leads?capture=1", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: leadName, phone: leadPhone, language: callLang, callType: callDir,
@@ -2158,11 +2158,25 @@ if (openBtn) openBtn.addEventListener("click", () => { if (synth) synth.cancel()
     agentBtn.classList.toggle("is-active", view === "agent");
     dashBtn.classList.toggle("is-active", view === "dashboard");
     if (campaignBtn) campaignBtn.classList.toggle("is-active", view === "campaign");
-    if (view === "dashboard") loadIfReady();
+    if (view === "dashboard") { loadIfReady(); startAutoRefresh(); }
+    else stopAutoRefresh();
   }
   agentBtn.addEventListener("click", () => show("agent"));
   dashBtn.addEventListener("click", () => show("dashboard"));
   if (campaignBtn) campaignBtn.addEventListener("click", () => show("campaign"));
+
+  // Auto-refresh the dashboard every 15s while it's open, so new leads appear
+  // without a manual reload. Pauses when the tab is hidden.
+  let refreshTimer = null;
+  function startAutoRefresh() {
+    stopAutoRefresh();
+    refreshTimer = setInterval(() => {
+      if (document.hidden) return;
+      const saved = currentPass || sessionStorage.getItem(KEY);
+      if (saved) load(saved, { silent: true });
+    }, 15000);
+  }
+  function stopAutoRefresh() { if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; } }
 
   const gate    = document.getElementById("dash-gate");
   const passEl  = document.getElementById("dash-pass");
@@ -2188,7 +2202,7 @@ if (openBtn) openBtn.addEventListener("click", () => { if (synth) synth.cancel()
   const exportBtn = document.getElementById("dash-export");
   if (exportBtn) exportBtn.addEventListener("click", () => {
     if (!currentPass) return;
-    const url = "/api/dashboard/export";
+    const url = "/api/dashboard?view=export";
     const a = document.createElement("a");
     a.href = url;
     a.download = "anaga-leads.csv";
@@ -2218,25 +2232,26 @@ if (openBtn) openBtn.addEventListener("click", () => { if (synth) synth.cancel()
 
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
-  async function load(pass) {
+  async function load(pass, opts) {
+    const silent = opts && opts.silent;
     currentPass = pass;
-    if (msgEl) msgEl.textContent = "Loading…";
+    if (msgEl && !silent) msgEl.textContent = "Loading…";
     try {
       const [leadsRes, statsRes] = await Promise.all([
         fetch("/api/dashboard", { headers: { Authorization: "Bearer " + pass } }),
-        fetch("/api/dashboard/stats", { headers: { Authorization: "Bearer " + pass } }),
+        fetch("/api/dashboard?view=stats", { headers: { Authorization: "Bearer " + pass } }),
       ]);
-      if (leadsRes.status === 401) { if (msgEl) msgEl.textContent = "Wrong passcode."; sessionStorage.removeItem(KEY); return; }
+      if (leadsRes.status === 401) { if (msgEl) msgEl.textContent = "Wrong passcode."; sessionStorage.removeItem(KEY); stopAutoRefresh(); return; }
       if (leadsRes.status === 503) { if (msgEl) msgEl.textContent = "Dashboard isn't enabled yet. Set DASHBOARD_PASSCODE + SUPABASE_SERVICE_KEY in Vercel."; return; }
-      if (!leadsRes.ok) { if (msgEl) msgEl.textContent = "Couldn't load (HTTP " + leadsRes.status + ")."; return; }
+      if (!leadsRes.ok) { if (msgEl && !silent) msgEl.textContent = "Couldn't load (HTTP " + leadsRes.status + ")."; return; }
       const data = await leadsRes.json();
       const stats = statsRes.ok ? await statsRes.json() : null;
       sessionStorage.setItem(KEY, pass);
-      if (msgEl) msgEl.textContent = "";
+      if (msgEl) msgEl.textContent = silent ? "🟢 Live · auto-refreshing every 15s" : "";
       currentLeads = data.leads || [];
       if (stats && stats.ok) renderStats(stats);
       renderTable(currentLeads);
-    } catch (e) { if (msgEl) msgEl.textContent = "Network error — try again."; }
+    } catch (e) { if (msgEl && !silent) msgEl.textContent = "Network error — try again."; }
   }
 
   function renderStats(s) {
@@ -2291,7 +2306,7 @@ if (openBtn) openBtn.addEventListener("click", () => { if (synth) synth.cancel()
     const expBtn = tableEl.querySelector("#dash-export");
     if (expBtn) expBtn.addEventListener("click", () => {
       if (!currentPass) return;
-      fetch("/api/dashboard/export", { headers: { Authorization: "Bearer " + currentPass } })
+      fetch("/api/dashboard?view=export", { headers: { Authorization: "Bearer " + currentPass } })
         .then((r) => r.ok ? r.blob() : null)
         .then((blob) => {
           if (!blob) return;
