@@ -58,7 +58,14 @@ export default async function handler(req, res) {
       endpoint: 'turn', model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
       reason: String((err && err.message) || 'unknown'),
     }));
-    return res.status(503).json({ error: 'llm_unavailable' });
+    // Distinguish "out of quota" from "down". The browser falls back to the
+    // rule engine either way, but a founder staring at a scripted-sounding
+    // Anaga deserves to know it is a billing problem, not a broken agent.
+    const quota = err && (err.code === 'quota_exceeded' || /\b429\b|quota/i.test(String(err.message)));
+    return res.status(503).json({
+      error: 'llm_unavailable',
+      reason: quota ? 'quota_exceeded' : 'upstream_error',
+    });
   }
 
   if (out == null || typeof out !== 'object') {

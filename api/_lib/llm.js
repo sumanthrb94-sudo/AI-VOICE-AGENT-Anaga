@@ -74,9 +74,26 @@ async function generateGemini({ system, user, json }) {
       return await callGemini(model, apiKey, { system, user, json });
     } catch (err) {
       lastErr = err;
+      const msg = String(err && err.message);
+
+      // 429 has two very different causes. A per-MINUTE rate limit clears in
+      // seconds and is worth one retry; a per-DAY quota will not clear today
+      // and retrying just burns the call's latency budget while the caller
+      // waits on the phone. Retry once, briefly, then give up.
+      if (/\b429\b/.test(msg)) {
+        await new Promise((r) => setTimeout(r, 1200));
+        try {
+          return await callGemini(model, apiKey, { system, user, json });
+        } catch (retryErr) {
+          const e = new Error(String(retryErr && retryErr.message));
+          e.code = 'quota_exceeded';
+          throw e;
+        }
+      }
+
       // Only a missing/unsupported model is worth trying the next name for.
-      // A bad key or exhausted quota will fail identically for all of them.
-      if (!/404|not found|not supported/i.test(String(err && err.message))) throw err;
+      // A bad key will fail identically for all of them.
+      if (!/404|not found|not supported/i.test(msg)) throw err;
     }
   }
   throw lastErr || new Error('LLM: no usable model');

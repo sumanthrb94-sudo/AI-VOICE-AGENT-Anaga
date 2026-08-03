@@ -723,7 +723,8 @@ if (demoEl) {
   function clearInterim() { if (interimEl) { interimEl.remove(); interimEl = null; } }
 
   /* subtle "which brain is active" tag in the call header */
-  function setBrain(mode, src) {
+  function setBrain(mode, src, reason) {
+    if (mode === "offline" && reason) src = reason;
     if (!brainEl) return;
     if (mode === "live") {
       brainEl.hidden = false;
@@ -733,8 +734,17 @@ if (demoEl) {
     } else if (mode === "offline") {
       brainEl.hidden = false;
       brainEl.className = "call__brain call__brain--offline";
-      brainEl.innerHTML = `<i class="dot"></i> offline script`;
-      brainEl.title = "No backend reachable — running the on-device qualification script.";
+      /* "offline script" was shown for every failure, so an exhausted AI quota
+         looked identical to an unreachable server. They need very different
+         actions: one is a billing page, the other is a deploy. Say which. */
+      const quota = src === "quota_exceeded";
+      brainEl.innerHTML = `<i class="dot"></i> ${quota ? "AI quota exceeded" : "offline script"}`;
+      brainEl.title = quota
+        ? "The Gemini API key is out of quota, so Anaga is reading the built-in qualification script instead of thinking. Check your plan and billing at ai.google.dev — nothing is wrong with the app."
+        : "No backend reachable — running the on-device qualification script.";
+      if (quota) {
+        showNotice("⚠ The AI brain is out of quota — Anaga is following the built-in script. Check the Gemini plan/billing to restore live replies.");
+      }
     } else {
       brainEl.hidden = true;
       brainEl.textContent = "";
@@ -1036,12 +1046,23 @@ if (demoEl) {
     if (window.AnagaBrain && AnagaBrain.hasKey()) {
       return AnagaBrain.turn({ history }).then(d => ({ data: d, src: "your key" }));
     }
+    /* A 503 body carries `reason` ("quota_exceeded" vs "upstream_error"); keep
+       it on the error so the badge can explain itself. */
     return fetch(TURN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ lang: CALL_LANG, history })
     }).then(res => {
-      if (!res.ok) throw new Error("turn_unavailable_" + res.status);
+      if (!res.ok) {
+        /* Read the body: a 503 carries `reason` — "quota_exceeded" means the
+           AI key is out of quota, which is a billing fix, not a broken deploy.
+           Throwing a bare status lost that and every failure looked the same. */
+        return res.json().catch(() => ({})).then(body => {
+          const e = new Error("turn_unavailable_" + res.status);
+          e.vaakReason = body && body.reason;
+          throw e;
+        });
+      }
       return res.json();
     }).then(d => ({ data: d, src: "server" }));
   }
@@ -1095,10 +1116,13 @@ if (demoEl) {
           : null;
         deliver(line, endInfo);
       })
-      .catch(() => {
+      .catch(err => {
         if (!active) return;
         /* detect-once: remember offline so we don't spam failed fetches every turn */
-        if (brainMode !== "offline") { brainMode = "offline"; setBrain("offline"); }
+        if (brainMode !== "offline") {
+          brainMode = "offline";
+          setBrain("offline", null, err && err.vaakReason);
+        }
         nextOfflineTurn();
       });
   }
