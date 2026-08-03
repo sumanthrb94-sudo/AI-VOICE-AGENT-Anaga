@@ -28,3 +28,9 @@ obj/
 .DS_Store
 .idea/
 .vscode/
+
+# Ruflo local secrets and runtime data
+.env.*.local
+.claude-flow/data/
+.claude-flow/logs/
+.claude-flow/sessions/
