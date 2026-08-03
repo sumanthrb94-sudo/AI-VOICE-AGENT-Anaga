@@ -1,0 +1,25 @@
+{
+  "_comment": "graphify hooks. The installer hardcodes an absolute path (/root/.local/bin/graphify) that only exists on the machine it ran on. These resolve graphify from PATH instead and exit 0 when it is not installed, so a teammate without graphify is never blocked from reading or searching. Install it with: pip install graphifyy",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v graphify >/dev/null 2>&1 && graphify hook-guard search || exit 0"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v graphify >/dev/null 2>&1 && graphify hook-guard read || exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
