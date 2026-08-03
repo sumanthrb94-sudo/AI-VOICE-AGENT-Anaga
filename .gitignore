@@ -45,3 +45,9 @@ obj/
 .claude-flow/data/
 .claude-flow/logs/
 .claude-flow/sessions/
+.claude-flow/daemon.pid
+.claude-flow/daemon-state.json
+.claude-flow/harness-active-policy.json
+.claude-flow/policy/
+.claude/.proven-config-version
+.claude/proven-config.json
