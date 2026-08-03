@@ -24,6 +24,7 @@ import {
   verifyChallenge, verifySignature, parseLeadgenChanges, fetchLeadgen, leadFromGraph, metaStatus,
 } from '../../_lib/integrations/meta.js';
 import { intakeLead } from '../../_lib/pipeline.js';
+import { limited, log, requestId } from '../../_lib/guard.js';
 
 export default async function handler(req, res) {
   if (!requireMethod(req, res, ['GET', 'POST'])) return;
@@ -39,11 +40,16 @@ export default async function handler(req, res) {
   }
 
   // --- POST: leadgen notifications ----------------------------------------
+  // Generous limit: Meta batches and retries legitimately. This only catches a
+  // flood; the HMAC below is what actually gates access.
+  if (limited(req, res, { bucket: 'meta', limit: Number(process.env.RATE_LIMIT_META || 300) })) return;
+
+  const rid = requestId(req);
   const raw = await readRawBody(req);
   const sig = verifySignature(raw, req.headers['x-hub-signature-256']);
   if (!sig.ok) {
     // Never process an unverified payload — this endpoint causes phone calls.
-    console.warn('[meta/leads] rejected payload:', sig.error);
+    log('meta_webhook_rejected', { rid, reason: sig.error });
     return res.status(403).json({ error: sig.error });
   }
 
@@ -63,7 +69,7 @@ export default async function handler(req, res) {
     const record = await fetchLeadgen(change.leadgenId);
     if (!record.ok) {
       // The lead exists at Meta but we could not read it. Loud, but still 200.
-      console.error('[meta/leads] graph fetch failed', change.leadgenId, record.error);
+      log('meta_graph_fetch_failed', { rid, leadgenId: change.leadgenId, error: record.error });
       results.push({ leadgenId: change.leadgenId, accepted: false, reason: record.error });
       continue;
     }

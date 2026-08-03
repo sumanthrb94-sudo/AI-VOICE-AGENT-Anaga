@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# Nothing here needs write access or secrets. Keep it that way: a CI job that
+# can reach a real DND scrub or a real CRM is a CI job that can dial someone.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests & compliance gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      # The E2E suite exercises the dial path, which is legally restricted to
+      # 09:00-21:00 IST. CI runs at arbitrary UTC times, so the window is
+      # widened HERE ONLY. The window logic itself is asserted in its own test
+      # below with the real bounds — widening it in CI must never mean it goes
+      # untested.
+      CALLING_WINDOW_START_IST: '0'
+      CALLING_WINDOW_END_IST: '24'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Syntax check every API and caller-agent module
+        run: |
+          set -e
+          for f in $(find api caller-agent/src shared -name '*.js'); do
+            node --check "$f" > /dev/null || { echo "SYNTAX FAIL: $f"; exit 1; }
+          done
+          echo "syntax OK"
+
+      - name: Unit + integration tests
+        run: node --experimental-detect-module scripts/test-integrations.mjs
+
+      - name: Media leg QA (endpointing, barge-in, framing)
+        run: node --experimental-detect-module scripts/test-media.mjs
+
+      - name: End-to-end QA (Meta lead → call → CRM writeback)
+        run: node --experimental-detect-module scripts/test-e2e.mjs
+
+      - name: Compliance gate must fail closed with nothing configured
+        # The single most important assertion in this repo, run in isolation
+        # with a clean environment so no other test's setup can mask it.
+        env:
+          COMPLIANCE_MODE: strict
+        run: |
+          node --experimental-detect-module -e "
+          const c = await import('./api/_lib/compliance.js');
+          const { normalizeLead } = await import('./api/_lib/integrations/lead.js');
+          const lead = normalizeLead({ phone: '9876543210' }, {
+            source: 'ci', consent: { granted: true, basis: 'lead_form', at: new Date().toISOString() },
+          });
+          const gate = await c.checkDialable(lead, { ignoreWindow: true });
+          if (gate.allowed) {
+            console.error('FAIL: the gate ALLOWED a dial with no DND scrub configured.');
+            process.exit(1);
+          }
+          console.log('OK: gate blocked with reason =', gate.reason);
+          "
+
+      - name: Calling window is enforced with the real 9-21 IST bounds
+        run: |
+          node --experimental-detect-module -e "
+          process.env.CALLING_WINDOW_START_IST = '9';
+          process.env.CALLING_WINDOW_END_IST = '21';
+          const { withinCallingWindow } = await import('./caller-agent/src/server.js');
+          // 03:30 IST -> closed;  14:30 IST -> open
+          const closed = withinCallingWindow(new Date('2026-01-01T22:00:00Z'));
+          const open   = withinCallingWindow(new Date('2026-01-01T09:00:00Z'));
+          if (closed || !open) { console.error('FAIL: calling window wrong', { closed, open }); process.exit(1); }
+          console.log('OK: calling window enforced');
+          "
+
+      - name: No secrets committed
+        run: |
+          set -e
+          # Real keys, not the placeholder names in .env.sample or docs.
+          if grep -rInE '(AIza[0-9A-Za-z_-]{30,}|sk-[A-Za-z0-9]{32,}|xox[baprs]-[0-9A-Za-z-]{10,})' \
+               --include='*.js' --include='*.json' --include='*.mjs' --include='*.yml' \
+               api caller-agent shared web scripts 2>/dev/null; then
+            echo "FAIL: a credential-shaped string is committed"; exit 1
+          fi
+          echo "no committed secrets"
+
+      - name: Static site builds
+        run: bash scripts/build-static.sh
+
+  review:
+    name: Open Code Review (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Advisory only: it needs an LLM provider, so it must never gate a merge.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Open Code Review
+        run: npm install -g @alibaba-group/open-code-review
+
+      - name: Review scope (no LLM required)
+        run: |
+          ocr delegate preview \
+            --exclude '.claude/**,.claude-flow/**,.agents/**,graphify-out/**,public/**,design-system/**' \
+            || true

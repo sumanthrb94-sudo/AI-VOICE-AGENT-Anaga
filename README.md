@@ -21,6 +21,8 @@ hand warm prospects to human closers — compliant with TRAI/DLT/DND by design.
 | `api/` | Serverless **call brain** (provider-abstracted LLM) + the **integration tubing**: Meta Lead Ads webhook, lead intake, compliance gate, dial queue, CRM writeback | Vercel functions |
 | `web/console.html` | **Operator console** — leads in, compliance verdicts, calls queued, outcomes, wiring status | Whoever runs campaigns |
 | `design-system/` | Generated design systems (ui-ux-pro-max skill) — the source of truth for each surface | Anyone touching UI |
+| `caller-agent/` | **The dialer** — consumes dial jobs, runs the call, reports outcomes | Engineering |
+| `LAUNCH.md` | **Launch readiness: what is proven, what blocks a real call** | **Read before launch** |
 | `.github/` | CI + agent task templates | Coding agents |
 
 ## Getting a real lead to a real call
@@ -43,10 +45,16 @@ Setup: [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) · API contract:
 wired on a running deploy: `GET /api/integrations/health` ·
 tests: `node --experimental-detect-module scripts/test-integrations.mjs`.
 
-The only piece still missing between a Meta lead and a ringing phone is the dial
-queue consumer (the orchestrator, WP-2, driving the caller agent over
-Plivo/Exotel). Until it exists, leads are received, gated, and written to the CRM,
-and the response says so — `queued:false, reason:"dial_queue_not_configured"`.
+The dial queue consumer now exists: `caller-agent/` consumes signed jobs, runs the
+turn loop, and reports outcomes back. **Launch readiness — including what is still
+blocking a real call — is in [`LAUNCH.md`](LAUNCH.md). Read it before pitching.**
+
+```bash
+node --experimental-detect-module scripts/test-integrations.mjs   # 46
+node --experimental-detect-module scripts/test-media.mjs          # 12
+CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
+  node --experimental-detect-module scripts/test-e2e.mjs          # 38
+```
 
 ## Home screen & the Playbook
 

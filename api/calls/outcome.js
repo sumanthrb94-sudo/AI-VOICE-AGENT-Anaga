@@ -29,14 +29,20 @@ import { generate } from '../_lib/llm.js';
 import { summaryPrompt, SUMMARY_DISPOSITIONS } from '../_lib/prompts.js';
 import { addToSuppression } from '../_lib/compliance.js';
 import * as crm from '../_lib/integrations/crm.js';
-
-const OPT_OUT_RE = /\b(do ?not call|don'?t call|stop calling|remove me|unsubscribe|opt.?out|dnd|mat karo call|call mat)\b/i;
+import { limited, log, requestId } from '../_lib/guard.js';
+import { detectOptOut, transcriptHasOptOut } from '../../shared/optout.js';
 
 export default async function handler(req, res) {
   if (!requireMethod(req, res, 'POST')) return;
 
+  if (limited(req, res, { bucket: 'outcome', limit: Number(process.env.RATE_LIMIT_OUTCOME || 120) })) return;
+
+  const rid = requestId(req);
   const auth = authorize(req);
-  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+  if (!auth.ok) {
+    log('outcome_unauthorized', { rid, reason: auth.error });
+    return res.status(auth.status).json({ error: auth.error });
+  }
 
   const raw = await readRawBody(req);
   const body = parseJson(raw);
@@ -62,7 +68,7 @@ export default async function handler(req, res) {
   // --- 2. opt-out: suppression list first ---------------------------------
   const optedOut = review.disposition === 'opt-out' ||
     call.disposition === 'opt-out' ||
-    history.some((t) => t.role === 'user' && OPT_OUT_RE.test(t.text));
+    transcriptHasOptOut(history);
 
   let suppression = null;
   if (optedOut) {
@@ -72,7 +78,11 @@ export default async function handler(req, res) {
     suppression = await addToSuppression(lead.phone, 'opt_out_on_call');
     if (!suppression.durable) {
       // Loud: without a durable list this number can be dialed again.
-      console.error('[calls/outcome] OPT-OUT NOT DURABLY SUPPRESSED', suppression.error);
+      log('OPT_OUT_NOT_DURABLY_SUPPRESSED', {
+        rid, callId: call.id || null, error: suppression.error,
+        severity: 'critical',
+        detail: 'this number can be dialled again — wire SUPPRESSION_LIST_URL',
+      });
     }
   }
 
@@ -157,7 +167,7 @@ function heuristicReview(history, call) {
   const said = history.filter((t) => t.role === 'user').map((t) => t.text).join(' ');
   const disposition = SUMMARY_DISPOSITIONS.includes(call.disposition)
     ? call.disposition
-    : (OPT_OUT_RE.test(said) ? 'opt-out' : 'undecided');
+    : (detectOptOut(said).optOut ? 'opt-out' : 'undecided');
 
   const score = disposition === 'booked' ? 80 : disposition === 'callback' ? 50 : 0;
   return {

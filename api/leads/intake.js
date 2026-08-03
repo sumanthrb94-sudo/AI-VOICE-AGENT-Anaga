@@ -20,14 +20,23 @@
 import { authorize, requireMethod, readRawBody, parseJson } from '../_lib/integrations/http.js';
 import { normalizeLead } from '../_lib/integrations/lead.js';
 import { intakeLead } from '../_lib/pipeline.js';
+import { limited, log, requestId } from '../_lib/guard.js';
 
 const MAX_BATCH = 100;
 
 export default async function handler(req, res) {
   if (!requireMethod(req, res, 'POST')) return;
 
+  // Dampen abuse before doing any work. See guard.js on why this is
+  // per-instance and is not the access control — the bearer token is.
+  if (limited(req, res, { bucket: 'intake', limit: Number(process.env.RATE_LIMIT_INTAKE || 60) })) return;
+
+  const rid = requestId(req);
   const auth = authorize(req);
-  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+  if (!auth.ok) {
+    log('intake_unauthorized', { rid, reason: auth.error });
+    return res.status(auth.status).json({ error: auth.error });
+  }
 
   const raw = await readRawBody(req);
   const body = parseJson(raw);
@@ -58,10 +67,9 @@ export default async function handler(req, res) {
     results.push(await intakeLead(lead, opts));
   }
 
-  return res.status(200).json({
-    received: results.length,
-    queued: results.filter((r) => r.queued).length,
-    blocked: results.filter((r) => String(r.reason || '').startsWith('blocked:')).length,
-    results,
-  });
+  const queued = results.filter((r) => r.queued).length;
+  const blocked = results.filter((r) => String(r.reason || '').startsWith('blocked:')).length;
+  log('intake_processed', { rid, received: results.length, queued, blocked, dryRun: opts.dryRun });
+
+  return res.status(200).json({ received: results.length, queued, blocked, results });
 }
