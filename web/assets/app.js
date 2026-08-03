@@ -511,6 +511,24 @@ if (demoEl) {
   let endpointTimer = null;        // debounce timer for natural end-of-turn
   let pendingUtter = "";           // accumulates the caller's words across short pauses
   let currentSpokenNorm = "";      // Anaga's current line, normalized — used to filter echo
+  /* Rolling memory of Anaga's recent lines. currentSpokenNorm alone was not
+     enough: it is cleared the moment a line finishes, so the echo TAIL arriving
+     a few hundred ms later had nothing to match against and sailed through as a
+     caller turn. Mirrors shared/echo-guard.js (this file is a classic script and
+     cannot import an ES module). */
+  const ECHO_MEMORY_MS = 15000;    // how long one of her lines can still echo back
+  const ECHO_TAIL_MS   = 1200;     // after she stops, treat input as suspect for this long
+  const ECHO_MATCH     = 0.55;     // word-overlap fraction that counts as her own speech
+  let recentSpoken = [];           // [{ norm, at }]
+  let speechEndedAt = 0;
+
+  function rememberSpoken(text) {
+    const n = norm(text);
+    if (!n) return;
+    const at = Date.now();
+    recentSpoken.push({ norm: n, at });
+    recentSpoken = recentSpoken.filter(r => at - r.at <= ECHO_MEMORY_MS);
+  }
 
   /* full conversation transcript sent to the backend brain */
   let history = [];               // [{ role:"agent"|"user", text }]
@@ -643,11 +661,42 @@ if (demoEl) {
 
   /* is this recognized text most likely Anaga's own voice echoing into the mic? */
   function isLikelyEcho(candidate) {
-    if (!currentSpokenNorm) return false;
     const words = norm(candidate).split(" ").filter(w => w.length > 2);
     if (!words.length) return false;
-    const hit = words.filter(w => currentSpokenNorm.includes(w)).length;
-    return hit / words.length >= 0.6;     // mostly her own words → treat as echo
+
+    const refs = recentSpoken.map(r => r.norm);
+    if (currentSpokenNorm) refs.push(currentSpokenNorm);
+    if (!refs.length) return false;
+
+    /* Asymmetric on purpose: a SHORT fragment of a LONG line of hers should
+       score high. A symmetric measure would dilute exactly the case we care
+       about — a clipped echo of one clause. */
+    for (const ref of refs) {
+      const hit = words.filter(w => ref.includes(w)).length;
+      if (hit / words.length >= ECHO_MATCH) return true;
+    }
+    return false;
+  }
+
+  /* True while her audio could still be arriving: mid-line, or within the tail. */
+  function inEchoWindow() {
+    return phase === "speaking" || (Date.now() - speechEndedAt) < ECHO_TAIL_MS;
+  }
+
+  /* Append an STT final WITHOUT re-stacking overlapping hypotheses.
+     Chrome re-finalises overlapping segments of echoed audio, so blind
+     concatenation produced the observed garbage:
+       "why you" + "why you looking" + "why you looking for" + ...
+     A later hypothesis that extends an earlier one REPLACES it. */
+  function appendUtterance(prev, next) {
+    const n = String(next || "").trim();
+    if (!n) return prev;
+    if (!prev) return n;
+    const a = norm(prev), b = norm(n);
+    if (a === b) return prev;
+    if (b.startsWith(a)) return n;        // longer hypothesis of the same audio
+    if (a.startsWith(b) || a.endsWith(b)) return prev;
+    return prev + " " + n;
   }
 
   /* caller talks over Anaga → stop her immediately and start listening */
@@ -656,6 +705,7 @@ if (demoEl) {
     try { synth && synth.cancel(); } catch (e) {}
     CloudTTS.stop();
     currentSpokenNorm = "";
+    speechEndedAt = Date.now();
     pendingEnd = null;
     phase = "listening";
     setStatus("Listening… (go ahead)", "is-listening");
@@ -698,6 +748,8 @@ if (demoEl) {
     history.push({ role: "agent", text: opts.histText || display });
     phase = "speaking";
     currentSpokenNorm = norm(display);
+    rememberSpoken(display);
+    if (opts.histText && opts.histText !== display) rememberSpoken(opts.histText);
     setStatus(BARGE_IN ? "Anaga is speaking… (you can jump in)" : "Anaga is speaking…", "is-speaking");
 
     /* keep the mic hot during speech so the caller can barge in */
@@ -717,6 +769,7 @@ if (demoEl) {
       if (myToken !== speakToken || !active) return;        // superseded
       if (i >= chunks.length) {                             // whole line delivered
         currentSpokenNorm = "";
+        speechEndedAt = Date.now();       // her audio can still arrive for ECHO_TAIL_MS
         const finalize = () => {
           if (myToken !== speakToken || !active) return;
           const ei = (typeof endInfo === "function") ? endInfo() : endInfo;
@@ -918,8 +971,14 @@ if (demoEl) {
       }
       if (phase !== "listening") return;    // ignore stray results while thinking/idle
 
-      if (interim) { showInterim(pendingUtter ? pendingUtter + " " + interim : interim); armEndpoint(); }
-      if (finalT)  { pendingUtter = (pendingUtter ? pendingUtter + " " : "") + finalT.trim(); showInterim(pendingUtter); armEndpoint(); }
+      /* Echo rejection runs on EVERY result, not only while she is speaking.
+         The tail of her line keeps arriving after phase flips to "listening",
+         which is exactly how her own words were landing in the transcript as
+         a caller turn. */
+      if (inEchoWindow() && isLikelyEcho(heard)) return;
+
+      if (interim) { showInterim(appendUtterance(pendingUtter, interim)); armEndpoint(); }
+      if (finalT)  { pendingUtter = appendUtterance(pendingUtter, finalT.trim()); showInterim(pendingUtter); armEndpoint(); }
     };
     recog.onerror = ev => {
       listening = false;

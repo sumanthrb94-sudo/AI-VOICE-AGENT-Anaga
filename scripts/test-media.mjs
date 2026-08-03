@@ -95,18 +95,30 @@ await t('a too-short blip is not treated as an utterance', async () => {
 
 section('barge-in — the safety-critical one');
 
-await t('prospect speech cancels playback immediately', async () => {
+await t('SUSTAINED prospect speech cancels playback', async () => {
+  // Barge-in now requires a sustained voice run rather than a single frame.
+  // That is deliberate: one frame was enough for our OWN echo to cancel our own
+  // utterance (see scripts/test-echo.mjs). A human interrupting speaks for
+  // longer than the threshold; an echo burst does not.
   const h = harness();
   const speaking = h.tr.say('This is a long pitch. It has several sentences. And it keeps going.');
-  h.tr.pushAudio(Buffer.from('wait', 'utf8'), { hasVoice: true });   // interrupt
+  for (let i = 0; i < 4; i++) h.speak('wait stop', 100);   // 300ms of continuous voice
   await speaking;
   assert.ok(h.out.length < 3, `playback should have been cut short, sent ${h.out.length} frames`);
+});
+
+await t('a SINGLE frame does not cancel playback (echo protection)', async () => {
+  const h = harness();
+  const speaking = h.tr.say('One. Two. Three.');
+  h.tr.pushAudio(Buffer.from('blip', 'utf8'), { hasVoice: true });   // one frame only
+  await speaking;
+  assert.ok(h.out.length >= 3, `a lone frame must not barge in, sent ${h.out.length} frames`);
 });
 
 await t('an interrupted agent is no longer marked as speaking', async () => {
   const h = harness();
   const speaking = h.tr.say('One. Two. Three.');
-  h.tr.pushAudio(Buffer.from('stop', 'utf8'), { hasVoice: true });
+  for (let i = 0; i < 4; i++) h.speak('stop talking', 100);
   await speaking;
   assert.equal(h.tr._isSpeaking(), false);
 });
@@ -118,12 +130,16 @@ await t('an interruption that is an OPT-OUT still reaches the session', async ()
   const h = harness({ silenceMs: 500 });
   const speaking = h.tr.say('Let me tell you about the offer.');
   const listening = h.tr.listen();
-  h.speak('do not call me again');
+  // Sustained, as a person cutting in actually is.
+  for (let i = 0; i < 3; i++) h.speak('do not call me again', 120);
   await speaking;
   h.silence(600);
   const heard = await listening;
-  assert.equal(heard.text, 'do not call me again',
-    'the interrupting utterance must survive barge-in and reach the session');
+  // Fed as a sustained run, so the mock STT concatenates the repeats. What
+  // matters is that the opt-out survived barge-in and reached the session —
+  // not the exact string.
+  assert.ok(heard.text && heard.text.includes('do not call me again'),
+    `the interrupting utterance must reach the session, got: ${heard.text}`);
 
   const { detectOptOut } = await import(`${ROOT}/shared/optout.js`);
   assert.equal(detectOptOut(heard.text).optOut, true);

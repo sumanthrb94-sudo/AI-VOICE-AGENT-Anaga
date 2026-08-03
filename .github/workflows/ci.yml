@@ -49,6 +49,12 @@ jobs:
         # unreachable or misconfigured datastore BLOCKS dials, never allows them.
         run: node --experimental-detect-module scripts/test-firestore.mjs
 
+      - name: Self-echo regression (agent must not answer itself)
+        run: node --experimental-detect-module scripts/test-echo.mjs
+
+      - name: Echo simulation (must report no loop on any line condition)
+        run: node --experimental-detect-module scripts/simulate-echo.mjs
+
       - name: Media leg QA (endpointing, barge-in, framing)
         run: node --experimental-detect-module scripts/test-media.mjs
 

@@ -193,10 +193,16 @@ await t('disclosure → qualification → opt-out, entirely over the wire', asyn
 
 await t('a barge-in sends the provider a clear-audio command', async () => {
   let mediaRef = null;
+  // Long enough that playback is still running when the barge-in threshold is
+  // reached. Barge-in now needs a sustained voice run (~240ms); a line that
+  // finishes before then simply has nothing left to cancel.
+  const LONG_PITCH = ('This is a very long pitch that the caller is going to interrupt '
+    + 'before it finishes because nobody wants to hear the whole thing read out '
+    + 'at length over the phone in one breath').trim();
+
   const { server, url } = await startServer(async ({ media }) => {
     mediaRef = media;
-    // Speak something long, then hold the call open.
-    await media.say('This is a long pitch that the caller will interrupt.');
+    await media.say(LONG_PITCH);
     await new Promise((r) => setTimeout(r, 500));
   }, {
     sttFactory: () => ({ async transcribe(c) { return c.map((x) => x.toString('utf8')).join(' '); } }),
@@ -213,7 +219,12 @@ await t('a barge-in sends the provider a clear-audio command', async () => {
 
   ws.send(JSON.stringify({ event: 'start', start: { callId: 'stream-2' } }));
   await new Promise((r) => setTimeout(r, 20));
-  sendAudio(ws, 'stop talking');            // interrupt
+  // Sustained interruption: barge-in requires a continuous voice run so that a
+  // single echoed frame cannot cancel our own utterance.
+  for (let i = 0; i < 6; i++) {
+    sendAudio(ws, 'stop talking please');
+    await new Promise((r) => setTimeout(r, 60));
+  }
   await new Promise((r) => setTimeout(r, 400));
 
   assert.ok(mediaRef, 'the call should have started');

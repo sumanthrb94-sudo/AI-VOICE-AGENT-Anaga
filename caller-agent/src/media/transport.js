@@ -19,9 +19,18 @@
 //   that talks over a person who is trying to opt out is the worst failure
 //   this system can have, so barge-in cancels TTS before anything else.
 //
+//   SELF-ECHO — our own audio returning on the receive path and being
+//   transcribed as the prospect. Left unguarded this loops: the agent answers
+//   itself forever (reproduced in scripts/simulate-echo.mjs: 49 turns, 24
+//   billed LLM calls). Guarded here by timing (playback window + echo tail),
+//   a sustained-speech requirement for barge-in, and a content check against
+//   what we recently said (shared/echo-guard.js).
+//
 // This module is transport-agnostic: it takes an `audioOut` sink and is fed by
 // `pushAudio()`. The Plivo/Exotel WebSocket servers wire those up; the test
 // harness wires them to arrays. Same code path either way.
+
+import { createEchoGuard } from '../../../shared/echo-guard.js';
 
 // Timing defaults come from env, but every one is overridable PER TRANSPORT.
 // They are read at construction, not at import: pacing differs by language
@@ -36,6 +45,16 @@ function timings(o = {}) {
     // How much audio one frame represents, and therefore the pacing interval
     // for outbound playback. Must match the framing in providers/speech.js.
     frameMs: Number(o.frameMs ?? process.env.TTS_FRAME_MS ?? 20),
+    // How long after playback ends our own audio can still arrive. Covers the
+    // provider jitter buffer plus line round-trip; 250ms is generous for
+    // domestic Indian routes and still well under a human's reply latency.
+    echoTailMs: Number(o.echoTailMs ?? process.env.ECHO_TAIL_MS ?? 250),
+    // Barge-in needs SUSTAINED speech, not one frame. A single echo burst must
+    // not cancel our own utterance; a human interrupting speaks for longer.
+    bargeInMinMs: Number(o.bargeInMinMs ?? process.env.BARGE_IN_MIN_MS ?? 240),
+    // After this many consecutive echo discards, report silence so the session
+    // can make progress instead of waiting forever.
+    maxEchoDiscards: Number(o.maxEchoDiscards ?? process.env.MAX_ECHO_DISCARDS ?? 4),
   };
 }
 
@@ -55,10 +74,12 @@ function timings(o = {}) {
  */
 export function createMediaTransport({
   stt, tts, audioOut, lang = 'en-IN', now = () => Date.now(), log = () => {},
-  silenceMs, maxUtteranceMs, minSpeechMs, frameMs,
+  silenceMs, maxUtteranceMs, minSpeechMs, frameMs, echoTailMs, bargeInMinMs, maxEchoDiscards,
+  echoGuard = null,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
 } = {}) {
-  const T = timings({ silenceMs, maxUtteranceMs, minSpeechMs, frameMs });
+  const T = timings({ silenceMs, maxUtteranceMs, minSpeechMs, frameMs, echoTailMs, bargeInMinMs, maxEchoDiscards });
+  const echo = echoGuard || createEchoGuard({ now });
   /** @type {Array<Buffer>} */
   let buffer = [];
   let speechStartedAt = null;
@@ -67,7 +88,15 @@ export function createMediaTransport({
   let closed = false;
 
   // Set while TTS is playing so barge-in can cancel it.
-  let speaking = null;   // { cancelled: boolean }
+  let speaking = null;        // { cancelled: boolean }
+  let playbackEndedAt = -Infinity;
+  let voiceRunStartedAt = null;   // start of the current continuous voice run
+  let echoDiscards = 0;
+
+  /** True while our own audio could still be arriving on the receive path. */
+  function inEchoWindow(t) {
+    return Boolean(speaking) || (t - playbackEndedAt) < T.echoTailMs;
+  }
 
   function isVoice(chunk, hasVoice) {
     // The transport does not do its own VAD: telephony providers and STT
@@ -82,14 +111,25 @@ export function createMediaTransport({
     const t = now();
 
     if (isVoice(chunk, hasVoice)) {
-      // ---- BARGE-IN: cancel playback the instant the prospect speaks ----
-      if (speaking && !speaking.cancelled) {
-        speaking.cancelled = true;
-        log('barge_in', { lang });
+      // Track how long voice has been continuous, so barge-in can require a
+      // sustained run rather than firing on a single echo frame.
+      if (voiceRunStartedAt == null || (t - (lastVoiceAt ?? t)) > T.silenceMs) {
+        voiceRunStartedAt = t;
       }
+
+      // ---- BARGE-IN, but only on SUSTAINED speech --------------------------
+      // Firing on one frame meant our own echo cancelled our own utterance.
+      if (speaking && !speaking.cancelled && (t - voiceRunStartedAt) >= T.bargeInMinMs) {
+        speaking.cancelled = true;
+        playbackEndedAt = t;
+        log('barge_in', { lang, sustainedMs: t - voiceRunStartedAt });
+      }
+
       if (speechStartedAt == null) speechStartedAt = t;
       lastVoiceAt = t;
       buffer.push(chunk);
+    } else {
+      voiceRunStartedAt = null;
     }
 
     maybeEndpoint(t);
@@ -111,11 +151,37 @@ export function createMediaTransport({
       speechStartedAt = null;
       lastVoiceAt = null;
 
+      // Whether our own audio could have been arriving while this was captured.
+      const suspect = inEchoWindow(t);
       const resolve = pendingResolve;
       pendingResolve = null;
 
       stt.transcribe(chunks, lang)
-        .then((text) => resolve({ text: text || null, hangup: false, silent: !text }))
+        .then((text) => {
+          if (!text) return resolve({ text: null, hangup: false, silent: true });
+
+          // ---- CONTENT CHECK: is this us, coming back? --------------------
+          const verdict = echo.check(text, t, { duringPlayback: suspect });
+          if (verdict.isEcho) {
+            echoDiscards++;
+            log('self_echo_discarded', {
+              lang, score: Number(verdict.score.toFixed(2)),
+              duringPlayback: suspect, discards: echoDiscards,
+              heard: String(text).slice(0, 60),
+            });
+
+            // Keep listening rather than answering ourselves. Bounded, so a
+            // persistent echo cannot hang the session forever.
+            if (echoDiscards < T.maxEchoDiscards) {
+              pendingResolve = resolve;
+              return;
+            }
+            return resolve({ text: null, hangup: false, silent: true });
+          }
+
+          echoDiscards = 0;
+          return resolve({ text, hangup: false, silent: false });
+        })
         .catch((err) => {
           log('stt_error', { error: String(err && err.message) });
           // A failed transcription is silence, not a hangup — the session
@@ -137,6 +203,8 @@ export function createMediaTransport({
       if (closed) return false;
       const me = { cancelled: false };
       speaking = me;
+      // Remember it BEFORE playback: the echo can return before say() resolves.
+      echo.noteSpoken(text, now());
 
       let audio;
       try {
@@ -147,7 +215,7 @@ export function createMediaTransport({
         return false;
       }
 
-      if (me.cancelled) { speaking = null; return true; }
+      if (me.cancelled) { speaking = null; playbackEndedAt = now(); return true; }
 
       // PACED playback. Writing every frame in one synchronous loop looks like
       // streaming but is not: the whole utterance lands in the provider's
@@ -167,6 +235,7 @@ export function createMediaTransport({
         if (i < frames.length - 1) await sleep(T.frameMs);
       }
       speaking = null;
+      playbackEndedAt = now();
       return true;
     },
 
@@ -193,5 +262,7 @@ export function createMediaTransport({
     // test introspection
     _isSpeaking: () => Boolean(speaking && !speaking.cancelled),
     _buffered: () => buffer.length,
+    _echoDiscards: () => echoDiscards,
+    _inEchoWindow: () => inEchoWindow(now()),
   };
 }

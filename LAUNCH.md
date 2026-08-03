@@ -3,7 +3,7 @@
 An honest state-of-the-system. Written so nobody discovers a gap the week of launch.
 
 **Bottom line:** the software path from *a Facebook lead* to *a CRM note* is built
-and QA-tested end to end — 121 automated tests, including the compliance gate, the
+and QA-tested end to end — 136 automated tests, including the compliance gate, the
 opt-out path, a full call driven over a real WebSocket, and live round-trips
 against the production Firestore project. **It cannot legally
 place a real call yet**, and every remaining blocker is now either a one-call
@@ -16,6 +16,8 @@ node --experimental-detect-module scripts/test-integrations.mjs   # 46
 node --experimental-detect-module scripts/test-media.mjs          # 12
 node --experimental-detect-module scripts/test-media-server.mjs   # 13
 node --experimental-detect-module scripts/test-firestore.mjs      # 12
+node --experimental-detect-module scripts/test-echo.mjs           # 14
+node --experimental-detect-module scripts/simulate-echo.mjs       # echo simulation
 CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
   node --experimental-detect-module scripts/test-e2e.mjs          # 38
 ```
@@ -39,6 +41,7 @@ CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
 | Operator console | `web/console.html` | E2E §7 |
 | Rate limiting, structured logs, PII masking | `api/_lib/guard.js` | E2E §7 |
 | **Durable suppression list, atomic dedupe, event history** | `api/_lib/store.js`, `_lib/firestore.js` | Firestore QA (12), live against `anaga-2c61c` |
+| **Self-echo rejection (agent never answers itself)** | `shared/echo-guard.js` | echo QA (14) + `simulate-echo.mjs` |
 
 ### Invariants the tests actually hold you to
 
@@ -52,6 +55,8 @@ CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
 - A CRM outage never loses an opt-out.
 - No unmasked phone number or secret appears in any log, API response, CRM event,
   or dial job.
+- The agent never answers its own echo, and an **opt-out is never suppressed as
+  echo** — that override is absolute and tested in six languages/scripts.
 
 ---
 
