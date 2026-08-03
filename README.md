@@ -14,11 +14,34 @@ hand warm prospects to human closers — compliant with TRAI/DLT/DND by design.
 |---|---|---|
 | `docs/BUSINESS_PLAN.md` | Investment memorandum & business plan | **Investors / CEO — read first** |
 | `docs/COMPLIANCE.md` | India regulatory requirements + enforcement rules | Compliance owner, WP-5 |
+| `docs/INTEGRATIONS.md` | **Runbook: wiring Anaga to Meta Lead Ads + your CRM** | **Whoever connects a customer** |
 | `docs/FINANCIAL_MODEL_NOTES.md` | Unit economics & market assumptions | Investors, founder |
 | `engineering/MULTI_AGENT_SPEC.md` | Production build spec, multi-agent design, work packages | **Engineering — build to this** |
 | `web/` | **Home screen (Mission Control)** + the Scratch→Production→Investors→Marketing Playbook + the live "Talk to Anaga" call demo | **Everyone — open `web/index.html`** |
-| `api/` | Serverless **call brain** — provider-abstracted LLM (Google Gemini) for live turn generation + call review | Vercel functions |
+| `api/` | Serverless **call brain** (provider-abstracted LLM) + the **integration tubing**: Meta Lead Ads webhook, lead intake, compliance gate, dial queue, CRM writeback | Vercel functions |
 | `.github/` | CI + agent task templates | Coding agents |
+
+## Getting a real lead to a real call
+
+```
+Meta Lead Ad ─► /api/integrations/meta/leads ─┐
+CRM / page   ─► /api/leads/intake ────────────┴─► CRM upsert
+                                               └─► COMPLIANCE GATE (fails closed)
+                                                   └─► dial job ─► orchestrator ─► Anaga calls
+                                                                                   └─► /api/calls/outcome
+                                                                                        ├─► opt-out → DNC list
+                                                                                        └─► note + intent score → CRM
+```
+
+Setup: [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) · API contract:
+[`shared/integrations-contract.md`](shared/integrations-contract.md) · what's
+wired on a running deploy: `GET /api/integrations/health` ·
+tests: `node --experimental-detect-module scripts/test-integrations.mjs`.
+
+The only piece still missing between a Meta lead and a ringing phone is the dial
+queue consumer (the orchestrator, WP-2, driving the caller agent over
+Plivo/Exotel). Until it exists, leads are received, gated, and written to the CRM,
+and the response says so — `queued:false, reason:"dial_queue_not_configured"`.
 
 ## Home screen & the Playbook
 

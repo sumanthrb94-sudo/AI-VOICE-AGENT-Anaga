@@ -24,6 +24,7 @@ echo "→ Copying reference docs"
 mkdir -p public/docs public/engineering
 cp docs/BUSINESS_PLAN.md          public/docs/          # ← Confidential
 cp docs/COMPLIANCE.md             public/docs/
+cp docs/INTEGRATIONS.md           public/docs/
 cp docs/FINANCIAL_MODEL_NOTES.md  public/docs/          # ← Confidential
 cp engineering/MULTI_AGENT_SPEC.md public/engineering/
 
