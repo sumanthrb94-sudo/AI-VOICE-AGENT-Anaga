@@ -3,7 +3,7 @@
 An honest state-of-the-system. Written so nobody discovers a gap the week of launch.
 
 **Bottom line:** the software path from *a Facebook lead* to *a CRM note* is built
-and QA-tested end to end — 142 automated tests, including the compliance gate, the
+and QA-tested end to end — 144 automated tests, including the compliance gate, the
 opt-out path, a full call driven over a real WebSocket, and live round-trips
 against the production Firestore project. **It cannot legally
 place a real call yet**, and every remaining blocker is now either a one-call
@@ -16,7 +16,7 @@ node --experimental-detect-module scripts/test-integrations.mjs   # 46
 node --experimental-detect-module scripts/test-media.mjs          # 12
 node --experimental-detect-module scripts/test-media-server.mjs   # 13
 node --experimental-detect-module scripts/test-firestore.mjs      # 12
-node --experimental-detect-module scripts/test-echo.mjs           # 14
+node --experimental-detect-module scripts/test-echo.mjs           # 16
 node --experimental-detect-module scripts/simulate-echo.mjs       # echo simulation
 node scripts/test-browser-echo.mjs                                # 6 (real Chromium)
 CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
@@ -35,7 +35,7 @@ CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
 | Dial queue with signed jobs | `api/_lib/queue.js` | E2E §1, §4 |
 | **Caller agent — the turn loop** | `caller-agent/src/session.js` | E2E §1, §5, §6 |
 | **Opt-out detection, 3 languages + code-mixing** | `shared/optout.js` | E2E §2 (12 cases) |
-| Endpointing + barge-in + paced playback | `caller-agent/src/media/transport.js` | media QA (12 cases) |
+| Endpointing, barge-in, paced playback, false-interruption resume | `caller-agent/src/media/transport.js` | media QA (13) + echo QA (16) |
 | WebSocket media server (RFC 6455, hand-rolled) | `caller-agent/src/media/ws.js`, `media/server.js` | media-server QA (13 cases), incl. interop with Node's native WebSocket client |
 | Outcome → suppression → CRM writeback | `api/calls/outcome.js` | E2E §2, §5 |
 | CRM adapters (HubSpot, Zoho, webhook) | `api/_lib/integrations/crm/` | E2E via webhook |

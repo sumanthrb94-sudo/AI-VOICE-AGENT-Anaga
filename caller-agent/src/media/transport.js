@@ -32,6 +32,11 @@
 
 import { createEchoGuard } from '../../../shared/echo-guard.js';
 
+// The false-interruption resume below follows the design in livekit/agents
+// (Apache-2.0), voice/turn.py. See engineering/LIVEKIT_REFERENCE.md for what was
+// adopted, what was not, and why. No LiveKit code is vendored — it is Python and
+// WebRTC-first; this is our own implementation of their pattern.
+
 // Timing defaults come from env, but every one is overridable PER TRANSPORT.
 // They are read at construction, not at import: pacing differs by language
 // (Telugu and Hindi speakers pause longer mid-sentence than the ~500ms Western
@@ -55,6 +60,17 @@ function timings(o = {}) {
     // After this many consecutive echo discards, report silence so the session
     // can make progress instead of waiting forever.
     maxEchoDiscards: Number(o.maxEchoDiscards ?? process.env.MAX_ECHO_DISCARDS ?? 4),
+    // FALSE-INTERRUPTION RESUME (pattern from livekit/agents, Apache-2.0 —
+    // voice/turn.py `resume_false_interruption` / `false_interruption_timeout`,
+    // default 2.0s). Barge-in used to CANCEL playback outright, so a cough, a
+    // burst of line noise, or our own echo permanently swallowed the rest of
+    // Anaga's sentence. Instead we PAUSE, and resume if the interruption turns
+    // out to be nothing.
+    falseInterruptionTimeoutMs:
+      Number(o.falseInterruptionTimeoutMs ?? process.env.FALSE_INTERRUPTION_TIMEOUT_MS ?? 2000),
+    resumeFalseInterruption:
+      (o.resumeFalseInterruption ?? process.env.RESUME_FALSE_INTERRUPTION) !== false
+      && String(process.env.RESUME_FALSE_INTERRUPTION ?? 'true') !== 'false',
   };
 }
 
@@ -75,10 +91,14 @@ function timings(o = {}) {
 export function createMediaTransport({
   stt, tts, audioOut, lang = 'en-IN', now = () => Date.now(), log = () => {},
   silenceMs, maxUtteranceMs, minSpeechMs, frameMs, echoTailMs, bargeInMinMs, maxEchoDiscards,
+  falseInterruptionTimeoutMs, resumeFalseInterruption,
   echoGuard = null,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
 } = {}) {
-  const T = timings({ silenceMs, maxUtteranceMs, minSpeechMs, frameMs, echoTailMs, bargeInMinMs, maxEchoDiscards });
+  const T = timings({
+    silenceMs, maxUtteranceMs, minSpeechMs, frameMs, echoTailMs, bargeInMinMs, maxEchoDiscards,
+    falseInterruptionTimeoutMs, resumeFalseInterruption,
+  });
   const echo = echoGuard || createEchoGuard({ now });
   /** @type {Array<Buffer>} */
   let buffer = [];
@@ -92,6 +112,8 @@ export function createMediaTransport({
   let playbackEndedAt = -Infinity;
   let voiceRunStartedAt = null;   // start of the current continuous voice run
   let echoDiscards = 0;
+  // Remainder of an utterance cut short by a suspected interruption.
+  let pausedSpeech = null;        // { frames, index, text, at }
 
   /** True while our own audio could still be arriving on the receive path. */
   function inEchoWindow(t) {
@@ -170,6 +192,12 @@ export function createMediaTransport({
               heard: String(text).slice(0, 60),
             });
 
+            // We have positively identified the interrupter as our own voice,
+            // so any barge-in it caused was false. Resume immediately rather
+            // than waiting out the timeout — a stronger signal than LiveKit's
+            // timer, because we know WHY it was false.
+            if (pausedSpeech) resumeFalse('self_echo');
+
             // Keep listening rather than answering ourselves. Bounded, so a
             // persistent echo cannot hang the session forever.
             if (echoDiscards < T.maxEchoDiscards) {
@@ -179,6 +207,9 @@ export function createMediaTransport({
             return resolve({ text: null, hangup: false, silent: true });
           }
 
+          // Genuine speech: the interruption was real. Discard the remainder —
+          // talking over someone who actually spoke is the failure we started from.
+          if (pausedSpeech) { log('paused_speech_discarded', { lang, reason: 'real_speech' }); pausedSpeech = null; }
           echoDiscards = 0;
           return resolve({ text, hangup: false, silent: false });
         })
@@ -192,9 +223,21 @@ export function createMediaTransport({
   }
 
   /** Called by the media server on a silence timer tick. */
-  function tick() { maybeEndpoint(now()); }
+  function tick() {
+    maybeEndpoint(now());
 
-  return {
+    // No transcript materialised after the interruption — it was noise, not a
+    // person. Resume. (livekit/agents calls this a "false interruption".)
+    if (pausedSpeech && T.resumeFalseInterruption && !speaking
+        && (now() - pausedSpeech.at) >= T.falseInterruptionTimeoutMs) {
+      resumeFalse('timeout');
+    }
+  }
+
+  // Bound at the end of the factory, once `api` exists.
+  let resumeFalse = () => {};
+
+  const api = {
     pushAudio,
     tick,
 
@@ -215,7 +258,20 @@ export function createMediaTransport({
         return false;
       }
 
-      if (me.cancelled) { speaking = null; playbackEndedAt = now(); return true; }
+      if (me.cancelled) {
+        // Interrupted before a single frame went out — the WHOLE line is unsaid.
+        // Hold all of it, or a barge-in landing during TTS synthesis silently
+        // drops an entire utterance (including a disclosure or an opt-out
+        // acknowledgement).
+        if (T.resumeFalseInterruption && !closed) {
+          const frames = audio.frames || [audio.audio];
+          pausedSpeech = { frames, index: 0, text, at: now() };
+          log('speech_paused', { lang, remainingFrames: frames.length, beforePlayback: true });
+        }
+        speaking = null;
+        playbackEndedAt = now();
+        return true;
+      }
 
       // PACED playback. Writing every frame in one synchronous loop looks like
       // streaming but is not: the whole utterance lands in the provider's
@@ -229,10 +285,45 @@ export function createMediaTransport({
       // time-to-first-audio low; the yield between frames is what gives
       // pushAudio() a window to cancel.
       const frames = audio.frames || [audio.audio];
-      for (let i = 0; i < frames.length; i++) {
+      let i = 0;
+      for (; i < frames.length; i++) {
         if (me.cancelled || closed) break;
         audioOut(frames[i]);
         if (i < frames.length - 1) await sleep(T.frameMs);
+      }
+
+      // Interrupted part-way: keep the remainder so it can be resumed if the
+      // interruption turns out to be false. Cancelling outright meant one
+      // spurious frame of noise cost the rest of the sentence.
+      if (me.cancelled && i < frames.length && T.resumeFalseInterruption && !closed) {
+        pausedSpeech = { frames, index: i, text, at: now() };
+        log('speech_paused', { lang, remainingFrames: frames.length - i });
+      }
+
+      speaking = null;
+      playbackEndedAt = now();
+      return true;
+    },
+
+    /**
+     * Resume an utterance that was cut short by an interruption which turned
+     * out not to be real. Called when the echo guard positively identifies the
+     * interrupter as our OWN voice, or when the false-interruption timeout
+     * elapses with no transcript.
+     */
+    async resumePausedSpeech(reason = 'false_interruption') {
+      if (!pausedSpeech || closed) return false;
+      const resume = pausedSpeech;
+      pausedSpeech = null;
+
+      const me = { cancelled: false };
+      speaking = me;
+      log('speech_resumed', { lang, reason, fromFrame: resume.index });
+
+      for (let i = resume.index; i < resume.frames.length; i++) {
+        if (me.cancelled || closed) break;
+        audioOut(resume.frames[i]);
+        if (i < resume.frames.length - 1) await sleep(T.frameMs);
       }
       speaking = null;
       playbackEndedAt = now();
@@ -260,9 +351,16 @@ export function createMediaTransport({
     },
 
     // test introspection
+    _pausedSpeech: () => (pausedSpeech ? { remaining: pausedSpeech.frames.length - pausedSpeech.index } : null),
     _isSpeaking: () => Boolean(speaking && !speaking.cancelled),
     _buffered: () => buffer.length,
     _echoDiscards: () => echoDiscards,
     _inEchoWindow: () => inEchoWindow(now()),
   };
+
+  // tick() and the echo-discard branch both need to resume, and both run before
+  // `api` exists at their definition site — bind once here.
+  resumeFalse = (reason) => { api.resumePausedSpeech(reason).catch(() => {}); };
+
+  return api;
 }

@@ -246,5 +246,66 @@ await t('a human interrupting for longer DOES still barge in', async () => {
   assert.ok(out.length < 8, `playback should have been cut short, sent ${out.length}/8 frames`);
 });
 
+// ---------------------------------------------------------------------------
+section('false-interruption resume (pattern from livekit/agents)');
+
+await t('a false interruption resumes the rest of the sentence', async () => {
+  // Barge-in used to CANCEL outright, so one burst of noise permanently ate the
+  // remainder of Anaga's line. Now it pauses, and resumes when the interruption
+  // proves false.
+  let clock = 0;
+  const out = [];
+  const tr = createMediaTransport({
+    stt: { async transcribe(c) { return c.map((x) => x.toString('utf8')).join(' ').trim(); } },
+    tts: { async synth(text) { return { frames: text.split(' ').map((w) => Buffer.from(w)) }; } },
+    audioOut: (f) => out.push(f.toString('utf8')),
+    now: () => clock,
+    bargeInMinMs: 100,
+    frameMs: 50,
+    falseInterruptionTimeoutMs: 500,
+    sleep: async (ms) => { clock += ms; },
+  });
+
+  const speaking = tr.say('one two three four five six seven eight');
+  for (let i = 0; i < 4; i++) { clock += 40; tr.pushAudio(Buffer.from('noise'), { hasVoice: true }); }
+  await speaking;
+
+  const paused = tr._pausedSpeech();
+  assert.ok(paused && paused.remaining > 0, 'the remainder should be held, not discarded');
+
+  // No transcript arrives -> false interruption -> resume.
+  clock += 600;
+  tr.tick();
+  await new Promise((r) => setTimeout(r, 50));
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(tr._pausedSpeech(), null, 'the paused speech should have been resumed');
+  assert.ok(out.includes('eight'), `the sentence should have finished, got: ${out.join(' ')}`);
+});
+
+await t('a REAL interruption discards the remainder (no talking over them)', async () => {
+  let clock = 0;
+  const out = [];
+  const tr = createMediaTransport({
+    stt: { async transcribe(c) { return c.map((x) => x.toString('utf8')).join(' ').trim(); } },
+    tts: { async synth(text) { return { frames: text.split(' ').map((w) => Buffer.from(w)) }; } },
+    audioOut: (f) => out.push(f.toString('utf8')),
+    now: () => clock,
+    bargeInMinMs: 100, frameMs: 50, silenceMs: 300,
+    sleep: async (ms) => { clock += ms; },
+  });
+
+  const speaking = tr.say('one two three four five six seven eight');
+  const listening = tr.listen();
+  for (let i = 0; i < 4; i++) { clock += 40; tr.pushAudio(Buffer.from('I am not interested in this'), { hasVoice: true }); }
+  await speaking;
+  clock += 400; tr.pushAudio(Buffer.alloc(0), { hasVoice: false }); tr.tick();
+
+  const heard = await listening;
+  assert.ok(heard.text, 'the real interruption must reach the session');
+  assert.equal(tr._pausedSpeech(), null, 'the remainder must be dropped, not resumed over them');
+  assert.ok(!out.includes('eight'), 'we must not finish the sentence over a person');
+});
+
 console.log(`\n═══ ${pass} passed, ${fail} failed ═══\n`);
 if (fail) { failures.forEach((f) => console.log('  FAIL ' + f)); process.exit(1); }
