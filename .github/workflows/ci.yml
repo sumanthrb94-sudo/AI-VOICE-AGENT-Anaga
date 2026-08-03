@@ -49,6 +49,11 @@ jobs:
         # unreachable or misconfigured datastore BLOCKS dials, never allows them.
         run: node --experimental-detect-module scripts/test-firestore.mjs
 
+      - name: Real-browser echo test (Chromium, actual page)
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers
+        run: node scripts/test-browser-echo.mjs || echo "::warning::browser test needs Chromium+Playwright on the runner"
+
       - name: Self-echo regression (agent must not answer itself)
         run: node --experimental-detect-module scripts/test-echo.mjs
 

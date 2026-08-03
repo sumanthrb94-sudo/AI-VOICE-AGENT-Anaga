@@ -3,7 +3,7 @@
 An honest state-of-the-system. Written so nobody discovers a gap the week of launch.
 
 **Bottom line:** the software path from *a Facebook lead* to *a CRM note* is built
-and QA-tested end to end — 136 automated tests, including the compliance gate, the
+and QA-tested end to end — 142 automated tests, including the compliance gate, the
 opt-out path, a full call driven over a real WebSocket, and live round-trips
 against the production Firestore project. **It cannot legally
 place a real call yet**, and every remaining blocker is now either a one-call
@@ -18,6 +18,7 @@ node --experimental-detect-module scripts/test-media-server.mjs   # 13
 node --experimental-detect-module scripts/test-firestore.mjs      # 12
 node --experimental-detect-module scripts/test-echo.mjs           # 14
 node --experimental-detect-module scripts/simulate-echo.mjs       # echo simulation
+node scripts/test-browser-echo.mjs                                # 6 (real Chromium)
 CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
   node --experimental-detect-module scripts/test-e2e.mjs          # 38
 ```
@@ -42,6 +43,7 @@ CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
 | Rate limiting, structured logs, PII masking | `api/_lib/guard.js` | E2E §7 |
 | **Durable suppression list, atomic dedupe, event history** | `api/_lib/store.js`, `_lib/firestore.js` | Firestore QA (12), live against `anaga-2c61c` |
 | **Self-echo rejection (agent never answers itself)** | `shared/echo-guard.js` | echo QA (14) + `simulate-echo.mjs` |
+| Browser demo: echo rejection + global opt-out | `web/assets/app.js` | real-Chromium QA (6) |
 
 ### Invariants the tests actually hold you to
 

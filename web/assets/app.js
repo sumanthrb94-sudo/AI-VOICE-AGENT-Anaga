@@ -518,7 +518,10 @@ if (demoEl) {
      cannot import an ES module). */
   const ECHO_MEMORY_MS = 15000;    // how long one of her lines can still echo back
   const ECHO_TAIL_MS   = 1200;     // after she stops, treat input as suspect for this long
-  const ECHO_MATCH     = 0.55;     // word-overlap fraction that counts as her own speech
+  const ECHO_MIN_RUN_WORDS = 4;    // consecutive words of hers, verbatim → her own speech
+  /* Opt-out phrases that must never be filtered as echo (subset of
+     shared/optout.js — this file is a classic script and cannot import it). */
+  const OPTOUT_RE = /\b(do ?n[o']?t (call|contact)|stop (calling|contacting)|remove me|unsubscribe|opt ?out|not interested|dnd)\b|call (mat|nahi) (karo|karna)|cheyyakandi|कॉल (मत|नहीं)|చేయకండి/i;
   let recentSpoken = [];           // [{ norm, at }]
   let speechEndedAt = 0;
 
@@ -660,20 +663,42 @@ if (demoEl) {
   const norm = s => (s || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 
   /* is this recognized text most likely Anaga's own voice echoing into the mic? */
+  /* Longest run of consecutive candidate words appearing verbatim, in order,
+     inside one of her lines. Mirrors longestRunWords() in shared/echo-guard.js. */
+  function longestRunWords(candidate, ref) {
+    const c = norm(candidate).split(" ").filter(Boolean);
+    if (!c.length || !ref) return 0;
+    let best = 0;
+    for (let i = 0; i < c.length; i++) {
+      for (let j = c.length; j > i + best; j--) {
+        const run = c.slice(i, j).join(" ");
+        if (run.length > 2 && ref.indexOf(run) !== -1) { best = j - i; break; }
+      }
+    }
+    return best;
+  }
+
   function isLikelyEcho(candidate) {
     const words = norm(candidate).split(" ").filter(w => w.length > 2);
     if (!words.length) return false;
+
+    /* An opt-out is NEVER echo. Her own acknowledgement ("adding your number to
+       our do-not-call list") shares most of its words with "do not call me
+       again", so word overlap alone would swallow a genuine opt-out — far worse
+       than any echo. Absolute override, same as shared/echo-guard.js. */
+    if (OPTOUT_RE.test(norm(candidate))) return false;
 
     const refs = recentSpoken.map(r => r.norm);
     if (currentSpokenNorm) refs.push(currentSpokenNorm);
     if (!refs.length) return false;
 
-    /* Asymmetric on purpose: a SHORT fragment of a LONG line of hers should
-       score high. A symmetric measure would dilute exactly the case we care
-       about — a clipped echo of one clause. */
+    /* VERBATIM RUN is the real signal. Word overlap alone rejected genuine
+       answers: "yes I have a minute" scores 0.67 against "do you have a quick
+       minute to talk?" purely because people reuse a question's words when
+       answering it. Echo instead reproduces her PHRASING — a contiguous run.
+       Only her exact sequence, four words or longer, counts. */
     for (const ref of refs) {
-      const hit = words.filter(w => ref.includes(w)).length;
-      if (hit / words.length >= ECHO_MATCH) return true;
+      if (longestRunWords(candidate, ref) >= ECHO_MIN_RUN_WORDS) return true;
     }
     return false;
   }
@@ -872,6 +897,15 @@ if (demoEl) {
     const lastUser = [...history].reverse().find(m => m.role === "user");
     const said = lastUser ? lastUser.text : "";
     const step = FLOW[stepId] || FLOW.greet;
+
+    /* GLOBAL opt-out. The versioned flow declares this under `globals.optout`,
+       meaning it applies at EVERY step — but only `greet` and `offer` actually
+       checked it, so "remove me from your list" said during the budget or
+       configuration question was ignored and the call carried on. Caught by
+       scripts/test-browser-echo.mjs. Opt-out is checked before any step
+       transition and cannot be skipped by any step. */
+    if (optout(said)) return sayStep("optout");
+
     const nextId = (step.next ? step.next(said, ctx) : null) || "callback";
     sayStep(nextId);
   }
@@ -971,11 +1005,23 @@ if (demoEl) {
       }
       if (phase !== "listening") return;    // ignore stray results while thinking/idle
 
-      /* Echo rejection runs on EVERY result, not only while she is speaking.
-         The tail of her line keeps arriving after phase flips to "listening",
-         which is exactly how her own words were landing in the transcript as
-         a caller turn. */
-      if (inEchoWindow() && isLikelyEcho(heard)) return;
+      /* Echo rejection runs on EVERY result — no timing gate. The tail of her
+         line can be transcribed well after she stops (STT finalises late), and
+         gating on a 1.2s window let her own words through as a caller turn in
+         the browser test. The verbatim-run rule is specific enough to stand on
+         its own: a false positive needs the human to repeat four-plus of her
+         words in her exact order, within the memory window. */
+      if (isLikelyEcho(heard)) {
+        /* The earlier, shorter hypotheses of this SAME audio arrived before it
+           was long enough to recognise ("why you looking for" precedes "why you
+           looking for a home to live in"). They are the same echo, so retract
+           what has accumulated rather than committing a fragment of her line. */
+        if (pendingUtter && norm(heard).indexOf(norm(pendingUtter)) === 0) {
+          pendingUtter = "";
+          if (interimEl) { interimEl.remove(); interimEl = null; }
+        }
+        return;
+      }
 
       if (interim) { showInterim(appendUtterance(pendingUtter, interim)); armEndpoint(); }
       if (finalT)  { pendingUtter = appendUtterance(pendingUtter, finalT.trim()); showInterim(pendingUtter); armEndpoint(); }
