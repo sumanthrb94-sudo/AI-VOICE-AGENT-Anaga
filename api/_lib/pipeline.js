@@ -22,6 +22,7 @@ import { checkDialable } from './compliance.js';
 import * as crm from './integrations/crm.js';
 import { buildCallJob, enqueueCall } from './queue.js';
 import { record } from './events.js';
+import * as store from './store.js';
 
 // Best-effort, per-instance replay guard. Serverless instances are ephemeral
 // and not shared, so this catches Meta's fast retries, NOT a duplicate an hour
@@ -71,15 +72,39 @@ export async function intakeLead(lead, opts = {}) {
     return result;
   }
 
-  // 2. dedupe
+  // 2. dedupe — ATOMIC when the store is durable.
+  // The in-memory guard below only ever saw one instance, so two serverless
+  // instances racing on the same Meta retry could both pass it and both dial.
+  // Firestore's create-if-absent rejects the loser with 409, which is a real
+  // cross-instance lock rather than a hopeful one.
   const dedupeKey = lead.id || `${lead.source}:${lead.phone}`;
-  if (seenRecently(dedupeKey)) {
-    result.steps.dedupe = { duplicate: true };
-    result.reason = 'duplicate_lead';
-    result.accepted = true;      // a duplicate is a successful no-op, not an error
-    return result;
+
+  if (store.storeBackend() === 'firestore') {
+    const claim = await store.claimLead({ ...lead, id: dedupeKey });
+    if (claim.ok && !claim.created) {
+      result.steps.dedupe = { duplicate: true, durable: true };
+      result.reason = 'duplicate_lead';
+      result.accepted = true;
+      return result;
+    }
+    // A store error must not drop the lead — fall back to the local guard.
+    result.steps.dedupe = { duplicate: false, durable: claim.ok };
+    if (claim.ok) seenRecently(dedupeKey);          // keep the local cache warm
+    else if (seenRecently(dedupeKey)) {
+      result.steps.dedupe = { duplicate: true, durable: false };
+      result.reason = 'duplicate_lead';
+      result.accepted = true;
+      return result;
+    }
+  } else {
+    if (seenRecently(dedupeKey)) {
+      result.steps.dedupe = { duplicate: true, durable: false };
+      result.reason = 'duplicate_lead';
+      result.accepted = true;    // a duplicate is a successful no-op, not an error
+      return result;
+    }
+    result.steps.dedupe = { duplicate: false, durable: false };
   }
-  result.steps.dedupe = { duplicate: false };
   record('lead.received', {
     source: lead.source,
     phone: result.lead.phone,          // already masked by leadSummary()

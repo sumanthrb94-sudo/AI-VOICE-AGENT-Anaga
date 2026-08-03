@@ -3,6 +3,17 @@
 .env.local
 *.local
 
+# service-account / credential files — NEVER commit one.
+# A Firebase Admin key grants full project access and bypasses ALL Firestore
+# security rules. It belongs in an env var or a secret manager, never in git.
+*serviceAccount*.json
+*service-account*.json
+*firebase-adminsdk*.json
+*-adminsdk-*.json
+gcp-credentials*.json
+credentials.json
+.secrets/
+
 # python
 __pycache__/
 *.py[cod]

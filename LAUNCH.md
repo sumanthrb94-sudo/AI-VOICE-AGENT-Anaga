@@ -3,8 +3,9 @@
 An honest state-of-the-system. Written so nobody discovers a gap the week of launch.
 
 **Bottom line:** the software path from *a Facebook lead* to *a CRM note* is built
-and QA-tested end to end — 109 automated tests, including the compliance gate, the
-opt-out path, and a full call driven over a real WebSocket. **It cannot legally
+and QA-tested end to end — 121 automated tests, including the compliance gate, the
+opt-out path, a full call driven over a real WebSocket, and live round-trips
+against the production Firestore project. **It cannot legally
 place a real call yet**, and every remaining blocker is now either a one-call
 verification spike or a business/legal prerequisite — not unwritten code.
 
@@ -14,6 +15,7 @@ Run the suites yourself:
 node --experimental-detect-module scripts/test-integrations.mjs   # 46
 node --experimental-detect-module scripts/test-media.mjs          # 12
 node --experimental-detect-module scripts/test-media-server.mjs   # 13
+node --experimental-detect-module scripts/test-firestore.mjs      # 12
 CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
   node --experimental-detect-module scripts/test-e2e.mjs          # 38
 ```
@@ -36,6 +38,7 @@ CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
 | CRM adapters (HubSpot, Zoho, webhook) | `api/_lib/integrations/crm/` | E2E via webhook |
 | Operator console | `web/console.html` | E2E §7 |
 | Rate limiting, structured logs, PII masking | `api/_lib/guard.js` | E2E §7 |
+| **Durable suppression list, atomic dedupe, event history** | `api/_lib/store.js`, `_lib/firestore.js` | Firestore QA (12), live against `anaga-2c61c` |
 
 ### Invariants the tests actually hold you to
 
@@ -77,12 +80,27 @@ has never seen 8kHz μ-law from a phone line**, which is materially harder than
 browser mic audio. Number and name accuracy on real telephony audio is an explicit
 acceptance criterion in the spec and is **not yet met**.
 
-### 4. No durable datastore
-Pipeline events are an in-process ring buffer. Consequences, all real:
-- the console shows a **live view, not history** (it says so),
-- lead dedupe is per-instance, so a Meta retry hitting a cold instance can double-dial,
-- **`SUPPRESSION_LIST_URL` is the exception and is non-negotiable** — without it
-  opt-outs die with the instance. Wire it before the first real call.
+### 4. ~~No durable datastore~~ — CLOSED
+Firestore is wired: project `anaga-2c61c`, `(default)` database, **asia-south1
+(Mumbai)** — which also satisfies the Indian data-residency requirement in
+`docs/COMPLIANCE.md`. Verified live:
+- **the suppression list survives restarts** — the opt-out no longer dies with
+  the instance,
+- **lead dedupe is atomic across instances** (create-if-absent → 409 for the
+  loser), closing a real double-dial risk on Meta retries,
+- the console reads durable history instead of one instance's buffer.
+
+Dependency-free: the Firestore REST API with a service-account JWT signed by
+`node:crypto`, so no build step and no `firebase-admin` cold-start cost.
+
+**Two operational notes:**
+1. If the project is suspended (billing lapse) or unreachable, the gate
+   **blocks every dial** rather than allowing them. Verified by test. Calls stop;
+   nobody gets called who shouldn't. Watch for `datastore_unreachable` in
+   `/api/integrations/health`.
+2. Queries avoid composite indexes by design (point reads by id, or single-field
+   `orderBy`). A missing composite index is a hard 400 at runtime, not a slow
+   query, so there is nothing to administer before launch.
 
 ### 5. Regulatory prerequisites — not code
 - [ ] DLT principal entity registration

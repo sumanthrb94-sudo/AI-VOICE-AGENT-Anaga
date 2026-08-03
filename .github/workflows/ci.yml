@@ -43,6 +43,12 @@ jobs:
       - name: Unit + integration tests
         run: node --experimental-detect-module scripts/test-integrations.mjs
 
+      - name: Firestore durability QA (offline half — no credentials in CI)
+        # The live half is skipped without FIREBASE_SERVICE_ACCOUNT_LIVE. The
+        # offline half still runs the assertion that matters most: an
+        # unreachable or misconfigured datastore BLOCKS dials, never allows them.
+        run: node --experimental-detect-module scripts/test-firestore.mjs
+
       - name: Media leg QA (endpointing, barge-in, framing)
         run: node --experimental-detect-module scripts/test-media.mjs
 

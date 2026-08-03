@@ -12,6 +12,8 @@
 // write through to Postgres, and `since()` reads from there instead. Nothing
 // upstream changes.
 
+import * as store from './store.js';
+
 const MAX_EVENTS = 200;
 const events = [];
 const startedAt = new Date().toISOString();
@@ -27,6 +29,21 @@ export function record(type, data = {}) {
     ...data,
   });
   if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+
+  // Write through to the durable store. Deliberately NOT awaited: an event log
+  // must never add latency to, or fail, a dial decision. Errors are swallowed
+  // here because the in-memory copy above already succeeded — the console
+  // reports store reachability separately so a silent write failure still shows.
+  store.recordEvent(type, data).catch(() => {});
+}
+
+/** Durable history, newest first. Falls back to this instance's buffer. */
+export async function history(limit = 200) {
+  if (store.storeBackend() === 'firestore') {
+    const r = await store.recentEvents(limit);
+    if (r.ok) return { docs: r.docs, durable: true };
+  }
+  return { docs: list({ limit }), durable: false };
 }
 
 /** Newest first, optionally filtered by type. */

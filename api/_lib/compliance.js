@@ -17,6 +17,7 @@
 
 import { fetchJson } from './integrations/http.js';
 import { normalizePhone } from './integrations/lead.js';
+import * as store from './store.js';
 
 const CONSENT_WINDOW_DAYS = Number(process.env.LEAD_CONSENT_WINDOW_DAYS || 90);
 const QUIET_START_HOUR = Number(process.env.CALLING_WINDOW_START_IST || 9);   // 09:00 IST
@@ -31,7 +32,10 @@ export function complianceStatus() {
   return {
     mode: isDevMode() ? 'dev' : 'strict',
     dndScrub: Boolean(process.env.DND_SCRUB_URL && process.env.DND_SCRUB_API_KEY),
-    suppressionList: Boolean(process.env.SUPPRESSION_LIST_URL),
+    // Either backend counts as a durable list: Firestore (preferred) or an
+    // external HTTP register.
+    suppressionList: store.storeBackend() === 'firestore' || Boolean(process.env.SUPPRESSION_LIST_URL),
+    suppressionBackend: store.storeBackend() === 'firestore' ? 'firestore' : (process.env.SUPPRESSION_LIST_URL ? 'http' : 'none'),
     consentWindowDays: CONSENT_WINDOW_DAYS,
     callingWindowIST: `${QUIET_START_HOUR}:00-${QUIET_END_HOUR}:00`,
   };
@@ -54,6 +58,16 @@ export async function isSuppressed(phone) {
   const e164 = normalizePhone(phone);
   if (!e164) return { suppressed: true, known: true, error: 'invalid_phone' };
   if (memorySuppression.has(e164)) return { suppressed: true, known: true, error: null };
+
+  // Firestore is the primary register when configured. A point read by document
+  // id — no query, no index, one round trip.
+  if (store.storeBackend() === 'firestore') {
+    const r = await store.isSuppressed(e164);
+    if (r.suppressed) memorySuppression.add(e164);
+    // A Firestore outage yields known:false, which the gate turns into a block.
+    if (r.known) return { suppressed: r.suppressed, known: true, error: null };
+    return { suppressed: false, known: false, error: r.error };
+  }
 
   const url = process.env.SUPPRESSION_LIST_URL;
   if (!url) {
@@ -82,6 +96,14 @@ export async function addToSuppression(phone, reason = 'opt_out') {
   if (!e164) return { ok: false, error: 'invalid_phone', durable: false };
 
   memorySuppression.add(e164);
+
+  // Firestore first: the document id is the phone number, so this is idempotent
+  // and a later lookup needs no query.
+  if (store.storeBackend() === 'firestore') {
+    const r = await store.suppress(e164, { reason });
+    if (r.ok) return { ok: true, error: null, durable: true };
+    // Fall through to the HTTP register rather than losing the opt-out.
+  }
 
   const url = process.env.SUPPRESSION_LIST_URL;
   if (!url) {

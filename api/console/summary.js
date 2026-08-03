@@ -12,13 +12,14 @@
 // visible banner. No fabricated history, no seeded demo numbers.
 
 import { authorize, requireMethod } from '../_lib/integrations/http.js';
-import { list, rollup, meta } from '../_lib/events.js';
+import { list, rollup, meta, history } from '../_lib/events.js';
+import { storeStatus } from '../_lib/store.js';
 import { metaStatus } from '../_lib/integrations/meta.js';
 import { crmStatus } from '../_lib/integrations/crm.js';
 import { complianceStatus } from '../_lib/compliance.js';
 import { queueStatus } from '../_lib/queue.js';
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   if (!requireMethod(req, res, 'GET')) return;
 
   const auth = authorize(req);
@@ -42,6 +43,9 @@ export default function handler(req, res) {
 
   const limit = Math.max(1, Math.min(200, Number(req.query?.limit) || 50));
 
+  // Durable history when Firestore is wired; this instance's buffer otherwise.
+  const [events, store] = await Promise.all([history(limit), storeStatus()]);
+
   return res.status(200).json({
     ok: true,
     generatedAt: new Date().toISOString(),
@@ -60,9 +64,11 @@ export default function handler(req, res) {
     funnel: roll,
 
     // the stream
-    events: list({ limit }),
+    events: events.docs,
 
-    // provenance — the console must not imply a database exists
-    store: meta(),
+    // provenance — the console states exactly what is backing these numbers
+    store: events.durable
+      ? { durable: true, backend: store.backend, projectId: store.projectId, reachable: store.reachable, held: events.docs.length }
+      : { ...meta(), backend: store.backend, reachable: store.reachable, storeError: store.error || null },
   });
 }
