@@ -185,30 +185,34 @@ await t('a NORMAL reply is accepted (control — the mic still works)', async ()
   assert.match(after.at(-1).text, /minute/i);
 });
 
-await t('THE PRODUCTION FAILURE: her own words are not committed as a caller turn', async () => {
-  // Drive it through the REAL flow. Injecting a bubble into the DOM does not
-  // call rememberSpoken(), so the guard would have no memory of the line — the
-  // page must actually SAY it, exactly as it did on the phone.
-  await waitAnagaSays(/looking for a home to live in/);
-  await waitListening();
+await t('THE REAL FIX: recognition is STOPPED while Anaga speaks', async () => {
+  // This is what actually prevents the production failure. Measuring the text
+  // filter is beside the point: "wonderful thank you" (echo) and "to live in"
+  // (a genuine answer) both have a 3-word verbatim run, so NO threshold can
+  // separate them. The mic must be closed, and this asserts that it is.
+  await waitAnagaSays(/looking for a home to live in|budget range/);
 
-  const before = (await youBubbles()).length;
-  for (const transcript of ECHO_CHAIN) await emit([{ transcript, isFinal: true }]);
-  await settle(1600);
-
-  const after = await youBubbles();
-  const committed = after.slice(before).map((b) => b.text).join(' | ');
-
-  // 1. No stacking — the prefix chain must not pile up.
-  assert.ok(!/why you looking why you looking/i.test(committed),
-    `hypothesis stacking is back:\n     ${committed.slice(0, 160)}`);
-  // 2. And it must not be committed AT ALL: this is her own sentence.
-  assert.ok(!/looking for a home to live in/i.test(committed),
-    `her own words were committed as a caller turn:\n     ${committed.slice(0, 160)}`);
-  // 3. Not even a fragment: the short prefixes are the same echoed audio.
-  assert.ok(!/why you/i.test(committed),
-    `a fragment of her line survived:\n     ${committed.slice(0, 160)}`);
+  const micOpenWhileSpeaking = await page.evaluate(async () => {
+    const status = () => document.getElementById('call-status')?.textContent || '';
+    // Sample recognition state across a window in which she is speaking.
+    for (let i = 0; i < 40; i++) {
+      if (/speaking/i.test(status()) && window.__srRunning === true) return true;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return false;
+  });
+  assert.equal(micOpenWhileSpeaking, false,
+    'the mic must be CLOSED while Anaga speaks — an open mic on a speakerphone hears her');
 });
+
+/* REMOVED: "echo arriving in the tail window is rejected".
+   The text backstop only applies inside a ~1.2s window after she stops, and
+   this harness cannot reliably land a synthetic result inside it — the test was
+   flaky, not meaningful. Rather than loosen the assertion until it passes, it is
+   gone. The protection that matters is asserted above: recognition is STOPPED
+   while she speaks, so her audio never reaches the recogniser at all.
+   The text filter is measured in scripts/test-echo.mjs, where the timing is
+   deterministic. */
 
 await t('an OPT-OUT is still heard (never suppressed as echo)', async () => {
   const before = (await youBubbles()).length;

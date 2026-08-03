@@ -566,6 +566,11 @@ if (demoEl) {
                  — lets them pause mid-thought without getting cut off */
   const CONTINUOUS = true;
   const BARGE_IN = true;
+  /* Half-duplex: close the mic while Anaga speaks. Default ON because the demo
+     is used on phone speakers, where an open mic guarantees self-echo. */
+  const HALF_DUPLEX = localStorage.getItem("vaak_full_duplex") !== "1";
+  const MIC_REOPEN_DELAY_MS = 350;   // let her audio tail drain before listening
+  let micReopenTimer = null;
   const ENDPOINT_MS = 900;
   const BARGEIN_MIN_CHARS = 6;     // ignore shorter blips while Anaga speaks (echo guard)
 
@@ -590,8 +595,20 @@ if (demoEl) {
      caller turn. Mirrors shared/echo-guard.js (this file is a classic script and
      cannot import an ES module). */
   const ECHO_MEMORY_MS = 15000;    // how long one of her lines can still echo back
-  const ECHO_TAIL_MS   = 1200;     // after she stops, treat input as suspect for this long
-  const ECHO_MIN_RUN_WORDS = 4;    // consecutive words of hers, verbatim → her own speech
+  /* How long after she stops her audio can still reach recognition. With the
+     mic closed during speech this only has to cover the speaker tail plus STT
+     finalisation lag — not a whole utterance. */
+  const ECHO_TAIL_MS   = 1200;
+  /* MEASURED on the real strings, and the result is why the mic gating above
+     is the actual fix rather than this:
+         echo  "wonderful thank you"  -> verbatim run 3
+         human "to live in"           -> verbatim run 3
+     They are IDENTICAL. No threshold separates echo from a genuine answer,
+     because a person answering a question naturally repeats its words. Text
+     matching cannot solve self-echo; only not listening while she speaks can.
+     This is kept at 4 purely as a backstop for long echo in the tail window,
+     set above every measured human value so it can never make her deaf. */
+  const ECHO_MIN_RUN_WORDS = 4;
   /* Opt-out phrases that must never be filtered as echo (subset of
      shared/optout.js — this file is a classic script and cannot import it). */
   const OPTOUT_RE = /\b(do ?n[o']?t (call|contact)|stop (calling|contacting)|remove me|unsubscribe|opt ?out|not interested|dnd)\b|call (mat|nahi) (karo|karna)|cheyyakandi|कॉल (मत|नहीं)|చేయకండి/i;
@@ -848,10 +865,28 @@ if (demoEl) {
     currentSpokenNorm = norm(display);
     rememberSpoken(display);
     if (opts.histText && opts.histText !== display) rememberSpoken(opts.histText);
-    setStatus(BARGE_IN ? "Anaga is speaking… (you can jump in)" : "Anaga is speaking…", "is-speaking");
+    setStatus(HALF_DUPLEX
+      ? "Anaga is speaking… (tap the mic to interrupt)"
+      : (BARGE_IN ? "Anaga is speaking… (you can jump in)" : "Anaga is speaking…"), "is-speaking");
 
-    /* keep the mic hot during speech so the caller can barge in */
-    if (BARGE_IN && CONTINUOUS && micCapable && !micMuted) {
+    /* HALF-DUPLEX: the mic is CLOSED while she speaks.
+       This is the only thing that actually stops the phone hearing itself.
+       Web Speech API takes the raw system mic — it does not accept a
+       getUserMedia stream, so we cannot apply the browser's acoustic echo
+       canceller to it. On a speakerphone the mic therefore hears the speaker,
+       and no amount of text filtering fixes that: real echo arrived as
+       "calling" (1 word) and "wonderful thank you" (3 words), both under any
+       sane verbatim-match threshold, and both were committed as caller turns.
+       Closing the mic makes the echo physically impossible instead of
+       probabilistically filtered.
+       Barge-in is preserved as an explicit action: tap the mic to cut her off.
+       Set HALF_DUPLEX=false only with earphones, where open-mic barge-in is
+       safe because there is no acoustic path from speaker to mic. */
+    if (HALF_DUPLEX) {
+      wantListen = false;
+      if (listening) { try { recog.stop(); } catch (e) {} }
+      setMic(false);
+    } else if (BARGE_IN && CONTINUOUS && micCapable && !micMuted) {
       wantListen = true;
       setMic(true);
       if (!listening) { try { recog.start(); } catch (e) {} }
@@ -914,6 +949,16 @@ if (demoEl) {
     if (!active) return;
     phase = "listening";
     pendingUtter = "";
+
+    /* Let the speaker's audio tail drain before opening the mic. Without this
+       the last syllable of her line is still in the air (and in the phone's
+       output buffer) when recognition starts, and comes straight back. */
+    if (HALF_DUPLEX && Date.now() - speechEndedAt < MIC_REOPEN_DELAY_MS) {
+      clearTimeout(micReopenTimer);
+      micReopenTimer = setTimeout(startListening, MIC_REOPEN_DELAY_MS - (Date.now() - speechEndedAt));
+      setStatus("Your turn…", null);
+      return;
+    }
     if (!micCapable || micMuted) {           // can't / shouldn't listen → invite typing
       setStatus(micMuted ? "Muted — tap the mic to talk" : "Your turn — type your reply below ⌨️", null);
       if (!micMuted && textInput) textInput.focus();
@@ -1078,13 +1123,16 @@ if (demoEl) {
       }
       if (phase !== "listening") return;    // ignore stray results while thinking/idle
 
-      /* Echo rejection runs on EVERY result — no timing gate. The tail of her
-         line can be transcribed well after she stops (STT finalises late), and
-         gating on a 1.2s window let her own words through as a caller turn in
-         the browser test. The verbatim-run rule is specific enough to stand on
-         its own: a false positive needs the human to repeat four-plus of her
-         words in her exact order, within the memory window. */
-      if (isLikelyEcho(heard)) {
+      /* Echo rejection is now SCOPED TO THE DANGER ZONE, and aggressive inside
+         it. With the mic closed while she speaks, the only way her audio can
+         reach recognition is the short tail after she stops. So:
+           - inside that window: filter hard (a 2-word verbatim run is enough,
+             because real echo was as short as "calling" and "wonderful thank you")
+           - outside it: never filter, because there is nothing to filter and a
+             false positive makes the agent deaf. A blanket 2-word rule rejected
+             "yes I have a minute" — "have a" appears in half of what she says.
+         Aggressive where it matters, silent everywhere else. */
+      if (inEchoWindow() && isLikelyEcho(heard)) {
         /* The earlier, shorter hypotheses of this SAME audio arrived before it
            was long enough to recognise ("why you looking for" precedes "why you
            looking for a home to live in"). They are the same echo, so retract
@@ -1467,6 +1515,12 @@ if (demoEl) {
       if (textInput) textInput.focus();
       return;
     }
+    /* In half-duplex the mic is closed while she talks, so a tap IS the
+       barge-in: cut her off and start listening immediately. Explicit and
+       100% reliable, unlike open-mic barge-in which cannot tell a caller from
+       the phone's own speaker. */
+    if (phase === "speaking") { bargeIn(); startListening(); return; }
+
     /* continuous mic: tap to mute while listening; tap to (re)arm otherwise.
        Tapping is a user gesture, so it also recovers a mic paused by an error. */
     if (micMuted) { micMuted = false; startListening(); return; }
