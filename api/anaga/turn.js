@@ -48,8 +48,16 @@ export default async function handler(req, res) {
   let out;
   try {
     out = await generate({ system, user, json: true });
-  } catch {
-    // Do not surface provider details; the client switches to its rule engine.
+  } catch (err) {
+    // LOG the reason. This used to be swallowed entirely, so a brain that was
+    // 503-ing on every single call looked identical to one that was merely
+    // unconfigured — and the only symptom was Anaga sounding like a script.
+    // The message never contains the key (llm.js strips it).
+    console.error(JSON.stringify({
+      at: new Date().toISOString(), svc: 'vaak-api', event: 'llm_call_failed',
+      endpoint: 'turn', model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+      reason: String((err && err.message) || 'unknown'),
+    }));
     return res.status(503).json({ error: 'llm_unavailable' });
   }
 

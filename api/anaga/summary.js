@@ -49,7 +49,12 @@ export default async function handler(req, res) {
   let out;
   try {
     out = await generate({ system, user, json: true });
-  } catch {
+  } catch (err) {
+    console.error(JSON.stringify({
+      at: new Date().toISOString(), svc: 'vaak-api', event: 'llm_call_failed',
+      endpoint: 'summary', model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+      reason: String((err && err.message) || 'unknown'),
+    }));
     return res.status(503).json({ error: 'llm_unavailable' });
   }
 

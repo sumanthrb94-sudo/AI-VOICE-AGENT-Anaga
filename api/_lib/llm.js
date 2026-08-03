@@ -60,7 +60,29 @@ async function generateGemini({ system, user, json }) {
     throw new Error('GEMINI_API_KEY is not configured');
   }
 
-  const model = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  // Model names retire. A hard-coded default that Google has since removed
+  // returns 404 on every call, which surfaced only as "Anaga sounds scripted" —
+  // the endpoint 503s and the browser silently falls back to its rule engine.
+  // GEMINI_MODEL still wins when set; otherwise try current names in order.
+  const candidates = process.env.GEMINI_MODEL
+    ? [process.env.GEMINI_MODEL]
+    : ['gemini-2.0-flash', 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-1.5-flash'];
+
+  let lastErr = null;
+  for (const model of candidates) {
+    try {
+      return await callGemini(model, apiKey, { system, user, json });
+    } catch (err) {
+      lastErr = err;
+      // Only a missing/unsupported model is worth trying the next name for.
+      // A bad key or exhausted quota will fail identically for all of them.
+      if (!/404|not found|not supported/i.test(String(err && err.message))) throw err;
+    }
+  }
+  throw lastErr || new Error('LLM: no usable model');
+}
+
+async function callGemini(model, apiKey, { system, user, json }) {
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
@@ -97,7 +119,7 @@ async function generateGemini({ system, user, json }) {
     // Read a little of the body for server-side logging only; never surface it.
     let detail = '';
     try { detail = (await resp.text()).slice(0, 200); } catch { /* ignore */ }
-    throw new Error(`LLM upstream returned ${resp ? resp.status : 'no response'}${detail ? `: ${detail}` : ''}`);
+    throw new Error(`LLM upstream returned ${resp ? resp.status : 'no response'} for model ${model}${detail ? `: ${detail}` : ''}`);
   }
 
   let data;
