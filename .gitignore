@@ -46,6 +46,7 @@ obj/
 .claude-flow/logs/
 .claude-flow/sessions/
 .claude-flow/metrics/
+.claude-flow/security/
 .claude-flow/daemon.pid
 .claude-flow/daemon-state.json
 .claude-flow/harness-active-policy.json
