@@ -254,11 +254,47 @@ const CloudTTS = (function () {
       loudness: modulation.loud / 100        // 0..2
     });
   }
-  function probe() {
+  /* Consecutive cloud-voice failures. ONE failure used to disable the Sarvam
+     voice permanently for the whole session — a cold start, a slow response or a
+     single 500 dropped the call to the robotic browser voice and it NEVER came
+     back, with nothing on screen to say why. That is the "the voice used to be
+     beautiful and now it sounds terrible" failure. */
+  let fails = 0;
+  const MAX_FAILS = 3;             // give up only after this many in a row
+  let reprobeTimer = null;
+
+  function probe(attempt) {
+    attempt = attempt || 0;
     return fetch("/api/tts").then(r => r.ok ? r.json() : { available: false })
-      .then(d => { available = !!(d && d.available); return available; })
-      .catch(() => { available = false; return false; });
+      .then(d => {
+        available = !!(d && d.available);
+        if (available) { fails = 0; }
+        else if (attempt < 2) { return delay(600 * (attempt + 1)).then(() => probe(attempt + 1)); }
+        return available;
+      })
+      .catch(() => {
+        /* A cold Vercel function can take seconds on the first hit. Retry with
+           backoff before writing the cloud voice off. */
+        if (attempt < 2) return delay(600 * (attempt + 1)).then(() => probe(attempt + 1));
+        available = false;
+        return false;
+      });
   }
+  function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  /* Self-heal: if the cloud voice is off, quietly re-probe. Quota resets, cold
+     starts end, transient 500s pass — the voice should come back on its own. */
+  function scheduleReprobe() {
+    if (reprobeTimer) return;
+    reprobeTimer = setInterval(() => {
+      if (available === true) return;
+      probe().then(ok => { if (ok) { fails = 0; onStateChange(true); } });
+    }, 20000);
+  }
+
+  /* Told about voice-quality changes so the UI can stop being mysterious. */
+  let onStateChange = function () {};
+  function setStateListener(fn) { onStateChange = fn || function () {}; }
   function isOn() { return available === true; }
   function stop() { if (audio) { try { audio.pause(); } catch (e) {} audio.onended = audio.onerror = null; audio = null; } }
   function play(src, opts, fallback) {
@@ -281,9 +317,20 @@ const CloudTTS = (function () {
         if (!d || !d.audio) throw new Error("no_audio");
         const src = "data:" + (d.mime || "audio/wav") + ";base64," + d.audio;
         cache[key] = src;
+        fails = 0;                 // a good line clears the streak
         play(src, opts, fallback);
       })
-      .catch(() => { available = false; fallback(); });   // degrade to browser voice
+      .catch(() => {
+        /* Degrade for THIS line only. Disabling the cloud voice outright on a
+           single failure is what made one blip ruin the rest of the call. */
+        fails++;
+        if (fails >= MAX_FAILS) {
+          available = false;
+          onStateChange(false);
+          scheduleReprobe();       // and keep trying to get it back
+        }
+        fallback();
+      });
   }
   /* fetch raw audio (used by the Voice Lab so it can analyse real frequencies) */
   function fetchAudio(text, lang, preset) {
@@ -303,7 +350,8 @@ const CloudTTS = (function () {
       .then(d => { if (d && d.audio) cache[key] = "data:" + (d.mime || "audio/wav") + ";base64," + d.audio; })
       .catch(() => {});
   }
-  return { probe, isOn, speak, stop, fetchAudio, prefetch };
+  return { probe, isOn, speak, stop, fetchAudio, prefetch, setStateListener, scheduleReprobe,
+           status: () => ({ available, fails }) };
 })();
 
 /* browser Web Speech path (fallback / no key) */
@@ -342,7 +390,32 @@ function speakText(text, lang, opts = {}) {
   }
   return browserSpeak(text, lang, preset, opts);
 }
-CloudTTS.probe();   // detect cloud voices once on load
+/* Detect cloud voices on load, and keep trying. A single failed probe used to
+   mean the robotic browser voice for the entire session, silently. */
+CloudTTS.probe().then(ok => {
+  if (!ok) CloudTTS.scheduleReprobe();
+  announceVoiceQuality(ok);
+});
+CloudTTS.setStateListener(announceVoiceQuality);
+
+/* Say out loud, in the UI, which voice is actually being used. "Why does it
+   sound bad" should never require reading the source. */
+function announceVoiceQuality(cloudOn) {
+  const chip = document.getElementById("call-voice");
+  if (chip) {
+    chip.classList.toggle("is-degraded", !cloudOn);
+    chip.title = cloudOn
+      ? "Premium Sarvam voice"
+      : "Basic browser voice — the premium voice is unavailable (check SARVAM_API_KEY / quota). Retrying automatically.";
+  }
+  const notice = document.getElementById("call-notice");
+  if (notice && !cloudOn) {
+    notice.textContent = "⚠ Using the basic browser voice — the premium voice service is unavailable. Retrying…";
+    notice.hidden = false;
+  } else if (notice && cloudOn && /basic browser voice/.test(notice.textContent || "")) {
+    notice.hidden = true;
+  }
+}
 
 let curLang = "en-IN"; // controlled by the language pills (sample); call demo runs in en-IN
 
