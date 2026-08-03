@@ -33,6 +33,9 @@ function timings(o = {}) {
     silenceMs: Number(o.silenceMs ?? process.env.ENDPOINT_SILENCE_MS ?? 900),
     maxUtteranceMs: Number(o.maxUtteranceMs ?? process.env.MAX_UTTERANCE_MS ?? 20000),
     minSpeechMs: Number(o.minSpeechMs ?? process.env.MIN_SPEECH_MS ?? 200),
+    // How much audio one frame represents, and therefore the pacing interval
+    // for outbound playback. Must match the framing in providers/speech.js.
+    frameMs: Number(o.frameMs ?? process.env.TTS_FRAME_MS ?? 20),
   };
 }
 
@@ -47,12 +50,15 @@ function timings(o = {}) {
  * @param {number} [deps.silenceMs]       endpointing threshold for this call
  * @param {number} [deps.maxUtteranceMs]  hard ceiling on one utterance
  * @param {number} [deps.minSpeechMs]     below this it is a cough, not a turn
+ * @param {number} [deps.frameMs]         playback pacing interval
+ * @param {function} [deps.sleep]         injectable delay, for deterministic tests
  */
 export function createMediaTransport({
   stt, tts, audioOut, lang = 'en-IN', now = () => Date.now(), log = () => {},
-  silenceMs, maxUtteranceMs, minSpeechMs,
+  silenceMs, maxUtteranceMs, minSpeechMs, frameMs,
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
 } = {}) {
-  const T = timings({ silenceMs, maxUtteranceMs, minSpeechMs });
+  const T = timings({ silenceMs, maxUtteranceMs, minSpeechMs, frameMs });
   /** @type {Array<Buffer>} */
   let buffer = [];
   let speechStartedAt = null;
@@ -143,10 +149,22 @@ export function createMediaTransport({
 
       if (me.cancelled) { speaking = null; return true; }
 
-      // Chunked so barge-in can stop mid-sentence rather than at the end of it.
-      for (const frame of audio.frames || [audio.audio]) {
+      // PACED playback. Writing every frame in one synchronous loop looks like
+      // streaming but is not: the whole utterance lands in the provider's
+      // jitter buffer in a single tick, so (a) barge-in can never interrupt
+      // mid-sentence because the loop has already finished, and (b) the callee
+      // keeps hearing us for as long as that buffer holds — precisely when
+      // someone is talking over us to opt out.
+      //
+      // Each frame represents `frameMs` of audio, so it is written at roughly
+      // that cadence. The first frame goes out immediately to keep
+      // time-to-first-audio low; the yield between frames is what gives
+      // pushAudio() a window to cancel.
+      const frames = audio.frames || [audio.audio];
+      for (let i = 0; i < frames.length; i++) {
         if (me.cancelled || closed) break;
-        audioOut(frame);
+        audioOut(frames[i]);
+        if (i < frames.length - 1) await sleep(T.frameMs);
       }
       speaking = null;
       return true;

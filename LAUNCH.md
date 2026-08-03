@@ -3,16 +3,17 @@
 An honest state-of-the-system. Written so nobody discovers a gap the week of launch.
 
 **Bottom line:** the software path from *a Facebook lead* to *a CRM note* is built
-and QA-tested end to end — 96 automated tests, including the compliance gate and
-the opt-out path. **It cannot legally place a real call yet**, and the remaining
-blockers are mostly not code: they are a telephony spike, a DND scrub contract,
-and DLT registration.
+and QA-tested end to end — 109 automated tests, including the compliance gate, the
+opt-out path, and a full call driven over a real WebSocket. **It cannot legally
+place a real call yet**, and every remaining blocker is now either a one-call
+verification spike or a business/legal prerequisite — not unwritten code.
 
 Run the suites yourself:
 
 ```bash
 node --experimental-detect-module scripts/test-integrations.mjs   # 46
 node --experimental-detect-module scripts/test-media.mjs          # 12
+node --experimental-detect-module scripts/test-media-server.mjs   # 13
 CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
   node --experimental-detect-module scripts/test-e2e.mjs          # 38
 ```
@@ -29,7 +30,8 @@ CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
 | Dial queue with signed jobs | `api/_lib/queue.js` | E2E §1, §4 |
 | **Caller agent — the turn loop** | `caller-agent/src/session.js` | E2E §1, §5, §6 |
 | **Opt-out detection, 3 languages + code-mixing** | `shared/optout.js` | E2E §2 (12 cases) |
-| Endpointing + barge-in | `caller-agent/src/media/transport.js` | media QA (12 cases) |
+| Endpointing + barge-in + paced playback | `caller-agent/src/media/transport.js` | media QA (12 cases) |
+| WebSocket media server (RFC 6455, hand-rolled) | `caller-agent/src/media/ws.js`, `media/server.js` | media-server QA (13 cases), incl. interop with Node's native WebSocket client |
 | Outcome → suppression → CRM writeback | `api/calls/outcome.js` | E2E §2, §5 |
 | CRM adapters (HubSpot, Zoho, webhook) | `api/_lib/integrations/crm/` | E2E via webhook |
 | Operator console | `web/console.html` | E2E §7 |
@@ -52,15 +54,17 @@ CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
 
 ## 🚫 Blocking a real launch
 
-### 1. The media server — the last piece of code
-`say()`/`listen()` are built and tested against a mock. What does not exist is the
-**WebSocket server that carries live telephony audio**: Plivo/Exotel stream audio
-to a socket you host and expect Plivo XML back. `MEDIA_SERVER_URL` is where it
-plugs in, and both adapters **refuse to dial without it** rather than placing a
-call they cannot speak on.
+### 1. The provider wire format is unverified
+**The media server now exists** — RFC 6455 handshake and framing (verified against
+Node's native WebSocket client), the `/answer` XML endpoint, per-provider codecs,
+and a full call driven over a real socket in CI: disclosure → qualification →
+opt-out, with barge-in sending the provider a clear-audio command.
 
-Estimate: this is the largest remaining engineering item. Everything it plugs into
-is done.
+What is unverified is the **codec layer** — the JSON envelopes Plivo and Exotel
+actually send (`event: "media"`, base64 payload shapes, sample-rate negotiation).
+Those follow the published docs but have never seen a live provider socket. It is
+the cheapest thing in this document to fix: one real call tells you, and it is one
+file (`media/server.js`, `codecs`).
 
 ### 2. Telephony adapters are unverified against live accounts
 `plivo.js` and `exotel.js` are written to the documented APIs and have **never run

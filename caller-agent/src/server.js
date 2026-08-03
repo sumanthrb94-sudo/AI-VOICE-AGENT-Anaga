@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { runCall } from './session.js';
 import { createBrain } from './brain.js';
 import { createTelephony, telephonyProvider, assertRealProvider } from './providers/telephony/index.js';
+import { createMediaServer } from './media/server.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PERSONA_PATH = process.env.AGENT_PERSONA_PATH
@@ -224,6 +225,41 @@ export function createServer() {
   });
 }
 
+/**
+ * Bind the media server. Real telephony hands us the audio leg over a
+ * WebSocket, so the job endpoint and the media socket are two ports of the
+ * same service: /jobs authorizes the dial, the provider then connects here and
+ * THAT is where the conversation actually runs.
+ */
+export function startMediaServer(port = Number(process.env.MEDIA_PORT || 8081)) {
+  const persona = loadPersona();
+
+  const media = createMediaServer({
+    provider: telephonyProvider(),
+    log,
+    async onCall({ media: transport, callId }) {
+      // The media transport IS the telephony adapter once a call is up.
+      const telephony = {
+        async dial() { return { answered: true, reason: null, callId }; },
+        say: (t) => transport.say(t),
+        listen: () => transport.listen(),
+        async hangup(reason) { transport.close(reason); return { ended: reason }; },
+      };
+
+      const job = pendingJobs.get(callId) || { callId, lead: {}, agent: {} };
+      pendingJobs.delete(callId);
+
+      return runCall({ job, telephony, brain: createBrain({ log }), persona, log });
+    },
+  });
+
+  media.listen(port, () => log('media_listening', { port, provider: telephonyProvider() }));
+  return media;
+}
+
+// Jobs authorized by /jobs, awaiting the provider's media socket to connect.
+export const pendingJobs = new Map();
+
 // Start only when run directly, so tests can import without binding a port.
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const real = assertRealProvider();
@@ -239,4 +275,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     process.exit(1);
   }
   createServer().listen(PORT, () => log('listening', { port: PORT }));
+
+  // The mock provider drives the conversation in-process and needs no socket.
+  if (telephonyProvider() !== 'mock') startMediaServer();
 }

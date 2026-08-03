@@ -46,6 +46,9 @@ jobs:
       - name: Media leg QA (endpointing, barge-in, framing)
         run: node --experimental-detect-module scripts/test-media.mjs
 
+      - name: Media server QA (RFC 6455 + full call over a provider socket)
+        run: node --experimental-detect-module scripts/test-media-server.mjs
+
       - name: End-to-end QA (Meta lead → call → CRM writeback)
         run: node --experimental-detect-module scripts/test-e2e.mjs
 
