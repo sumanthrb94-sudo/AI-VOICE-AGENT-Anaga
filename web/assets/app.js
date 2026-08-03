@@ -142,33 +142,66 @@ document.addEventListener("keydown", e => {
 if (location.hash === "#playbook") openPlaybook();
 
 /* ===================================================================
-   VOICE — shared female-voice synthesis (Web Speech API), used by both
-   the "Hear Anaga" sample and the live Call demo. No keys, no backend.
-   Sample lines mirror caller-agent/flows/anaga.persona.json.
+   VOICE — shared voice synthesis, used by both the "Hear Anaga" sample
+   and the live Call demo. Sample lines mirror the versioned disclosure in
+   caller-agent/flows/anaga.persona.json — they are NEVER machine-translated,
+   because this sentence is what makes the call legal.
    =================================================================== */
-const ANAGA_LINES = {
-  "en-IN": "Hi, I'm Anaga, an AI voice assistant from Vaak. Is now a good time to talk for a couple of minutes?",
-  "hi-IN": "नमस्ते, मैं अनघा हूँ, वाक की एक ए आई वॉइस असिस्टेंट। क्या मैं आपसे दो मिनट बात कर सकती हूँ?",
-  "te-IN": "నమస్కారం, నేను అనగా, వాక్ నుండి ఒక ఏఐ వాయిస్ అసిస్టెంట్. మీకు కొన్ని నిమిషాలు ఉంటే మాట్లాడొచ్చా?"
+
+/* Hindi marks the speaker's gender on the verb, so one greeting cannot serve
+   both voices: a male voice saying "बात कर सकती हूँ" is the feminine form and
+   lands as broken Hindi to every listener. English has no such agreement here,
+   and the Telugu line uses "మాట్లాడొచ్చా", which is gender-neutral — so only
+   Hindi needs a second version. */
+const ANAGA_LINES_BY_GENDER = {
+  female: {
+    "en-IN": "Hi, I'm Anaga, an AI voice assistant from Vaak. Is now a good time to talk for a couple of minutes?",
+    "hi-IN": "नमस्ते, मैं अनघा हूँ, वाक की एक ए आई वॉइस असिस्टेंट। क्या मैं आपसे दो मिनट बात कर सकती हूँ?",
+    "te-IN": "నమస్కారం, నేను అనగా, వాక్ నుండి ఒక ఏఐ వాయిస్ అసిస్టెంట్. మీకు కొన్ని నిమిషాలు ఉంటే మాట్లాడొచ్చా?"
+  },
+  male: {
+    "en-IN": "Hi, I'm Anaga, an AI voice assistant from Vaak. Is now a good time to talk for a couple of minutes?",
+    "hi-IN": "नमस्ते, मैं अनघा हूँ, वाक का एक ए आई वॉइस असिस्टेंट। क्या मैं आपसे दो मिनट बात कर सकता हूँ?",
+    "te-IN": "నమస్కారం, నేను అనగా, వాక్ నుండి ఒక ఏఐ వాయిస్ అసిస్టెంట్. మీకు కొన్ని నిమిషాలు ఉంటే మాట్లాడొచ్చా?"
+  }
 };
+function anagaLine(lang, gender) {
+  const set = ANAGA_LINES_BY_GENDER[gender === "male" ? "male" : "female"];
+  return set[lang] || set["en-IN"];
+}
+/* kept for callers that predate the gendered split */
+const ANAGA_LINES = ANAGA_LINES_BY_GENDER.female;
 const FEMALE_HINTS = [
   "female", "samantha", "victoria", "karen", "moira", "tessa", "fiona", "veena",
   "zira", "susan", "linda", "heera", "kalpana", "swara", "aditi", "raveena",
   "google हिन्दी", "google తెలుగు", "google uk english female", "google us english"
 ];
+const MALE_HINTS = [
+  "male", "daniel", "alex", "fred", "rishi", "gordon", "oliver", "thomas",
+  "david", "mark", "george", "ravi", "hemant", "prabhat", "madhur", "arjun",
+  "google uk english male"
+];
 
-/* ---- 3 selectable voices for Anaga ----
+/* ---- selectable voices for Anaga ----
    `idx` binds each preset to a DIFFERENT installed voice (when the device has
    several). Strong, well-separated pitch/rate make them clearly distinct even
    when the device only exposes one TTS voice — the common reason "all three
-   sound the same". `hints` is only a soft preference. */
+   sound the same". `hints` is only a soft preference.
+
+   `gender` is a REQUEST, not a guarantee. Only Google Cloud Text-to-Speech can
+   actually speak as a man; the free Google Translate voice has exactly one
+   voice per language and Sarvam's configured speakers are all female. The
+   server returns which gender it really served and the UI says so, rather than
+   labelling a woman's voice "Arjun" and hoping nobody notices. */
 const VOICES = [
-  { id: "aria",  name: "Aria",  style: "Warm & bright",  idx: 0, pitch: 1.15, rate: 1.0,  sarvam: "anushka",
+  { id: "aria",  name: "Aria",  style: "Warm & bright",  idx: 0, pitch: 1.15, rate: 1.0,  gender: "female", sarvam: "anushka",
     hints: ["samantha", "aria", "veena", "heera", "google us english", "zira"] },
-  { id: "kiara", name: "Kiara", style: "Low & crisp",    idx: 1, pitch: 0.8,  rate: 1.12, sarvam: "manisha",
+  { id: "kiara", name: "Kiara", style: "Low & crisp",    idx: 1, pitch: 0.8,  rate: 1.12, gender: "female", sarvam: "manisha",
     hints: ["google uk english female", "kalpana", "tessa", "catherine", "serena", "fiona"] },
-  { id: "meher", name: "Meher", style: "High & gentle",  idx: 2, pitch: 1.5,  rate: 0.85, sarvam: "vidya",
-    hints: ["victoria", "swara", "raveena", "moira", "karen", "nicky"] }
+  { id: "meher", name: "Meher", style: "High & gentle",  idx: 2, pitch: 1.5,  rate: 0.85, gender: "female", sarvam: "vidya",
+    hints: ["victoria", "swara", "raveena", "moira", "karen", "nicky"] },
+  { id: "arjun", name: "Arjun", style: "Male · steady",  idx: 3, pitch: 0.75, rate: 0.98, gender: "male",   sarvam: null,
+    hints: MALE_HINTS }
 ];
 let selectedVoiceId = (function () {
   try { return localStorage.getItem("vaak_voice") || "aria"; } catch (e) { return "aria"; }
@@ -202,16 +235,20 @@ let voices = [];
 function loadVoices() { voices = (synth && synth.getVoices()) || []; }
 if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
 
-/* a de-duplicated, quality-ranked list of voices for a language base */
-function rankedVoices(base) {
+/* a de-duplicated, quality-ranked list of voices for a language base.
+   `want` is "female" (default) or "male": the device voice list is the ONLY
+   fallback that can honour a male request without a cloud provider, so the
+   ranking has to respect it rather than always reaching for a female voice. */
+function rankedVoices(base, want) {
   if (!voices.length) loadVoices();
-  const female = v => FEMALE_HINTS.some(h => v.name.toLowerCase().includes(h));
+  const hints = String(want).toLowerCase() === "male" ? MALE_HINTS : FEMALE_HINTS;
+  const wanted = v => hints.some(h => v.name.toLowerCase().includes(h));
   const lang = v => v.lang && v.lang.toLowerCase().replace("_", "-").startsWith(base);
   const en   = v => v.lang && v.lang.toLowerCase().startsWith("en");
   const buckets = [
-    voices.filter(v => lang(v) && female(v)),
-    voices.filter(v => lang(v) && !female(v)),
-    voices.filter(v => !lang(v) && en(v) && female(v)),
+    voices.filter(v => lang(v) && wanted(v)),
+    voices.filter(v => lang(v) && !wanted(v)),
+    voices.filter(v => !lang(v) && en(v) && wanted(v)),
     voices.filter(v => !lang(v) && en(v)),
     voices.slice()
   ];
@@ -226,7 +263,7 @@ function rankedVoices(base) {
 /* bind a preset to a concrete, DISTINCT installed voice (by index) */
 function resolveVoiceForPreset(preset, lang) {
   const base = (lang || "en-IN").split("-")[0].toLowerCase();
-  const ranked = rankedVoices(base);
+  const ranked = rankedVoices(base, preset.gender);
   if (!ranked.length) return null;
   const byHint = ranked.find(v => preset.hints.some(h => v.name.toLowerCase().includes(h)));
   /* distinctness first: give each preset a different voice when possible,
@@ -238,21 +275,31 @@ function voiceLabel(v) {
   return v ? v.name.replace(/^(Google|Microsoft)\s+/i, "").replace(/\s*\(.*\)$/, "") : "default";
 }
 
-/* ---- Cloud TTS (Sarvam Bulbul) — real, distinct, lifelike voices via /api/tts.
-   Server holds the key; we fetch base64 audio and play it. Falls back to the
-   browser voice when the endpoint/key isn't available. ---- */
+/* ---- Cloud TTS — real, distinct, lifelike voices via /api/tts.
+   The server picks the provider (Google Cloud TTS → the Google Translate voice
+   → Sarvam) and tells us which one actually spoke; we never name a vendor from
+   here. Server holds every key; we fetch base64 audio and play it. Falls back
+   to the on-device browser voice only when the whole chain fails. ---- */
 const CloudTTS = (function () {
   let available = null;            // null=unknown, true, false
+  let maleCapable = null;          // whether ANY provider in the chain can speak as a man
+  let served = null;               // { provider, voice, gender } from the last good line
   let audio = null;
   const cache = {};                // key -> dataURL (repeat lines, e.g. greeting)
   const modKey = () => modulation.pitch + "," + modulation.pace + "," + modulation.loud;
-  function reqBody(text, lang, speaker) {
+  function reqBody(text, lang, preset) {
     return JSON.stringify({
-      text, lang: lang || "en-IN", speaker,
+      text, lang: lang || "en-IN",
+      speaker: (preset && preset.sarvam) || "anushka",
+      gender: (preset && preset.gender) || "female",
       pitch: modulation.pitch / 100,        // ±0.5 offset
       pace: 1 + modulation.pace / 100,       // 0.5..1.5
       loudness: modulation.loud / 100        // 0..2
     });
+  }
+  function cacheKey(text, lang, preset) {
+    return ((preset && preset.id) || "aria") + "|" + ((preset && preset.gender) || "female") +
+      "|" + (lang || "en-IN") + "|" + modKey() + "|" + text;
   }
   /* Consecutive cloud-voice failures. ONE failure used to disable the Sarvam
      voice permanently for the whole session — a cold start, a slow response or a
@@ -268,6 +315,7 @@ const CloudTTS = (function () {
     return fetch("/api/tts").then(r => r.ok ? r.json() : { available: false })
       .then(d => {
         available = !!(d && d.available);
+        maleCapable = d ? !!d.maleCapable : null;
         if (available) { fails = 0; }
         else if (attempt < 2) { return delay(600 * (attempt + 1)).then(() => probe(attempt + 1)); }
         return available;
@@ -308,16 +356,21 @@ const CloudTTS = (function () {
     audio.play().catch(() => { if (!done) { done = true; fallback(); } });
   }
   function speak(text, lang, preset, opts, fallback) {
-    const speaker = preset.sarvam || "anushka";
-    const key = speaker + "|" + (lang || "en-IN") + "|" + modKey() + "|" + text;
+    const key = cacheKey(text, lang, preset);
     if (cache[key]) return play(cache[key], opts, fallback);
-    fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker) })
+    fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, preset) })
       .then(r => { if (!r.ok) throw new Error("tts_" + r.status); return r.json(); })
       .then(d => {
         if (!d || !d.audio) throw new Error("no_audio");
         const src = "data:" + (d.mime || "audio/wav") + ";base64," + d.audio;
         cache[key] = src;
         fails = 0;                 // a good line clears the streak
+        /* What actually spoke, not what we asked for. When a male preset is
+           served by a provider that has no male voice, the UI needs to be able
+           to say so instead of quietly presenting a woman as "Arjun". */
+        const before = served && served.provider;
+        served = { provider: d.provider || "cloud", voice: d.voice || "", gender: d.gender || "female" };
+        if (served.provider !== before) onStateChange(true);
         play(src, opts, fallback);
       })
       .catch(() => {
@@ -334,25 +387,32 @@ const CloudTTS = (function () {
   }
   /* fetch raw audio (used by the Voice Lab so it can analyse real frequencies) */
   function fetchAudio(text, lang, preset) {
-    const speaker = preset.sarvam || "anushka";
-    return fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker) })
+    return fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, preset) })
       .then(r => { if (!r.ok) throw new Error("tts_" + r.status); return r.json(); });
   }
   /* warm the cache for the NEXT sentence while the current one plays — keeps
      sentence-chunked delivery gap-free (and lowers time-to-first-audio). */
   function prefetch(text, lang, preset) {
     if (available !== true || !text) return;
-    const speaker = (preset && preset.sarvam) || "anushka";
-    const key = speaker + "|" + (lang || "en-IN") + "|" + modKey() + "|" + text;
+    const key = cacheKey(text, lang, preset);
     if (cache[key]) return;
-    fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, speaker) })
+    fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: reqBody(text, lang, preset) })
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d && d.audio) cache[key] = "data:" + (d.mime || "audio/wav") + ";base64," + d.audio; })
       .catch(() => {});
   }
   return { probe, isOn, speak, stop, fetchAudio, prefetch, setStateListener, scheduleReprobe,
-           status: () => ({ available, fails }) };
+           served: () => served, canSpeakMale: () => maleCapable,
+           status: () => ({ available, fails, served, maleCapable }) };
 })();
+/* `const` at the top level of a classic script does NOT become a property of
+   window — only `var` and function declarations do. Every `window.CloudTTS &&
+   CloudTTS.x()` guard in this file was therefore permanently false, which
+   silently disabled the next-sentence prefetch (the thing that keeps chunked
+   delivery gap-free) and left the call chip unable to name the provider. The
+   direct `CloudTTS.isOn()` calls worked, which is exactly why it went unnoticed:
+   the voice played, only the things behind a window-guard were dead. */
+window.CloudTTS = CloudTTS;
 
 /* browser Web Speech path (fallback / no key) */
 function browserSpeak(text, lang, preset, opts) {
@@ -398,15 +458,26 @@ CloudTTS.probe().then(ok => {
 });
 CloudTTS.setStateListener(announceVoiceQuality);
 
+/* Human names for the providers. Nothing above _lib/tts.js chooses one — this
+   map exists only so the UI can say who is speaking. */
+const PROVIDER_LABEL = {
+  google: "Google Cloud",
+  gtranslate: "Google Translate",
+  sarvam: "Sarvam Bulbul",
+  cloud: "cloud voice"
+};
+function providerLabel(p) { return PROVIDER_LABEL[p] || p || "cloud voice"; }
+
 /* Say out loud, in the UI, which voice is actually being used. "Why does it
    sound bad" should never require reading the source. */
 function announceVoiceQuality(cloudOn) {
+  const served = window.CloudTTS && CloudTTS.served && CloudTTS.served();
   const chip = document.getElementById("call-voice");
   if (chip) {
     chip.classList.toggle("is-degraded", !cloudOn);
     chip.title = cloudOn
-      ? "Premium Sarvam voice"
-      : "Basic browser voice — the premium voice is unavailable (check SARVAM_API_KEY / quota). Retrying automatically.";
+      ? (served ? providerLabel(served.provider) + " voice" + (served.voice ? " (" + served.voice + ")" : "") : "Cloud voice")
+      : "Basic browser voice — every cloud provider failed. Retrying automatically.";
   }
   const notice = document.getElementById("call-notice");
   if (notice && !cloudOn) {
@@ -453,9 +524,10 @@ if (demoEl) {
   };
   const play = () => {
     const hl = (curLang === "auto") ? "en-IN" : curLang;   // sample needs a concrete language
-    const v = speakText(ANAGA_LINES[hl] || ANAGA_LINES["en-IN"], hl, { onend: () => setSpeaking(false) });
+    const want = currentVoice().gender || "female";
+    const v = speakText(anagaLine(hl, want), hl, { onend: () => setSpeaking(false) });
     setSpeaking(true);
-    if (v) voiceNote.textContent = `Voice: ${v.name}${/female/i.test(v.name) ? "" : " (best female match on your system)"}.`;
+    if (v) voiceNote.textContent = `Voice: ${v.name}${new RegExp(want, "i").test(v.name) ? "" : ` (best ${want} match on your system)`}.`;
     else   voiceNote.textContent = "No regional voice installed — using your default voice.";
   };
   hearBtn.addEventListener("click", () => {
@@ -465,7 +537,7 @@ if (demoEl) {
   window.addEventListener("beforeunload", () => synth.cancel());
 })();
 
-/* ---------------- voice picker (3 selectable AI voices) ---------------- */
+/* ---------------- voice picker (selectable AI voices) ---------------- */
 (function voicePicker() {
   const picker = document.getElementById("voice-picker");
   if (!picker) return;
@@ -482,20 +554,35 @@ if (demoEl) {
       const m = map.find(x => x.p.id === c.dataset.voice);
       if (m) c.title = m.v ? "Uses your device voice: " + voiceLabel(m.v) : "Uses your device's default voice";
     });
+    /* Whether the male preset can actually be served. Only Google Cloud TTS has
+       a male voice; the card stays selectable but stops pretending. */
+    const male = cards.find(c => c.dataset.voice === "arjun");
+    const maleOk = CloudTTS.canSpeakMale ? CloudTTS.canSpeakMale() : null;
+    if (male) {
+      male.classList.toggle("is-unavailable", maleOk === false);
+      if (maleOk === false) {
+        male.title = "A male voice needs Google Cloud Text-to-Speech. Enable the " +
+          "Text-to-Speech API on your Google project and it appears here — no redeploy.";
+      }
+    }
+
     if (!note) return;
-    /* cloud voices (Sarvam Bulbul) — real, distinct, lifelike */
     if (CloudTTS.isOn()) {
-      const sp = VOICES.map(p => p.sarvam);
-      note.innerHTML = "🟢 <b>Sarvam Bulbul</b> cloud voices — Aria: " + sp[0] +
-        " · Kiara: " + sp[1] + " · Meher: " + sp[2] + " (distinct &amp; lifelike).";
+      const served = CloudTTS.served && CloudTTS.served();
+      const who = served ? providerLabel(served.provider) : "Cloud";
+      let msg = "🟢 <b>" + who + "</b> voices" + (served && served.voice ? " — now speaking: " + served.voice : "") + ".";
+      if (maleOk === false) {
+        msg += " Arjun (male) needs Google Cloud Text-to-Speech enabled — the other providers have no male voice.";
+      }
+      note.innerHTML = msg;
       return;
     }
     const names = map.map(m => voiceLabel(m.v));
     const distinct = new Set(names.map(n => n.toLowerCase())).size;
     if (!voices.length) { note.textContent = ""; return; }
     note.textContent = distinct >= 2
-      ? "On your device → Aria: " + names[0] + " · Kiara: " + names[1] + " · Meher: " + names[2]
-      : "Your device exposes one TTS voice (" + names[0] + "), so the three differ by pitch & pace. For 3 distinct natural voices, connect Sarvam (set SARVAM_API_KEY).";
+      ? "On your device → " + VOICES.map((p, i) => p.name + ": " + names[i]).join(" · ")
+      : "Your device exposes one TTS voice (" + names[0] + "), so these differ only by pitch & pace. Connect a cloud provider for genuinely distinct voices.";
   }
 
   refresh();
@@ -534,14 +621,24 @@ if (demoEl) {
   const endBtn     = document.getElementById("call-end");
   const voiceChip  = document.getElementById("call-voice");
 
-  /* show which voice is talking (and the Sarvam speaker when cloud is on);
-     tap to cycle through the 3 voices mid-call (applies from the next line). */
+  /* show which voice is talking (and who is synthesizing it when cloud is on);
+     tap to cycle through the voices mid-call (applies from the next line). */
   function updateCallVoice() {
     if (!voiceChip) return;
     const p = currentVoice();
     const cloud = window.CloudTTS && CloudTTS.isOn();
-    voiceChip.textContent = "🎙 " + p.name + (cloud ? " · " + p.sarvam : "");
-    voiceChip.title = "Voice: " + p.name + (cloud ? " (Sarvam " + p.sarvam + ")" : "") + " — tap to change";
+    const served = cloud && CloudTTS.served && CloudTTS.served();
+    /* A male preset served by a provider with no male voice must SAY so. The
+       alternative is a chip reading "Arjun" over a woman's voice, which reads
+       as the app being broken rather than the provider being unconfigured. */
+    const mismatch = served && p.gender && served.gender && served.gender !== p.gender;
+    voiceChip.textContent = "🎙 " + p.name + (mismatch ? " ⚠" : "") +
+      (served ? " · " + providerLabel(served.provider) : "");
+    voiceChip.title = "Voice: " + p.name +
+      (served ? " — synthesized by " + providerLabel(served.provider) + (served.voice ? " (" + served.voice + ")" : "") : "") +
+      (mismatch ? ". This provider has no " + p.gender + " voice, so you are hearing a " + served.gender +
+        " one — enable Google Cloud Text-to-Speech for the " + p.gender + " voice." : "") +
+      " — tap to change";
   }
   if (voiceChip) voiceChip.addEventListener("click", () => {
     const ids = VOICES.map(v => v.id);
@@ -927,6 +1024,11 @@ if (demoEl) {
       if (window.CloudTTS && CloudTTS.isOn() && chunks[i]) CloudTTS.prefetch(chunks[i], lang, opts.voice || currentVoice());
       speakText(piece, lang, {
         voice: opts.voice,
+        /* Refresh the chip once audio actually starts. Which provider served
+           the line — and whether it could honour a male request — is not known
+           until the response lands, so a chip drawn before the first line has
+           nothing to report. */
+        onstart: () => updateCallVoice(),
         onend: () => { if (myToken === speakToken) speakNext(); }
       });
     };
@@ -1341,7 +1443,7 @@ if (demoEl) {
         if (window.TranslateKit && TranslateKit.available() && TranslateKit.hasDetector()) {
           addBubble("anaga", "🌐 Auto language is on — reply in English, हिंदी, or తెలుగు and I'll match you.");
         } else {
-          showNotice("🌐 Auto-detect needs Chrome 138+ (or Edge) — running in English. You can still type.");
+          showNotice("🌐 Language auto-detect is unavailable right now — running in English. You can still type.");
         }
         setTimeout(begin, 450);
         return;
@@ -1349,23 +1451,28 @@ if (demoEl) {
 
       if (callBase === "en") { setTimeout(begin, 450); return; }
 
-      /* non-English: prepare Chrome's on-device translator (the two passes) */
+      /* non-English: prepare translation for the two passes around the brain.
+         On-device (Chrome 138+) when present, otherwise Google server-side —
+         so this no longer dead-ends on Safari, Firefox, or an older Chrome. */
       const reqLabel = langLabel(callBase);
       if (!window.TranslateKit || !TranslateKit.available()) {
         callLang = "en-IN"; callBase = "en"; if (recog) recog.lang = "en-IN";
-        showNotice("🌐 On-device translation needs Chrome 138+ (or Edge) — running this call in English. You can still type.");
+        showNotice("🌐 Translation is unavailable right now — running this call in English. You can still type.");
         setTimeout(begin, 350);
         return;
       }
-      setStatus("Preparing " + reqLabel + " on your device…", null);
+      setStatus("Preparing " + reqLabel + "…", null);
       TranslateKit.prep(callBase).then(ok => {
         if (!active) return;
         translateOn = ok;
         if (ok) {
-          addBubble("anaga", "🌐 We'll talk in " + reqLabel + " — translated on your device, no API.");
+          const via = TranslateKit.mode && TranslateKit.mode() === "on-device"
+            ? "translated on your device, no API"
+            : "translated by Google";
+          addBubble("anaga", "🌐 We'll talk in " + reqLabel + " — " + via + ".");
         } else {
           callLang = "en-IN"; callBase = "en"; if (recog) recog.lang = "en-IN";
-          showNotice("🌐 The on-device " + reqLabel + " model isn't available here — running in English. You can still type.");
+          showNotice("🌐 " + reqLabel + " translation isn't reachable right now — running in English. You can still type.");
         }
         setTimeout(begin, 350);
       }).catch(() => { translateOn = false; callBase = "en"; callLang = "en-IN"; if (recog) recog.lang = "en-IN"; setTimeout(begin, 350); });
@@ -1793,9 +1900,11 @@ openBtn.addEventListener("click", () => { if (synth) synth.cancel(); CloudTTS.st
     const { lang, text } = previewLine();
     const preset = currentVoice();
     if (window.CloudTTS && CloudTTS.isOn() && ensureCtx()) {
-      setNote("Synthesizing with Sarvam " + preset.sarvam + "…");
+      setNote("Synthesizing " + preset.name + "…");
+      let servedBy = null;
       CloudTTS.fetchAudio(text, lang, preset).then(d => {
         if (!d || !d.audio) throw new Error("no audio");
+        servedBy = d;
         ctx.resume && ctx.resume();
         return ctx.decodeAudioData(b64ToBuf(d.audio));
       }).then(buf => {
@@ -1807,8 +1916,9 @@ openBtn.addEventListener("click", () => { if (synth) synth.cancel(); CloudTTS.st
         bufSrc.onended = () => { mode = "idle"; };
         bufSrc.start();
         mode = "buffer";
-        setNote("🟢 Sarvam " + preset.name + " (" + preset.sarvam + ") — real frequencies.");
-      }).catch(() => { setNote("Couldn't reach Sarvam — using the browser voice."); browserPreview(text, lang, preset); });
+        const via = servedBy ? providerLabel(servedBy.provider) + (servedBy.voice ? " · " + servedBy.voice : "") : "cloud";
+        setNote("🟢 " + preset.name + " — " + via + ", real frequencies.");
+      }).catch(() => { setNote("No cloud provider reachable — using the browser voice."); browserPreview(text, lang, preset); });
     } else {
       browserPreview(text, lang, preset);
     }

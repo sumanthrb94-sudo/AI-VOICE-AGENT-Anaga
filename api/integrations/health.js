@@ -11,7 +11,9 @@ import { metaStatus } from '../_lib/integrations/meta.js';
 import { crmStatus } from '../_lib/integrations/crm.js';
 import { complianceStatus } from '../_lib/compliance.js';
 import { queueStatus } from '../_lib/queue.js';
-import { ttsAvailable } from '../_lib/tts.js';
+import { ttsStatus } from '../_lib/tts.js';
+import { translateMode } from '../_lib/translate.js';
+import { googleAuthMode } from '../_lib/google.js';
 import { storeStatus } from '../_lib/store.js';
 
 export default async function handler(req, res) {
@@ -51,7 +53,8 @@ export default async function handler(req, res) {
       production: blockers.length === 0,
     },
     brain,
-    tts: { provider: (process.env.TTS_PROVIDER || 'sarvam').toLowerCase(), configured: ttsAvailable() },
+    tts: ttsStatus(),
+    translate: { mode: translateMode(), auth: googleAuthMode() },
     store,
     meta,
     crm,

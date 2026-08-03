@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/styles.css?v=12" />
+  <link rel="stylesheet" href="assets/styles.css?v=13" />
 </head>
 <body>
   <!-- ambient background -->
@@ -49,7 +49,9 @@
       <span class="agent-chip__live"><i class="dot"></i> on a call</span>
     </div>
 
-    <!-- Pick Anaga's AI voice (3 selectable voices) -->
+    <!-- Pick Anaga's AI voice. Arjun is male and only Google Cloud
+         Text-to-Speech can serve it; the card reports that itself when the
+         API is off rather than quietly playing a female voice. -->
     <div class="voice-picker" id="voice-picker" role="group" aria-label="Choose Anaga's voice">
       <span class="voice-picker__label">AI voice</span>
       <div class="voice-picker__cards">
@@ -68,6 +70,11 @@
           <span class="voice-card__txt"><b>Meher</b><em>High &amp; gentle</em></span>
           <span class="voice-card__play" aria-hidden="true">▶</span>
         </button>
+        <button class="voice-card" data-voice="arjun" type="button">
+          <span class="voice-card__wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span class="voice-card__txt"><b>Arjun</b><em>Male &middot; steady</em></span>
+          <span class="voice-card__play" aria-hidden="true">▶</span>
+        </button>
       </div>
       <p class="voice-picker__note" id="voice-resolved"></p>
     </div>
@@ -84,7 +91,7 @@
         <span class="btn--hear__ico" aria-hidden="true">▶</span>
         <span class="btn--hear__label">Hear Anaga</span>
       </button>
-      <p class="voice-demo__note" id="voice-note">Plays her opening line using a female voice from your browser/OS.</p>
+      <p class="voice-demo__note" id="voice-note">Plays the opening line in the voice selected above.</p>
     </div>
 
     <!-- Live two-way call demo: your mic → Anaga listens & responds -->
@@ -94,7 +101,7 @@
         <span class="btn--call__ico" aria-hidden="true">📞</span>
         <span class="btn--call__label">Talk to Anaga — live call demo</span>
       </button>
-      <p class="call-cta__hint">🗣️ The mic closes while she speaks, so she can't hear herself — <b>tap the mic to interrupt her</b> any time. Natural pauses won't cut you off. 🎧 On earphones you can enable full-duplex (always-on mic) from the console. 🌐 Auto-detects your language (on-device AI, Chrome 138+) — or pick one above · you can also type.</p>
+      <p class="call-cta__hint">🗣️ The mic closes while she speaks, so she can't hear herself — <b>tap the mic to interrupt her</b> any time. Natural pauses won't cut you off. 🎧 On earphones you can enable full-duplex (always-on mic) from the console. 🌐 Auto-detects your language — on-device in Chrome 138+, otherwise via Google — or pick one above · you can also type.</p>
     </div>
 
     <h1 class="hero__title">
@@ -291,9 +298,9 @@
     </div>
   </div>
 
-  <script src="assets/translate.js?v=12"></script>
-  <script src="assets/llm-client.js?v=12"></script>
-  <script src="assets/playbook-data.js?v=12"></script>
-  <script src="assets/app.js?v=12"></script>
+  <script src="assets/translate.js?v=13"></script>
+  <script src="assets/llm-client.js?v=13"></script>
+  <script src="assets/playbook-data.js?v=13"></script>
+  <script src="assets/app.js?v=13"></script>
 </body>
 </html>

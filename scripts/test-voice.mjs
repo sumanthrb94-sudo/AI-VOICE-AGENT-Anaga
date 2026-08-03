@@ -1,0 +1,424 @@
+// scripts/test-voice.mjs
+//
+// QA for the voice + translation providers.
+//
+// ── WHAT THIS PROVES ──────────────────────────────────────────────────────
+// Provider selection, the fallback chain, the honesty rules (a provider that
+// cannot speak as a man must not claim it did), language normalisation, the
+// chunker, and that translation fails SOFT — a translation outage returns the
+// original text rather than silence.
+//
+// ── WHAT IT DOES NOT PROVE ────────────────────────────────────────────────
+// That any provider is reachable. Every network call here is stubbed, so this
+// runs in CI with no keys and no egress. Whether Google Cloud TTS is enabled on
+// a given project is a deploy question, answered by GET /api/integrations/health.
+//
+// Run: node --experimental-detect-module scripts/test-voice.mjs
+
+import assert from 'node:assert';
+
+let pass = 0, fail = 0;
+const failures = [];
+async function t(name, fn) {
+  try { await fn(); pass++; console.log('  ✓', name); }
+  catch (e) { fail++; failures.push(`${name}: ${e.message}`); console.log('  ✗', name, '\n     ', e.message); }
+}
+function section(s) { console.log('\n' + s); }
+
+// ---------------------------------------------------------------------------
+// fetch stub
+// ---------------------------------------------------------------------------
+const realFetch = globalThis.fetch;
+let routes = [];
+let calls = [];
+globalThis.fetch = async (url, init = {}) => {
+  const u = String(url);
+  calls.push({ url: u, init });
+  for (const r of routes) if (r.match.test(u)) return r.reply(u, init);
+  throw new Error('unstubbed fetch: ' + u);
+};
+const json = (body, status = 200) => ({
+  ok: status >= 200 && status < 300, status,
+  json: async () => body, text: async () => JSON.stringify(body),
+  arrayBuffer: async () => new ArrayBuffer(0), headers: new Map(),
+});
+const bin = (bytes, status = 200) => ({
+  ok: status >= 200 && status < 300, status,
+  json: async () => ({}), text: async () => '',
+  arrayBuffer: async () => new Uint8Array(bytes).buffer, headers: new Map(),
+});
+function reset() { routes = []; calls = []; }
+
+// Modules read env at call time, so each test can set its own world.
+const ENV_KEYS = ['TTS_PROVIDER', 'SARVAM_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_SERVICE_ACCOUNT',
+  'FIREBASE_SERVICE_ACCOUNT', 'TRANSLATE_PROVIDER'];
+function clearEnv() { for (const k of ENV_KEYS) delete process.env[k]; }
+clearEnv();
+
+const tts = await import('../api/_lib/tts.js');
+const tr = await import('../api/_lib/translate.js');
+
+// ===========================================================================
+section('§1 language helpers');
+// ===========================================================================
+
+await t('normalizeLang fills in the Indian region for bare tags', () => {
+  assert.equal(tts.normalizeLang('hi'), 'hi-IN');
+  assert.equal(tts.normalizeLang('te'), 'te-IN');
+  assert.equal(tts.normalizeLang('en'), 'en-IN');
+});
+
+await t('normalizeLang preserves an explicit region and fixes its case', () => {
+  assert.equal(tts.normalizeLang('en-us'), 'en-US');
+  assert.equal(tts.normalizeLang('hi_IN'), 'hi-IN');
+});
+
+await t('shortLang strips the region for the Google Translate voice', () => {
+  assert.equal(tts.shortLang('hi-IN'), 'hi');
+  assert.equal(tts.shortLang('en'), 'en');
+});
+
+await t('toTranslateCode reduces a locale to the bare language subtag', () => {
+  assert.equal(tr.toTranslateCode('hi-IN'), 'hi');
+  assert.equal(tr.toTranslateCode('TE-in'), 'te');
+  assert.equal(tr.toTranslateCode('auto'), 'auto');
+  assert.equal(tr.toTranslateCode(''), 'auto');
+});
+
+// ===========================================================================
+section('§2 provider readiness — what this deployment can actually do');
+// ===========================================================================
+
+await t('the Google Translate voice needs no credential at all', () => {
+  clearEnv();
+  assert.equal(tts.providerReady('gtranslate'), true);
+  // …which is the point: a fresh deploy has a real voice before anyone
+  // touches a billing console.
+  assert.equal(tts.ttsAvailable(), true);
+});
+
+await t('Cloud TTS is ready on an API key OR a service account', () => {
+  clearEnv();
+  assert.equal(tts.providerReady('google'), false);
+  process.env.GOOGLE_API_KEY = 'k';
+  assert.equal(tts.providerReady('google'), true);
+  delete process.env.GOOGLE_API_KEY;
+  process.env.FIREBASE_SERVICE_ACCOUNT = '{"project_id":"p","private_key":"x","client_email":"e"}';
+  assert.equal(tts.providerReady('google'), true);
+  clearEnv();
+});
+
+await t('only Cloud TTS reports itself male-capable', () => {
+  clearEnv();
+  // Default chain, no Google credential: a male voice cannot be served, and
+  // ttsStatus must say so rather than let the UI promise one.
+  assert.equal(tts.ttsStatus().maleCapable, false);
+  process.env.GOOGLE_API_KEY = 'k';
+  assert.equal(tts.ttsStatus().maleCapable, true);
+  // Sarvam alone is never male-capable, key or no key.
+  process.env.TTS_PROVIDER = 'sarvam';
+  process.env.SARVAM_API_KEY = 's';
+  assert.equal(tts.ttsStatus().maleCapable, false);
+  clearEnv();
+});
+
+await t('TTS_PROVIDER is a chain, and ready[] lists only what can run', () => {
+  clearEnv();
+  process.env.TTS_PROVIDER = 'google, gtranslate ,sarvam';
+  const s = tts.ttsStatus();
+  assert.deepEqual(s.chain, ['google', 'gtranslate', 'sarvam']);
+  assert.deepEqual(s.ready, ['gtranslate']);
+  clearEnv();
+});
+
+// ===========================================================================
+section('§3 synthesis and the fallback chain');
+// ===========================================================================
+
+await t('Cloud TTS returns MP3 and reports the male voice it resolved', async () => {
+  clearEnv(); reset();
+  process.env.GOOGLE_API_KEY = 'k';
+  process.env.TTS_PROVIDER = 'google';
+  routes = [
+    { match: /\/v1\/voices/, reply: () => json({ voices: [
+      { name: 'hi-IN-Standard-A', ssmlGender: 'FEMALE' },
+      { name: 'hi-IN-Standard-B', ssmlGender: 'MALE' },
+      { name: 'hi-IN-Wavenet-C', ssmlGender: 'MALE' },
+    ] }) },
+    { match: /text:synthesize/, reply: () => json({ audioContent: 'QUJD' }) },
+  ];
+  const out = await tts.synth({ text: 'Namaste', lang: 'hi-IN', gender: 'male' });
+  assert.equal(out.provider, 'google');
+  assert.equal(out.gender, 'male');
+  assert.equal(out.mime, 'audio/mpeg');
+  // Wavenet outranks Standard, and both outrank picking the first match.
+  assert.equal(out.voice, 'hi-IN-Wavenet-C');
+  clearEnv();
+});
+
+await t('an unreachable voice catalogue still honours the gender', async () => {
+  clearEnv(); reset();
+  process.env.GOOGLE_API_KEY = 'k';
+  process.env.TTS_PROVIDER = 'google';
+  let sentVoice = null;
+  routes = [
+    { match: /\/v1\/voices/, reply: () => json({ error: { message: 'boom' } }, 500) },
+    { match: /text:synthesize/, reply: (_u, init) => {
+      sentVoice = JSON.parse(init.body).voice;
+      return json({ audioContent: 'QUJD' });
+    } },
+  ];
+  // te-IN, not hi-IN: the voice catalogue is cached for 12h by design, so
+  // reusing a language another test already populated would test the cache
+  // rather than the unreachable-catalogue path.
+  const out = await tts.synth({ text: 'hello', lang: 'te-IN', gender: 'male' });
+  // Naming no voice is fine; asking Google to pick a MALE one is the point.
+  assert.equal(sentVoice.ssmlGender, 'MALE');
+  assert.equal(sentVoice.name, undefined);
+  assert.equal(out.gender, 'male');
+  clearEnv();
+});
+
+await t('THE HONESTY RULE: the Translate voice never claims to be male', async () => {
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'gtranslate';
+  routes = [{ match: /translate_tts/, reply: () => bin([0xff, 0xfb, 0x00, 0x00]) }];
+  const out = await tts.synth({ text: 'Namaste', lang: 'hi-IN', gender: 'male' });
+  assert.equal(out.provider, 'gtranslate');
+  // This endpoint has one voice per language and it is not a man's. Echoing the
+  // request back would put "Arjun" on screen over a woman's voice.
+  assert.equal(out.gender, 'female');
+  clearEnv();
+});
+
+await t('a failing provider costs one hop, not the whole call', async () => {
+  clearEnv(); reset();
+  process.env.GOOGLE_API_KEY = 'k';
+  process.env.SARVAM_API_KEY = 's';
+  process.env.TTS_PROVIDER = 'google,gtranslate,sarvam';
+  routes = [
+    { match: /\/v1\/voices/, reply: () => json({ error: { message: 'nope' } }, 403) },
+    { match: /text:synthesize/, reply: () => json({ error: { message: 'nope' } }, 403) },
+    { match: /translate_tts/, reply: () => json({}, 503) },
+    { match: /api\.sarvam\.ai/, reply: () => json({ audios: ['U0FS'] }) },
+  ];
+  const out = await tts.synth({ text: 'hello', lang: 'en-IN' });
+  assert.equal(out.provider, 'sarvam');
+  assert.equal(out.mime, 'audio/wav');
+  clearEnv();
+});
+
+await t('every provider failing throws with the reasons attached', async () => {
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'gtranslate';
+  routes = [{ match: /translate_tts/, reply: () => json({}, 500) }];
+  await assert.rejects(
+    () => tts.synth({ text: 'hi', lang: 'en-IN' }),
+    (err) => {
+      assert.equal(err.message, 'tts_all_providers_failed');
+      // The detail is what turns a silent 503 into a diagnosable one.
+      assert.match(err.detail, /gtranslate/);
+      return true;
+    },
+  );
+  clearEnv();
+});
+
+await t("Google's /sorry/ bot check reads as a rate limit, not a mystery", async () => {
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'gtranslate';
+  // A 302 to /sorry/index is how Google rate-limits a datacentre IP. Following
+  // it reports a failure on a host we never called.
+  routes = [{ match: /translate_tts/, reply: () => ({ ok: false, status: 302, json: async () => ({}), text: async () => '', arrayBuffer: async () => new ArrayBuffer(0) }) }];
+  await assert.rejects(
+    () => tts.synth({ text: 'hi', lang: 'en-IN' }),
+    (err) => { assert.match(err.detail, /rate_limited/); return true; },
+  );
+  clearEnv();
+});
+
+await t('long text is chunked for the Translate voice and rejoined as one clip', async () => {
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'gtranslate';
+  let n = 0;
+  routes = [{ match: /translate_tts/, reply: () => { n++; return bin([0xff, 0xfb, n]); } }];
+  const long = ('This is a sentence about the property. ').repeat(20);   // ~760 chars
+  const out = await tts.synth({ text: long, lang: 'en-IN' });
+  assert.ok(n > 1, `expected several chunks, got ${n}`);
+  assert.equal(Buffer.from(out.audio, 'base64').length, n * 3);
+  clearEnv();
+});
+
+await t('modulation is mapped into each provider\'s own units', async () => {
+  clearEnv(); reset();
+  process.env.GOOGLE_API_KEY = 'k';
+  process.env.TTS_PROVIDER = 'google';
+  let cfg = null;
+  routes = [
+    { match: /\/v1\/voices/, reply: () => json({ voices: [] }) },
+    { match: /text:synthesize/, reply: (_u, init) => { cfg = JSON.parse(init.body).audioConfig; return json({ audioContent: 'QQ==' }); } },
+  ];
+  await tts.synth({ text: 'x', lang: 'en-IN', pitch: 0.5, pace: 1.2, loudness: 1 });
+  assert.equal(cfg.pitch, 4);                 // our -1..1 -> Google's semitones
+  assert.equal(cfg.speakingRate, 1.2);
+  assert.equal(cfg.volumeGainDb, 0);          // loudness 1 == 0 dB gain
+  clearEnv();
+});
+
+await t('an out-of-range pitch is clamped, not passed through', async () => {
+  clearEnv(); reset();
+  process.env.GOOGLE_API_KEY = 'k';
+  process.env.TTS_PROVIDER = 'google';
+  let cfg = null;
+  routes = [
+    { match: /\/v1\/voices/, reply: () => json({ voices: [] }) },
+    { match: /text:synthesize/, reply: (_u, init) => { cfg = JSON.parse(init.body).audioConfig; return json({ audioContent: 'QQ==' }); } },
+  ];
+  await tts.synth({ text: 'x', lang: 'en-IN', pitch: 99, pace: 99, loudness: 99 });
+  assert.equal(cfg.pitch, 20);
+  assert.equal(cfg.speakingRate, 4);
+  assert.ok(cfg.volumeGainDb <= 16);
+  clearEnv();
+});
+
+await t('empty text is refused before any provider is called', async () => {
+  clearEnv(); reset();
+  await assert.rejects(() => tts.synth({ text: '   ', lang: 'en-IN' }), /tts_text_required/);
+  assert.equal(calls.length, 0, 'no network call should have been made');
+});
+
+// ===========================================================================
+section('§4 translation');
+// ===========================================================================
+
+await t('Cloud Translation is preferred when the project has it', async () => {
+  clearEnv(); reset();
+  process.env.GOOGLE_API_KEY = 'k';
+  routes = [{ match: /translation\.googleapis\.com/, reply: () => json({
+    data: { translations: [{ translatedText: 'क्या आप घर देख रहे हैं?', detectedSourceLanguage: 'en' }] },
+  }) }];
+  const out = await tr.translate({ text: 'Are you looking for a home?', to: 'hi-IN', from: 'en-IN' });
+  assert.equal(out.provider, 'cloud');
+  assert.equal(out.text, 'क्या आप घर देख रहे हैं?');
+  clearEnv();
+});
+
+await t('a disabled Translation API falls through to the free endpoint', async () => {
+  clearEnv(); reset();
+  process.env.GOOGLE_API_KEY = 'k';
+  routes = [
+    { match: /translation\.googleapis\.com/, reply: () => json({
+      error: { message: 'Cloud Translation API has not been used in project 1 before or it is disabled.' },
+    }, 403) },
+    { match: /translate_a\/single/, reply: () => json([[['नमस्ते', 'hello', null, null, 3]], null, 'en']) },
+  ];
+  const out = await tr.translate({ text: 'hello', to: 'hi', from: 'en' });
+  assert.equal(out.provider, 'free');
+  assert.equal(out.text, 'नमस्ते');
+  clearEnv();
+});
+
+await t('FAIL SOFT: a total outage returns the ORIGINAL text, never silence', async () => {
+  clearEnv(); reset();
+  routes = [{ match: /translate_a\/single/, reply: () => json({}, 500) }];
+  const out = await tr.translate({ text: 'What is your budget?', to: 'hi', from: 'en' });
+  assert.equal(out.provider, 'none');
+  assert.equal(out.text, 'What is your budget?');
+  // A translation outage must degrade to "she speaks English", not to a mute
+  // agent on a live call.
+  clearEnv();
+});
+
+await t('the /sorry/ redirect is reported as rate_limited', async () => {
+  clearEnv(); reset();
+  routes = [{ match: /translate_a\/single/, reply: () => ({ ok: false, status: 302, json: async () => ({}), text: async () => '' }) }];
+  // Text no earlier test used — successful translations are cached on purpose,
+  // and a cache hit here would hide the redirect entirely.
+  const out = await tr.translate({ text: 'shall we book a site visit', to: 'hi', from: 'en' });
+  assert.equal(out.provider, 'none');
+  assert.equal(out.error, 'rate_limited');
+  clearEnv();
+});
+
+await t('same-language in and out is not a round trip through a translator', async () => {
+  clearEnv(); reset();
+  const out = await tr.translate({ text: 'hello', to: 'en-IN', from: 'en' });
+  assert.equal(out.provider, 'none');
+  assert.equal(out.text, 'hello');
+  assert.equal(calls.length, 0, 'nothing should have been called');
+});
+
+await t('repeat lines are served from cache — Anaga says the same things a lot', async () => {
+  clearEnv(); reset();
+  routes = [{ match: /translate_a\/single/, reply: () => json([[['नमस्ते', 'hello']], null, 'en']) }];
+  await tr.translate({ text: 'hello there', to: 'hi', from: 'en' });
+  const n = calls.length;
+  const second = await tr.translate({ text: 'hello there', to: 'hi', from: 'en' });
+  assert.equal(calls.length, n, 'the second call must not hit the network');
+  assert.equal(second.cached, true);
+  clearEnv();
+});
+
+await t('a multi-segment free response is stitched back together in order', async () => {
+  clearEnv(); reset();
+  routes = [{ match: /translate_a\/single/, reply: () => json([[['पहला ', 'first '], ['दूसरा', 'second']], null, 'en']) }];
+  const out = await tr.translate({ text: 'first second', to: 'hi', from: 'en' });
+  assert.equal(out.text, 'पहला दूसरा');
+  clearEnv();
+});
+
+await t('the chunker splits on sentence ends, including the Devanagari danda', () => {
+  const parts = tr.chunk('पहला वाक्य। दूसरा वाक्य। तीसरा वाक्य।', 20);
+  assert.ok(parts.length > 1);
+  assert.ok(parts.every((p) => p.length <= 20), `oversized chunk: ${JSON.stringify(parts)}`);
+  assert.equal(parts.join(' ').replace(/\s+/g, ' '), 'पहला वाक्य। दूसरा वाक्य। तीसरा वाक्य।');
+});
+
+await t('a single sentence longer than the limit is still cut, not dropped', () => {
+  const parts = tr.chunk('x'.repeat(45), 20);
+  assert.equal(parts.length, 3);
+  assert.equal(parts.join('').length, 45);
+});
+
+// ===========================================================================
+section('§5 the disclosure is versioned data, never machine output');
+// ===========================================================================
+
+await t('the persona carries a MALE disclosure with correct Hindi agreement', async () => {
+  const fs = await import('node:fs');
+  const p = JSON.parse(fs.readFileSync(new URL('../caller-agent/flows/anaga.persona.json', import.meta.url), 'utf8'));
+  const male = p.disclosure.male;
+  assert.ok(male, 'a male disclosure variant must exist');
+  for (const lang of ['en-IN', 'hi-IN', 'te-IN']) {
+    assert.ok(typeof male[lang] === 'string' && male[lang].trim(), `${lang} missing`);
+    assert.match(male[lang], /\bAI\b/, `${lang} must still disclose AI`);
+  }
+  // Hindi marks the speaker's gender on the verb. "sakti" in a man's voice is
+  // the feminine form and lands as broken Hindi.
+  assert.match(p.disclosure['hi-IN'], /sakti hoon/, 'the default (female) line should stay feminine');
+  assert.match(male['hi-IN'], /sakta hoon/, 'the male line must use the masculine form');
+  assert.doesNotMatch(male['hi-IN'], /sakti hoon/);
+});
+
+await t('the browser ships the same gendered pair', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../web/assets/app.js', import.meta.url), 'utf8');
+  assert.match(src, /ANAGA_LINES_BY_GENDER/);
+  assert.match(src, /बात कर सकती हूँ/, 'feminine Hindi greeting missing');
+  assert.match(src, /बात कर सकता हूँ/, 'masculine Hindi greeting missing');
+});
+
+await t('translation is never pointed at the disclosure', async () => {
+  const fs = await import('node:fs');
+  const app = fs.readFileSync(new URL('../web/assets/app.js', import.meta.url), 'utf8');
+  // The disclosure is spoken from the versioned line, so it must reach
+  // speakText directly rather than through TranslateKit.out().
+  assert.match(app, /speakText\(anagaLine\(/,
+    'the sample disclosure must be spoken from the versioned line');
+  const lib = fs.readFileSync(new URL('../api/_lib/translate.js', import.meta.url), 'utf8');
+  assert.match(lib, /disclosure/i, 'the rule must be written down where someone will read it');
+});
+
+globalThis.fetch = realFetch;
+console.log(`\n═══ ${pass} passed, ${fail} failed ═══\n`);
+if (fail) { failures.forEach((f) => console.log('  FAIL ' + f)); process.exit(1); }

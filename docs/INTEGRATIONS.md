@@ -32,6 +32,55 @@ In Vercel → Project → Settings → Environment Variables:
 | `PUBLIC_BASE_URL` | `https://your-deployment.vercel.app` |
 | `GEMINI_API_KEY` | your Google AI key (the call brain) |
 | `SARVAM_API_KEY` | optional — Indian-language TTS voices |
+| `GOOGLE_API_KEY` | optional — Google Cloud Text-to-Speech + Translation |
+| `TTS_PROVIDER` | optional — provider chain, default `google,gtranslate,sarvam` |
+| `TRANSLATE_PROVIDER` | optional — `auto` (default), `cloud`, or `free` |
+
+### Voice and translation
+
+Anaga speaks through a **provider chain**, tried in order. The default is
+`google,gtranslate,sarvam`, and a failure costs one hop rather than the call:
+
+| Provider | Needs | Male voice? |
+|---|---|---|
+| `google` — Cloud Text-to-Speech | `GOOGLE_API_KEY` (or the service account) **and** the Text-to-Speech API enabled | **Yes** |
+| `gtranslate` — the voice on translate.google.com | nothing at all | No — one voice per language |
+| `sarvam` — Bulbul v2 | `SARVAM_API_KEY` | No — our speakers are female |
+
+So a fresh deploy has a real voice with no configuration. **A male voice
+("Arjun") needs Cloud Text-to-Speech and nothing else** — enable the API on
+your Google project and it appears without a redeploy. Until then the voice
+picker marks that card unavailable and says why, rather than playing a female
+voice under a male name.
+
+Translation works the same way: Cloud Translation when the API is enabled,
+otherwise the free endpoint that translate.google.com itself uses. Be aware the
+free endpoint is undocumented and **rate-limits datacentre IPs** — treat it as a
+floor, not the thing you promise a customer. In the browser, Chrome 138+'s
+on-device translator is preferred over both; the server path is what makes
+Hindi and Telugu work on Safari, Firefox, and older Chrome.
+
+Two credentials are accepted, in this order:
+
+1. `GOOGLE_API_KEY` — a plain API key restricted to those two APIs. Preferred.
+2. `GOOGLE_SERVICE_ACCOUNT`, else `FIREBASE_SERVICE_ACCOUNT` — works with
+   nothing new set, since Firestore already uses it. Note the trade: that key
+   is an admin credential that bypasses every Firestore rule, so it gives the
+   voice path reach it does not need. Setting `GOOGLE_API_KEY` avoids that —
+   the service account is then never loaded.
+
+Check what a running deploy can actually do:
+
+```bash
+curl -s "$BASE/api/integrations/health" | jq '.tts, .translate'
+# .tts.ready       -> which providers can run
+# .tts.maleCapable -> whether "Arjun" can really be served
+```
+
+The AI disclosure is **never** machine-translated. Its wording per language is
+reviewed and versioned in `caller-agent/flows/anaga.persona.json` — including a
+masculine Hindi variant, because Hindi marks the speaker's gender on the verb
+and the feminine `kar sakti hoon` is audibly wrong in a man's voice.
 
 Redeploy, then:
 

@@ -709,6 +709,16 @@ body {
   background: linear-gradient(135deg, rgba(255,138,61,.16), rgba(109,139,255,.14));
   box-shadow: inset 0 0 0 1px rgba(255,176,102,.35), 0 10px 24px -14px rgba(255,138,61,.5);
 }
+/* A voice this deployment cannot actually serve — today that means Arjun
+   (male) without Google Cloud Text-to-Speech. Still clickable, because the
+   fallback is a real voice and clicking is how you hear what you would get;
+   dimmed and marked so the card never implies a male voice is coming. */
+.voice-card.is-unavailable { opacity: .55; }
+.voice-card.is-unavailable::after {
+  content: "needs Google Cloud TTS";
+  position: absolute; left: 12px; right: 12px; bottom: -15px;
+  font-size: 9px; letter-spacing: .02em; color: var(--ink-faint); text-align: center;
+}
 .voice-card__wave { display: flex; align-items: center; gap: 2.5px; height: 18px; }
 .voice-card__wave i {
   width: 3px; height: 7px; border-radius: 2px; background: var(--ink-faint);
