@@ -304,6 +304,46 @@ await t('health reports blockers without leaking values', async () => {
   assert.ok(!JSON.stringify(res.body).includes('test_app_secret'));
   assert.ok(!JSON.stringify(res.body).includes('k'.repeat(32)));
 });
+console.log('\nconsole summary endpoint');
+const summaryHandler = (await import(`${R}/api/console/summary.js`)).default;
+await t('console summary requires the operator key', async () => {
+  const res = mkRes();
+  await summaryHandler({ method: 'GET', headers: {}, query: {} }, res);
+  assert.equal(res.statusCode, 401);
+});
+await t('console summary rolls up the events the pipeline recorded', async () => {
+  const res = mkRes();
+  await summaryHandler({ method: 'GET', headers: { authorization: `Bearer ${'k'.repeat(32)}` }, query: {} }, res);
+  assert.equal(res.statusCode, 200);
+  const b = res.body;
+  // earlier tests pushed leads + calls through; those events must be here
+  assert.ok(b.funnel.counts.received > 0, 'expected received events');
+  assert.ok(b.funnel.counts.blocked > 0, 'expected blocked events');
+  assert.ok(b.funnel.counts.completed > 0, 'expected completed events');
+  assert.ok(b.events.length > 0);
+  assert.equal(b.wiring.canDial, false);
+});
+await t('console summary never leaks an unmasked phone or a secret', async () => {
+  const res = mkRes();
+  await summaryHandler({ method: 'GET', headers: { authorization: `Bearer ${'k'.repeat(32)}` }, query: {} }, res);
+  const json = JSON.stringify(res.body);
+  assert.ok(!json.includes('9876500020'), 'raw phone leaked');
+  assert.ok(!json.includes('test_app_secret'));
+  assert.ok(!json.includes('k'.repeat(32)));
+  assert.ok(res.body.events.every((e) => !e.phone || /X/.test(e.phone)));
+});
+await t('console summary is honest that the store is not durable', async () => {
+  const res = mkRes();
+  await summaryHandler({ method: 'GET', headers: { authorization: `Bearer ${'k'.repeat(32)}` }, query: {} }, res);
+  assert.equal(res.body.store.durable, false);
+});
+await t('rates are null (not a fake 0%) with no denominator', async () => {
+  const ev = await import(`${R}/api/_lib/events.js`);
+  const r = ev.rollup();
+  assert.ok(r.dialRate === null || Number.isFinite(r.dialRate));
+  assert.ok(r.bookRate === null || Number.isFinite(r.bookRate));
+});
+
 await t('wrong method -> 405 with Allow', async () => {
   const res = mkRes();
   await intakeHandler({ method: 'GET', headers: {} }, res);

@@ -21,6 +21,7 @@ import { validateLead, leadSummary } from './integrations/lead.js';
 import { checkDialable } from './compliance.js';
 import * as crm from './integrations/crm.js';
 import { buildCallJob, enqueueCall } from './queue.js';
+import { record } from './events.js';
 
 // Best-effort, per-instance replay guard. Serverless instances are ephemeral
 // and not shared, so this catches Meta's fast retries, NOT a duplicate an hour
@@ -79,6 +80,12 @@ export async function intakeLead(lead, opts = {}) {
     return result;
   }
   result.steps.dedupe = { duplicate: false };
+  record('lead.received', {
+    source: lead.source,
+    phone: result.lead.phone,          // already masked by leadSummary()
+    name: lead.name || null,
+    campaign: lead.campaign?.name || null,
+  });
 
   // 3. CRM upsert (best effort — an outage must not stop the call)
   if (opts.dryRun) {
@@ -94,6 +101,12 @@ export async function intakeLead(lead, opts = {}) {
   result.steps.compliance = gate;
   if (!gate.allowed) {
     result.reason = `blocked:${gate.reason}`;
+    record('lead.blocked', {
+      source: lead.source,
+      phone: result.lead.phone,
+      name: lead.name || null,
+      reason: gate.reason,
+    });
     // Accepted as a lead, refused as a dial. The CRM record above carries it.
     result.accepted = true;
     return result;
@@ -115,6 +128,14 @@ export async function intakeLead(lead, opts = {}) {
 
   const enq = await enqueueCall(job);
   result.steps.queue = { queued: enq.queued, reason: enq.reason, callId: enq.callId || null };
+  record('call.queued', {
+    source: lead.source,
+    phone: result.lead.phone,
+    name: lead.name || null,
+    queued: enq.queued,
+    reason: enq.reason,
+    callId: enq.callId || null,
+  });
   result.queued = enq.queued;
   result.callId = enq.callId || null;
   result.accepted = true;

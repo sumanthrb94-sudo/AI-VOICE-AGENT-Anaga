@@ -19,6 +19,8 @@ hand warm prospects to human closers — compliant with TRAI/DLT/DND by design.
 | `engineering/MULTI_AGENT_SPEC.md` | Production build spec, multi-agent design, work packages | **Engineering — build to this** |
 | `web/` | **Home screen (Mission Control)** + the Scratch→Production→Investors→Marketing Playbook + the live "Talk to Anaga" call demo | **Everyone — open `web/index.html`** |
 | `api/` | Serverless **call brain** (provider-abstracted LLM) + the **integration tubing**: Meta Lead Ads webhook, lead intake, compliance gate, dial queue, CRM writeback | Vercel functions |
+| `web/console.html` | **Operator console** — leads in, compliance verdicts, calls queued, outcomes, wiring status | Whoever runs campaigns |
+| `design-system/` | Generated design systems (ui-ux-pro-max skill) — the source of truth for each surface | Anyone touching UI |
 | `.github/` | CI + agent task templates | Coding agents |
 
 ## Getting a real lead to a real call
@@ -32,6 +34,9 @@ CRM / page   ─► /api/leads/intake ────────────┴─
                                                                                         ├─► opt-out → DNC list
                                                                                         └─► note + intent score → CRM
 ```
+
+Watch it happen in the **operator console** at `/console.html` (needs the
+`INTEGRATIONS_API_KEY`).
 
 Setup: [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md) · API contract:
 [`shared/integrations-contract.md`](shared/integrations-contract.md) · what's

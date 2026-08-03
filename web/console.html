@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vaak Console — lead pipeline & call outcomes</title>
+  <meta name="description" content="Operator console for the Vaak voice-AI pipeline: leads in, compliance verdicts, calls queued, outcomes written back to the CRM." />
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/console.css?v=1" />
+</head>
+<body>
+
+<!-- ===== icon sprite: SVG only, never emoji (skill priority 4) ===== -->
+<svg class="visually-hidden" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/><path d="M13.4 12.6 19 7"/><path d="M3 17a9 9 0 1 1 18 0"/></symbol>
+    <symbol id="i-funnel" viewBox="0 0 24 24"><path d="M3 4h18l-7 8v7l-4 2v-9L3 4Z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.4 8.3-8 9-4.6-.7-8-4-8-9V6l8-3Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v6"/><path d="M15 3v6"/><path d="M6 9h12v3a6 6 0 0 1-12 0V9Z"/><path d="M12 18v3"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.4 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"/></symbol>
+    <symbol id="i-block" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2.4 17.1A2 2 0 0 0 4.1 20h15.8a2 2 0 0 0 1.7-2.9L13.7 3.9a2 2 0 0 0-3.4 0Z"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.4 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.4-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.8 1.1Z"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 8.6-8.6"/><path d="m17 6 3 3"/></symbol>
+    <symbol id="i-out" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></symbol>
+  </defs>
+</svg>
+
+<!-- ===== key gate: shown until an operator key is supplied ===== -->
+<main class="gate card" id="gate" hidden>
+  <h1 class="card__title" style="font-size:var(--text-xl)">
+    <svg class="icon" aria-hidden="true"><use href="#i-key"/></svg>
+    Vaak Console
+  </h1>
+  <p class="gate__help" style="margin-top:var(--space-md)">
+    This console reads live pipeline data, so it needs the operator key —
+    the <code>INTEGRATIONS_API_KEY</code> set on this deployment.
+  </p>
+
+  <form class="gate__field" id="gate-form">
+    <label class="gate__label" for="gate-key">Operator key</label>
+    <input class="gate__input" id="gate-key" type="password" autocomplete="off"
+           spellcheck="false" required aria-describedby="gate-help gate-error" />
+    <p class="gate__error" id="gate-error" role="alert" hidden></p>
+    <p class="gate__help" id="gate-help">
+      Held in this tab's <b>sessionStorage</b> only — it is cleared when the tab
+      closes and is never written to disk.
+    </p>
+    <button class="btn btn--primary" type="submit">Open console</button>
+  </form>
+</main>
+
+<!-- ===== the console ===== -->
+<div class="app" id="app" hidden>
+
+  <header class="topbar">
+    <div class="topbar__brand">
+      <span class="topbar__mark" aria-hidden="true">वाक्</span>
+      <span class="topbar__name">Vaak</span>
+      <span class="topbar__sub">Console</span>
+    </div>
+    <span class="topbar__spacer"></span>
+    <div class="topbar__actions">
+      <span class="badge badge--muted" id="freshness" aria-live="polite">Loading…</span>
+      <button class="btn btn--icon" id="refresh" type="button" title="Refresh now">
+        <svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>
+        <span class="visually-hidden">Refresh data</span>
+      </button>
+      <button class="btn btn--icon" id="theme" type="button" title="Toggle light / dark">
+        <svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg>
+        <span class="visually-hidden">Toggle colour theme</span>
+      </button>
+      <button class="btn btn--icon" id="signout" type="button" title="Forget key">
+        <svg class="icon" aria-hidden="true"><use href="#i-out"/></svg>
+        <span class="visually-hidden">Forget operator key</span>
+      </button>
+    </div>
+  </header>
+
+  <nav class="nav" aria-label="Console sections">
+    <a class="nav__link" href="#overview" aria-current="true">
+      <svg class="icon" aria-hidden="true"><use href="#i-gauge"/></svg> Overview
+    </a>
+    <a class="nav__link" href="#pipeline">
+      <svg class="icon" aria-hidden="true"><use href="#i-funnel"/></svg> Pipeline
+    </a>
+    <a class="nav__link" href="#compliance">
+      <svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg> Compliance
+    </a>
+    <a class="nav__link" href="#activity">
+      <svg class="icon" aria-hidden="true"><use href="#i-inbox"/></svg> Activity
+    </a>
+    <a class="nav__link" href="#wiring">
+      <svg class="icon" aria-hidden="true"><use href="#i-plug"/></svg> Wiring
+    </a>
+  </nav>
+
+  <main class="main">
+
+    <!-- provenance: this console must never imply a database exists -->
+    <div id="provenance"></div>
+
+    <!-- ===== overview ===== -->
+    <section id="overview" aria-labelledby="overview-h">
+      <h2 id="overview-h" class="visually-hidden">Overview</h2>
+      <div class="grid" id="kpis"></div>
+    </section>
+
+    <!-- ===== pipeline + compliance ===== -->
+    <div class="grid">
+      <section class="card span-8" id="pipeline" aria-labelledby="pipeline-h">
+        <div class="card__head">
+          <svg class="icon" aria-hidden="true"><use href="#i-funnel"/></svg>
+          <h2 class="card__title" id="pipeline-h">Lead pipeline</h2>
+          <span class="card__hint">conversion shown as text per stage</span>
+        </div>
+        <div id="funnel"></div>
+      </section>
+
+      <section class="card span-4" id="compliance" aria-labelledby="compliance-h">
+        <div class="card__head">
+          <svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>
+          <h2 class="card__title" id="compliance-h">Why dials were blocked</h2>
+        </div>
+        <div id="blocks"></div>
+      </section>
+    </div>
+
+    <!-- ===== activity ===== -->
+    <section class="card" id="activity" aria-labelledby="activity-h">
+      <div class="card__head">
+        <svg class="icon" aria-hidden="true"><use href="#i-inbox"/></svg>
+        <h2 class="card__title" id="activity-h">Recent activity</h2>
+        <span class="card__hint" id="activity-count"></span>
+      </div>
+      <div id="events"></div>
+    </section>
+
+    <!-- ===== wiring ===== -->
+    <section class="card" id="wiring" aria-labelledby="wiring-h">
+      <div class="card__head">
+        <svg class="icon" aria-hidden="true"><use href="#i-plug"/></svg>
+        <h2 class="card__title" id="wiring-h">Wiring</h2>
+        <span class="card__hint">what this deployment can actually do</span>
+      </div>
+      <div id="wiring-body"></div>
+    </section>
+
+  </main>
+</div>
+
+<script src="assets/console.js?v=1"></script>
+</body>
+</html>

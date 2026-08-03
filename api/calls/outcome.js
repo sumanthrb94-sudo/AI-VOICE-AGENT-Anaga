@@ -23,7 +23,8 @@
 // Contract: shared/integrations-contract.md
 
 import { authorize, requireMethod, readRawBody, parseJson } from '../_lib/integrations/http.js';
-import { normalizeLead, validateLead } from '../_lib/integrations/lead.js';
+import { normalizeLead, validateLead, maskPhone } from '../_lib/integrations/lead.js';
+import { record } from '../_lib/events.js';
 import { generate } from '../_lib/llm.js';
 import { summaryPrompt, SUMMARY_DISPOSITIONS } from '../_lib/prompts.js';
 import { addToSuppression } from '../_lib/compliance.js';
@@ -85,6 +86,18 @@ export default async function handler(req, res) {
   });
 
   const dnc = optedOut ? await crm.markOptOut(lead, 'opt_out_on_call') : null;
+
+  record('call.completed', {
+    source: lead.source,
+    phone: maskPhone(lead.phone),
+    name: lead.name || null,
+    callId: call.id || null,
+    disposition: review.disposition,
+    score: review.score,
+    durationSec: Number(call.durationSec) || null,
+    nextAction: review.nextAction || null,
+    reviewedBy: review.generatedBy,
+  });
 
   return res.status(200).json({
     ok: true,
