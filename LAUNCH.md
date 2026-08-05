@@ -100,10 +100,29 @@ has never seen 8kHz μ-law from a phone line**, which is materially harder than
 browser mic audio. Number and name accuracy on real telephony audio is an explicit
 acceptance criterion in the spec and is **not yet met**.
 
-### 4. ~~No durable datastore~~ — CLOSED
-Firestore is wired: project `anaga-2c61c`, `(default)` database, **asia-south1
-(Mumbai)** — which also satisfies the Indian data-residency requirement in
-`docs/COMPLIANCE.md`. Verified live:
+### 4. No durable datastore — CODE DONE, **NOT SET ON THE DEPLOYMENT**
+
+> ⚠️ **Checked 2026-08-05 against the live deployment and this section was
+> overstating things.** `GET /api/integrations/health` returns
+> `store.backend: "memory"`, `durable: false`, `projectId: null` — meaning
+> **`FIREBASE_SERVICE_ACCOUNT` is not set as a Vercel environment variable.**
+> The code below is written and tested; the running site is not using it. Right
+> now an opt-out on the deployed demo lives in one warm instance and is gone
+> when that instance recycles.
+>
+> Fix: set `FIREBASE_SERVICE_ACCOUNT` (the whole service-account JSON, or its
+> base64) in the Vercel project's environment variables, redeploy, and confirm
+> `store.backend` reads `firestore` and `reachable` is `true`.
+>
+> The lesson worth keeping: "the code is written and the tests pass" and "the
+> deployment does this" are different claims, and only the health endpoint
+> settles the second one. This document exists so nobody finds that out during
+> launch week.
+
+Firestore is wired **in code**: project `anaga-2c61c`, `(default)` database,
+**asia-south1 (Mumbai)** — which also satisfies the Indian data-residency
+requirement in `docs/COMPLIANCE.md`. Verified live from a workstation with the
+credential present:
 - **the suppression list survives restarts** — the opt-out no longer dies with
   the instance,
 - **lead dedupe is atomic across instances** (create-if-absent → 409 for the
@@ -146,6 +165,9 @@ curl -s "$CALLER_AGENT/health" | jq '.canDialForReal, .blockers'
 - [ ] `/api/integrations/health` → `ready.production: true`, `blockers: []`
 - [ ] caller agent `/health` → `canDialForReal: true`
 - [ ] `COMPLIANCE_MODE=strict` (never `dev` — health reports `dev` as a blocker)
+- [ ] `FIREBASE_SERVICE_ACCOUNT` set **on the deployment**, and
+      `/api/integrations/health` shows `store.backend: "firestore"`,
+      `reachable: true` (it reads `memory` as of 2026-08-05)
 - [ ] `SUPPRESSION_LIST_URL` set and a POST/GET round-trip verified
 - [ ] `DND_SCRUB_URL` set, and a **known DND number is provably blocked**
 - [ ] `TELEPHONY_PROVIDER` is not `mock` (the agent refuses to start in
