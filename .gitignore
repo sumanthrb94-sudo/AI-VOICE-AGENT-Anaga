@@ -53,3 +53,6 @@ obj/
 .claude-flow/policy/
 .claude/.proven-config-version
 .claude/proven-config.json
+
+# Ruflo swarm telemetry — SQLite written on every session, never source
+.swarm/
