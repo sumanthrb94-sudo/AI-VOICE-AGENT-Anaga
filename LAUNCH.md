@@ -186,6 +186,11 @@ for exactly that reason. Set the rule, then verify it.
 
 ## Pre-flight checklist
 
+The step-by-step version, checked against the live deployment, is in
+[`docs/GO_LIVE.md`](docs/GO_LIVE.md). Every remaining blocker there is an unset
+environment variable or a business prerequisite — none is unwritten code.
+
+
 Do not dial a real number until every box is ticked.
 
 One command answers most of this against the LIVE deployment — not the repo,

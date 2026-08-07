@@ -25,6 +25,7 @@ hand warm prospects to human closers — compliant with TRAI/DLT/DND by design.
 | `design-system/` | Generated design systems (ui-ux-pro-max skill) — the source of truth for each surface | Anyone touching UI |
 | `caller-agent/` | **The dialer** — consumes dial jobs, runs the call, reports outcomes | Engineering |
 | `LAUNCH.md` | **Launch readiness: what is proven, what blocks a real call** | **Read before launch** |
+| `docs/GO_LIVE.md` | **The exact remaining env vars and prerequisites, in order** | **Whoever is turning this on** |
 | `.github/` | CI + agent task templates | Coding agents |
 
 ## Getting a real lead to a real call
