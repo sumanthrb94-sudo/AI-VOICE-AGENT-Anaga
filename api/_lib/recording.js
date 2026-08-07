@@ -259,7 +259,7 @@ const KEY_SHAPE = /^calls\/\d{4}-\d{2}-\d{2}\/[A-Za-z0-9_-]{1,64}\.wav$/;
 export function refToKey(ref) {
   const s = String(ref || '');
   // Control characters would be invisible in a log and can split a request line.
-  if (/[ -]/.test(s)) return null;
+  if (/[\u0000-\u001f\u007f]/.test(s)) return null;
 
   const m = /^s3:\/\/([^/]+)\/(.+)$/.exec(s);
   if (!m) return null;

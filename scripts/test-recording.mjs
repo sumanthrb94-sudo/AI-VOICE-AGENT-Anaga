@@ -235,7 +235,9 @@ await t('REGRESSION: `..` inside the key cannot climb out of the bucket', () => 
     's3://vaak-recordings/..%2f..%2fsecret',
     's3://vaak-recordings//etc/passwd',
     's3://vaak-recordings/a b.wav',
-    's3://vaak-recordings/calls/2026-08-05/x.wav .txt',
+    // NUL truncation, built explicitly: a literal control byte in the source
+    // makes this file binary to git and grep, which is how one got committed.
+    's3://vaak-recordings/calls/2026-08-05/x.wav' + String.fromCharCode(0) + '.txt',
   ]) {
     assert.equal(rec.refToKey(evil), null, `must reject: ${JSON.stringify(evil)}`);
     assert.equal(rec.playbackUrl(evil), null, `must not presign: ${JSON.stringify(evil)}`);

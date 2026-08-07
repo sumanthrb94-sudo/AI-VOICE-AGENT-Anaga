@@ -157,6 +157,35 @@ jobs:
           console.log('OK: the CRM note carries a reference only');
           "
 
+      - name: Source files must be text
+        # A literal control byte in source makes the file BINARY to git and
+        # grep: diffs stop rendering, `grep -rn` silently reports "binary file
+        # matches" instead of the line, and some toolchains truncate at a NUL.
+        # Two got committed in this repo by an edit that wrote raw bytes where
+        # it meant to write \u0000 escape text, and the tests passed either way
+        # because the JavaScript was still valid. Nothing else catches this.
+        run: |
+          node -e "
+          const fs = require('fs'), path = require('path');
+          const SKIP = new Set(['.git','node_modules','graphify-out','.swarm','.secrets']);
+          const EXT = ['.js','.mjs','.json','.md','.yml','.css','.html'];
+          const bad = [];
+          (function walk(d) {
+            for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+              if (SKIP.has(e.name)) continue;
+              const p = path.join(d, e.name);
+              if (e.isDirectory()) { walk(p); continue; }
+              if (!EXT.includes(path.extname(e.name))) continue;
+              const b = fs.readFileSync(p);
+              for (const c of b) {
+                if (c < 9 || (c >= 11 && c <= 12) || (c >= 14 && c <= 31) || c === 127) { bad.push(p); break; }
+              }
+            }
+          })('.');
+          if (bad.length) { console.error('FAIL: control bytes in source:'); bad.forEach(f => console.error('  ' + f)); process.exit(1); }
+          console.log('OK: all source files are text');
+          "
+
       - name: No secrets committed
         run: |
           set -e
