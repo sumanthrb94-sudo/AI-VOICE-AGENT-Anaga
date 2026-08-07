@@ -57,12 +57,20 @@ first, especially §1: VoiceStudio is AGPL-3.0 and **its source must never be
 copied into this repo**. We call it over its network API and copy nothing.
 
 ```
-VOICESTUDIO_URL           http://10.0.0.4:3900
-VOICESTUDIO_API_KEY       optional — loopback is unauthenticated by default
+VOICESTUDIO_URL           the address of a box YOU run — no default exists
+VOICESTUDIO_API_KEY       required if it is public; loopback has no auth of its own
 VOICESTUDIO_MODEL         default "tts-1" (the active engine on that box)
 VOICESTUDIO_VOICE_FEMALE  cloned profile id — GET /v1/audio/voices
 VOICESTUDIO_VOICE_MALE    ditto
 ```
+
+**`VOICESTUDIO_URL` has no correct value until you stand a container up** — leave
+it unset and the provider stays inert. When you do set it, note that the two
+callers see the box differently: `caller-agent/` runs on your own host and can
+use `http://127.0.0.1:3900` or a private address, while `api/` runs on Vercel
+and can only reach **public DNS**. A private address on Vercel does not fail
+loudly — it times out on every request and falls through to Sarvam. Full setup:
+[`deploy/voicestudio/README.md`](../deploy/voicestudio/README.md).
 
 A gender with no pinned profile id is **refused**, not approximated, and the
 chain moves on — an engine will happily synthesize *something* for an unknown

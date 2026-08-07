@@ -72,14 +72,50 @@ woman — do not undo that by pinning them backwards.
 
 ## 3. Point Vaak at it
 
-On the API deployment (Vercel env), and on the caller-agent host:
+`VOICESTUDIO_URL` is **the address of the box you just started**, as seen from
+whatever is calling it. There is no default and no correct value until the
+container exists — until then, leave it unset and the provider stays inert.
+
+**The two callers do not see the box the same way, and this is the part that
+catches people:**
+
+| Caller | Runs on | What it can reach |
+|---|---|---|
+| `caller-agent/` — the dialer | **your own host** | a private address is fine |
+| `api/` — the browser demo's `/api/tts` | **Vercel, serverless** | **public DNS only** |
+
+A Vercel function has no route to `127.0.0.1`, `10.x`, or a Tailscale `100.x`
+address. Setting one there does not fail loudly — every request times out, costs
+a hop, and falls through to Sarvam. So:
+
+**On the caller-agent host** (same machine as the container):
 
 ```
-VOICESTUDIO_URL=http://10.0.0.4:3900      # private address, not localhost
-VOICESTUDIO_API_KEY=…                     # if behind an auth proxy
+VOICESTUDIO_URL=http://127.0.0.1:3900
+VOICESTUDIO_VOICE_FEMALE=prof_…
+VOICESTUDIO_VOICE_MALE=prof_…
+TTS_PROVIDER=voicestudio
+TTS_GENDER=female
+```
+
+On a different host inside the same private network, swap in that private
+address (`http://10.0.0.4:3900`, or the Tailscale `http://100.x.y.z:3900`).
+
+**On Vercel** — only if you have put it behind a public reverse proxy with auth
+and TLS. Otherwise **leave it unset**; the browser demo keeps using Sarvam,
+which costs nothing and is what it uses today.
+
+```
+VOICESTUDIO_URL=https://voice.your-domain.in
+VOICESTUDIO_API_KEY=…                     # the proxy's key — not optional here
 VOICESTUDIO_VOICE_FEMALE=prof_…
 VOICESTUDIO_VOICE_MALE=prof_…
 ```
+
+> Publishing it means the whole internet can reach a TTS/ASR service that has no
+> authentication of its own. The proxy's auth is the entire control. If you are
+> not confident in it, do not put the URL on Vercel — the call leg is where the
+> value is, and that one never needs a public address.
 
 `voicestudio` already leads the default chain and is inert until
 `VOICESTUDIO_URL` is set, so nothing changes until you set it. Confirm:
@@ -93,13 +129,8 @@ You want `voiceStudio.reachable: true`, `male: true`, `female: true`, and
 `voicestudio_unreachable` blocker — that shape is the dangerous one, because it
 looks wired and silently costs a hop on every line Anaga speaks.
 
-To use it on the call leg too, on the caller-agent host:
-
-```
-TTS_PROVIDER=voicestudio
-STT_PROVIDER=voicestudio     # optional — see §5
-TTS_GENDER=female            # or male
-```
+If `voiceStudio.configured` is true but `reachable` is false on Vercel while the
+box answers fine locally, it is almost always the private-address problem above.
 
 ---
 
