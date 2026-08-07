@@ -11,7 +11,7 @@ import { metaStatus } from '../_lib/integrations/meta.js';
 import { crmStatus } from '../_lib/integrations/crm.js';
 import { complianceStatus } from '../_lib/compliance.js';
 import { queueStatus } from '../_lib/queue.js';
-import { ttsStatus } from '../_lib/tts.js';
+import { ttsStatus, voiceStudioHealth } from '../_lib/tts.js';
 import { translateMode } from '../_lib/translate.js';
 import { googleAuthMode } from '../_lib/google.js';
 import { storeStatus } from '../_lib/store.js';
@@ -24,6 +24,7 @@ export default async function handler(req, res) {
   const crm = crmStatus();
   const queue = queueStatus();
   const store = await storeStatus();
+  const voiceStudio = await voiceStudioHealth();
 
   const brain = {
     provider: (process.env.LLM_PROVIDER || 'gemini').toLowerCase(),
@@ -43,6 +44,9 @@ export default async function handler(req, res) {
   if (!queue.configured) blockers.push('dial_queue_not_configured');
   if (!process.env.OUTBOUND_CALLER_ID) blockers.push('outbound_caller_id_missing');
   if (compliance.mode === 'dev') blockers.push('COMPLIANCE_MODE=dev — must be strict before real dials');
+  // Configured-but-down is the dangerous shape: it looks wired and silently
+  // costs a hop on every single line Anaga speaks.
+  if (voiceStudio.configured && !voiceStudio.reachable) blockers.push('voicestudio_unreachable');
 
   return res.status(200).json({
     ok: true,
@@ -54,6 +58,7 @@ export default async function handler(req, res) {
     },
     brain,
     tts: ttsStatus(),
+    voiceStudio,
     translate: { mode: translateMode(), auth: googleAuthMode() },
     store,
     meta,

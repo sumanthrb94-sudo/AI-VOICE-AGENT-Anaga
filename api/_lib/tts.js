@@ -98,6 +98,40 @@ export function ttsAvailable() {
   return providerChain().some(providerReady);
 }
 
+/**
+ * Is the self-hosted box actually up? Configured and reachable are different
+ * facts: a VOICESTUDIO_URL pointing at a stopped container looks identical to a
+ * working one until the first call needs audio. Never throws.
+ */
+export async function voiceStudioHealth() {
+  const base = String(process.env.VOICESTUDIO_URL || '').replace(/\/+$/, '');
+  if (!base) return { configured: false, reachable: false };
+
+  const headers = {};
+  if (process.env.VOICESTUDIO_API_KEY) headers.Authorization = `Bearer ${process.env.VOICESTUDIO_API_KEY}`;
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 4000);
+  try {
+    const res = await fetch(`${base}/v1/audio/voices`, { headers, signal: ctrl.signal });
+    if (!res.ok) return { configured: true, reachable: false, error: `http_${res.status}` };
+    const data = await res.json();
+    return {
+      configured: true,
+      reachable: true,
+      // Count only — voice ids can carry a person's name, and this endpoint is
+      // read by anyone with the operator key.
+      voices: Array.isArray(data?.voices) ? data.voices.length : 0,
+      male: Boolean(process.env.VOICESTUDIO_VOICE_MALE),
+      female: Boolean(process.env.VOICESTUDIO_VOICE_FEMALE),
+    };
+  } catch (err) {
+    return { configured: true, reachable: false, error: err?.name === 'AbortError' ? 'timeout' : 'unreachable' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** For the health endpoint and the /api/tts probe. */
 export function ttsStatus() {
   const chain = providerChain();

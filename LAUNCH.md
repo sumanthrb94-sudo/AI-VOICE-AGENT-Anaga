@@ -3,7 +3,7 @@
 An honest state-of-the-system. Written so nobody discovers a gap the week of launch.
 
 **Bottom line:** the software path from *a Facebook lead* to *a CRM note* is built
-and QA-tested end to end — 190 automated tests, including the compliance gate, the
+and QA-tested end to end — 208 automated tests, including the compliance gate, the
 opt-out path, a full call driven over a real WebSocket, and live round-trips
 against the production Firestore project. **It cannot legally
 place a real call yet**, and every remaining blocker is now either a one-call
@@ -18,6 +18,7 @@ node --experimental-detect-module scripts/test-media-server.mjs   # 13
 node --experimental-detect-module scripts/test-firestore.mjs      # 12
 node --experimental-detect-module scripts/test-echo.mjs           # 16
 node --experimental-detect-module scripts/test-voice.mjs          # 36
+node --experimental-detect-module scripts/test-voicestudio.mjs    # 18
 node --experimental-detect-module scripts/simulate-echo.mjs       # echo simulation
 node scripts/test-browser-echo.mjs                                # 6 (real Chromium)
 node scripts/test-browser-voice.mjs                               # 10 (real Chromium)
@@ -49,6 +50,8 @@ CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
 | **TTS provider chain (self-hosted → Google Cloud → Google Translate → Sarvam)** | `api/_lib/tts.js` | voice QA (36) |
 | Translation (Cloud Translation → free endpoint → English) | `api/_lib/translate.js`, `api/translate.js` | voice QA (36) |
 | Male voice, and saying so when it can't be served | `web/assets/app.js`, `web/index.html` | real-Chromium QA (10) |
+| **Self-hosted voice on the call leg** (TTS + STT, WAV rate conversion) | `caller-agent/src/providers/speech.js` | VoiceStudio QA (18) |
+| Self-hosted deployment that cannot quietly expose itself | `deploy/voicestudio/` | VoiceStudio QA §5 |
 
 ### Invariants the tests actually hold you to
 
@@ -100,6 +103,13 @@ The Sarvam TTS path mirrors the code the live web demo already uses. The **STT p
 has never seen 8kHz μ-law from a phone line**, which is materially harder than
 browser mic audio. Number and name accuracy on real telephony audio is an explicit
 acceptance criterion in the spec and is **not yet met**.
+
+**The experiment is now cheap, which is new.** `STT_PROVIDER=voicestudio` puts
+WhisperX, Faster-Whisper, Parakeet, FunASR and sherpa-onnx behind one endpoint on
+a box we run, so this is no longer "buy a vendor and hope": record one real call,
+replay it through several engines, measure number and name accuracy — those are
+what the flow actually extracts (budget, BHK, the caller's name). See
+`deploy/voicestudio/README.md` §5. Until that runs, `STT_PROVIDER=sarvam`.
 
 ### 4. No durable datastore — CODE DONE, **NOT SET ON THE DEPLOYMENT**
 

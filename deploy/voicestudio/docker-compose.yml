@@ -1,0 +1,100 @@
+# Vaak — self-hosted voice engine for Anaga
+#
+# Runs VoiceStudio (github.com/debpalash/VoiceStudio, AGPL-3.0) as a private
+# service that api/_lib/tts.js and caller-agent/src/providers/speech.js call
+# over its OpenAI-compatible API.
+#
+# ── LICENCE ───────────────────────────────────────────────────────────────
+# This pulls their PUBLISHED, UNMODIFIED image. We copy no source and patch
+# nothing, which is what keeps the AGPL's network clause off our own code.
+# If you ever edit the image or the app, read
+# engineering/VOICESTUDIO_REFERENCE.md §1 first — a modified build served over
+# a network obliges us to publish that modified source under AGPL-3.0.
+#
+# ── SECURITY: READ BEFORE CHANGING THE PORT MAPPING ───────────────────────
+# VoiceStudio ships NO AUTHENTICATION on loopback. The 127.0.0.1 prefix below
+# is the only thing standing between this and an open TTS/ASR service on the
+# public internet — one that will happily transcribe anything anyone uploads.
+# Do NOT change it to "3900:3900" or "0.0.0.0:3900:3900".
+#
+# To reach it from the API host, pick ONE:
+#   * same host        — leave as is, VOICESTUDIO_URL=http://127.0.0.1:3900
+#   * private network  — a WireGuard/Tailscale address, still not 0.0.0.0
+#   * reverse proxy    — Caddy/nginx with auth, and set VOICESTUDIO_API_KEY
+#
+# ── DATA RESIDENCY ────────────────────────────────────────────────────────
+# Run this on an Indian region host. docs/COMPLIANCE.md requires Indian data
+# residency, and the whole reason to self-host is that the prospect's audio
+# never leaves infrastructure we control. A box in us-east-1 throws that away
+# and keeps only the cost saving.
+#
+#   docker compose -f deploy/voicestudio/docker-compose.yml --profile gpu up -d
+#
+# First run downloads several GB of models; watch `docker compose logs -f`.
+# Then: node scripts/voicestudio-voices.mjs
+
+services:
+  # ── GPU (NVIDIA) — what a real call needs ────────────────────────────────
+  voicestudio:
+    image: ghcr.io/debpalash/omnivoice-studio:latest
+    container_name: vaak-voicestudio
+    profiles: ["gpu"]
+    ports:
+      - "127.0.0.1:3900:3900"       # see SECURITY above before touching this
+    volumes:
+      - voicestudio-data:/app/omnivoice_data
+    environment:
+      - HF_HOME=/app/omnivoice_data/huggingface
+      - HF_TOKEN=${HF_TOKEN:-}
+      - OMNIVOICE_DATA_DIR=/app/omnivoice_data
+      - PYTHONPATH=/app/backend
+      - PYTHONUNBUFFERED=1
+      # Binds the CONTAINER's interface so the host mapping can forward in.
+      # Host-side loopback-only is enforced by the "127.0.0.1:" prefix above.
+      - OMNIVOICE_BIND_HOST=0.0.0.0
+      - OMNIVOICE_SERVER_MODE=1     # headless: relax the desktop origin gate
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3900/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s            # model download on first boot
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # ── CPU — for trying it out, NOT for calls ───────────────────────────────
+  # Most engines are far slower than realtime on CPU. A phone call forgives
+  # about 300ms of silence; this profile will not meet that. Use it to check
+  # the wiring and to audition voices, then move to the gpu profile.
+  voicestudio-cpu:
+    image: ghcr.io/debpalash/omnivoice-studio:latest
+    container_name: vaak-voicestudio-cpu
+    profiles: ["cpu"]
+    ports:
+      - "127.0.0.1:3900:3900"
+    volumes:
+      - voicestudio-data:/app/omnivoice_data
+    environment:
+      - HF_HOME=/app/omnivoice_data/huggingface
+      - HF_TOKEN=${HF_TOKEN:-}
+      - OMNIVOICE_DATA_DIR=/app/omnivoice_data
+      - PYTHONPATH=/app/backend
+      - PYTHONUNBUFFERED=1
+      - OMNIVOICE_BIND_HOST=0.0.0.0
+      - OMNIVOICE_SERVER_MODE=1
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3900/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  voicestudio-data:
