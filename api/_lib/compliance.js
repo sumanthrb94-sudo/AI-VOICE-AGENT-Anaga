@@ -20,8 +20,15 @@ import { normalizePhone } from './integrations/lead.js';
 import * as store from './store.js';
 
 const CONSENT_WINDOW_DAYS = Number(process.env.LEAD_CONSENT_WINDOW_DAYS || 90);
-const QUIET_START_HOUR = Number(process.env.CALLING_WINDOW_START_IST || 9);   // 09:00 IST
-const QUIET_END_HOUR = Number(process.env.CALLING_WINDOW_END_IST || 21);      // 21:00 IST
+
+// Read at CALL time, not at import. These were module-level consts, which meant
+// the legal calling window was frozen at process start: a test that set it got
+// silently ignored, and the suite went green in isolation while asserting
+// something untrue under other env. A value that decides whether dialling a
+// stranger at 23:30 is lawful should not be the one value in this file that
+// cannot be checked. isDevMode() already reads at call time; these now match.
+const quietStartHour = () => Number(process.env.CALLING_WINDOW_START_IST || 9);   // 09:00 IST
+const quietEndHour = () => Number(process.env.CALLING_WINDOW_END_IST || 21);      // 21:00 IST
 
 /** dev mode = allowed to run without a scrub provider. Strict by default. */
 export function isDevMode() {
@@ -37,7 +44,7 @@ export function complianceStatus() {
     suppressionList: store.storeBackend() === 'firestore' || Boolean(process.env.SUPPRESSION_LIST_URL),
     suppressionBackend: store.storeBackend() === 'firestore' ? 'firestore' : (process.env.SUPPRESSION_LIST_URL ? 'http' : 'none'),
     consentWindowDays: CONSENT_WINDOW_DAYS,
-    callingWindowIST: `${QUIET_START_HOUR}:00-${QUIET_END_HOUR}:00`,
+    callingWindowIST: `${quietStartHour()}:00-${quietEndHour()}:00`,
   };
 }
 
@@ -176,7 +183,7 @@ export function istHour(now = new Date()) {
 
 export function withinCallingWindow(now = new Date()) {
   const h = istHour(now);
-  return h >= QUIET_START_HOUR && h < QUIET_END_HOUR;
+  return h >= quietStartHour() && h < quietEndHour();
 }
 
 // ---------------------------------------------------------------------------

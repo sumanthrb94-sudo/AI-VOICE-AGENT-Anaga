@@ -87,11 +87,24 @@ export default async function handler(req, res) {
   }
 
   // --- 3. CRM writeback (best effort, never fails the request) ------------
+  // Accept only an opaque s3:// reference. A caller that sends a playable URL
+  // (an older agent, or a telephony provider's own recording link) must not be
+  // able to get it written into a CRM note — see _lib/recording.js.
+  const recordingRef = typeof call.recordingRef === 'string' && /^s3:\/\//.test(call.recordingRef)
+    ? call.recordingRef
+    : null;
+  if (!recordingRef && call.recordingUrl) {
+    log('RECORDING_URL_REJECTED', {
+      rid, callId: call.id || null,
+      detail: 'a playable URL was sent; only s3:// references are stored',
+    });
+  }
+
   const written = await crm.logCall(lead, review, {
     id: call.id || null,
     startedAt: call.startedAt || null,
     durationSec: Number(call.durationSec) || null,
-    recordingUrl: call.recordingUrl || null,
+    recordingRef,
     history,
   });
 
@@ -107,6 +120,10 @@ export default async function handler(req, res) {
     durationSec: Number(call.durationSec) || null,
     nextAction: review.nextAction || null,
     reviewedBy: review.generatedBy,
+    // The audit trail docs/COMPLIANCE.md asks for: the event carries the
+    // recording REFERENCE, so a call can be evidenced without the audio being
+    // reachable from the event itself.
+    recordingRef,
   });
 
   return res.status(200).json({
@@ -116,6 +133,7 @@ export default async function handler(req, res) {
     optOut: optedOut,
     suppression: suppression ? { ok: suppression.ok, durable: suppression.durable, error: suppression.error } : null,
     crm: { provider: crm.crmProvider(), logged: written.ok, error: written.error, dncFlagged: dnc ? dnc.ok : null },
+    recording: recordingRef ? { stored: true } : { stored: false },
   });
 }
 

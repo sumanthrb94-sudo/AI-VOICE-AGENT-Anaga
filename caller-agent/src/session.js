@@ -23,6 +23,7 @@
 //      account for is a compliance hole.
 
 import { detectOptOut } from './optout.js';
+import { storeRecording } from './recording.js';
 
 export const MAX_TURNS = Number(process.env.CALL_MAX_TURNS || 24);
 export const MAX_SECONDS = Number(process.env.CALL_MAX_SECONDS || 300);
@@ -182,6 +183,28 @@ export async function runCall({ job, telephony, brain, persona, now = () => Date
       error: errorMessage,
     };
 
+    // ---- recording ---------------------------------------------------------
+    // Uploaded BEFORE the outcome is reported, so the reference can travel with
+    // it — but never allowed to block the report. docs/COMPLIANCE.md wants the
+    // recording; an unreported opt-out is still the worse failure, so a storage
+    // outage costs us the audio and nothing else.
+    let recordingRef = null;
+    if (typeof telephony.recording === 'function') {
+      try {
+        const audio = await telephony.recording();
+        if (audio && audio.length) {
+          const put = await storeRecording({ callId, audio, startedAt });
+          recordingRef = put.ref;
+          if (!put.ok) {
+            log('recording_not_stored', { callId, error: put.error, severity: 'high' });
+          }
+        }
+      } catch (err) {
+        log('recording_capture_failed', { callId, error: String(err && err.message) });
+      }
+    }
+    result.recordingRef = recordingRef;
+
     // Reporting is best-effort at the transport level but never skipped: an
     // unreported opt-out is the worst failure this system has.
     try {
@@ -191,7 +214,9 @@ export async function runCall({ job, telephony, brain, persona, now = () => Date
           startedAt,
           durationSec: result.durationSec,
           disposition,
-          recordingUrl: null,
+          // An opaque s3:// reference. The API rejects playable URLs outright —
+          // see api/_lib/recording.js.
+          recordingRef,
         },
         lead: {
           phone: lead.phone,

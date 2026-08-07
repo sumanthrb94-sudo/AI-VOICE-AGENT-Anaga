@@ -12,6 +12,7 @@ import { crmStatus } from '../_lib/integrations/crm.js';
 import { complianceStatus } from '../_lib/compliance.js';
 import { queueStatus } from '../_lib/queue.js';
 import { ttsStatus, voiceStudioHealth } from '../_lib/tts.js';
+import { recordingStatus } from '../_lib/recording.js';
 import { translateMode } from '../_lib/translate.js';
 import { googleAuthMode } from '../_lib/google.js';
 import { storeStatus } from '../_lib/store.js';
@@ -25,6 +26,7 @@ export default async function handler(req, res) {
   const queue = queueStatus();
   const store = await storeStatus();
   const voiceStudio = await voiceStudioHealth();
+  const recording = recordingStatus();
 
   const brain = {
     provider: (process.env.LLM_PROVIDER || 'gemini').toLowerCase(),
@@ -47,6 +49,12 @@ export default async function handler(req, res) {
   // Configured-but-down is the dangerous shape: it looks wired and silently
   // costs a hop on every single line Anaga speaks.
   if (voiceStudio.configured && !voiceStudio.reachable) blockers.push('voicestudio_unreachable');
+  // docs/COMPLIANCE.md requires recordings on Indian infrastructure with 90-day
+  // retention. Unconfigured is a blocker; configured-but-non-Indian is worse,
+  // because it looks done.
+  if (!recording.configured) blockers.push('call_recording_not_configured');
+  else if (!recording.indianRegion && !recording.overrideActive) blockers.push(`recording_region_not_indian:${recording.region}`);
+  else if (recording.overrideActive) blockers.push('RECORDING_ALLOW_NON_INDIAN_REGION=1 — recordings are leaving India');
 
   return res.status(200).json({
     ok: true,
@@ -59,6 +67,7 @@ export default async function handler(req, res) {
     brain,
     tts: ttsStatus(),
     voiceStudio,
+    recording,
     translate: { mode: translateMode(), auth: googleAuthMode() },
     store,
     meta,

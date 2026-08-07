@@ -140,10 +140,24 @@ await t('opt-out suppression blocks the next check (dev mode)', async () => {
   assert.equal(g.reason, 'suppressed');
 });
 await t('calling window respects IST', () => {
-  const h = comp.istHour(new Date('2026-08-03T04:00:00Z'));   // 09:30 IST
-  assert.equal(h, 9);
-  assert.equal(comp.withinCallingWindow(new Date('2026-08-03T04:00:00Z')), true);
-  assert.equal(comp.withinCallingWindow(new Date('2026-08-03T18:00:00Z')), false); // 23:30 IST
+  // Pin the window rather than inheriting it. This test used to read whatever
+  // CALLING_WINDOW_*_IST the shell happened to carry, so running it alongside
+  // the E2E suite (which sets 0-24 to test other things) made it assert that
+  // 23:30 IST is outside a window covering the whole day — and it went green in
+  // isolation, which is the worst way for a compliance test to be wrong.
+  const prev = [process.env.CALLING_WINDOW_START_IST, process.env.CALLING_WINDOW_END_IST];
+  process.env.CALLING_WINDOW_START_IST = '9';
+  process.env.CALLING_WINDOW_END_IST = '21';
+  try {
+    const h = comp.istHour(new Date('2026-08-03T04:00:00Z'));   // 09:30 IST
+    assert.equal(h, 9);
+    assert.equal(comp.withinCallingWindow(new Date('2026-08-03T04:00:00Z')), true);
+    assert.equal(comp.withinCallingWindow(new Date('2026-08-03T18:00:00Z')), false); // 23:30 IST
+  } finally {
+    [process.env.CALLING_WINDOW_START_IST, process.env.CALLING_WINDOW_END_IST] = prev;
+    if (prev[0] === undefined) delete process.env.CALLING_WINDOW_START_IST;
+    if (prev[1] === undefined) delete process.env.CALLING_WINDOW_END_IST;
+  }
 });
 
 console.log('\npipeline');

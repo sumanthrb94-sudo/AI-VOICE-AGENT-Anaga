@@ -3,7 +3,7 @@
 An honest state-of-the-system. Written so nobody discovers a gap the week of launch.
 
 **Bottom line:** the software path from *a Facebook lead* to *a CRM note* is built
-and QA-tested end to end — 208 automated tests, including the compliance gate, the
+and QA-tested end to end — 227 automated tests, including the compliance gate, the
 opt-out path, a full call driven over a real WebSocket, and live round-trips
 against the production Firestore project. **It cannot legally
 place a real call yet**, and every remaining blocker is now either a one-call
@@ -19,6 +19,7 @@ node --experimental-detect-module scripts/test-firestore.mjs      # 12
 node --experimental-detect-module scripts/test-echo.mjs           # 16
 node --experimental-detect-module scripts/test-voice.mjs          # 36
 node --experimental-detect-module scripts/test-voicestudio.mjs    # 18
+node --experimental-detect-module scripts/test-recording.mjs      # 19
 node --experimental-detect-module scripts/simulate-echo.mjs       # echo simulation
 node scripts/test-browser-echo.mjs                                # 6 (real Chromium)
 node scripts/test-browser-voice.mjs                               # 10 (real Chromium)
@@ -50,6 +51,7 @@ CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
 | **TTS provider chain (self-hosted → Google Cloud → Google Translate → Sarvam)** | `api/_lib/tts.js` | voice QA (36) |
 | Translation (Cloud Translation → free endpoint → English) | `api/_lib/translate.js`, `api/translate.js` | voice QA (36) |
 | Male voice, and saying so when it can't be served | `web/assets/app.js`, `web/index.html` | real-Chromium QA (10) |
+| **Call recording — Indian-region gate, no public URLs, DPDP erasure** | `api/_lib/recording.js`, `api/calls/recording.js` | recording QA (19) |
 | **Self-hosted voice on the call leg** (TTS + STT, WAV rate conversion) | `caller-agent/src/providers/speech.js` | VoiceStudio QA (18) |
 | Self-hosted deployment that cannot quietly expose itself | `deploy/voicestudio/` | VoiceStudio QA §5 |
 
@@ -76,6 +78,10 @@ CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
 - A translation outage returns the **original English**, never silence.
 - The AI disclosure is never machine-translated — its per-language wording,
   including the masculine Hindi form, is versioned in the persona file.
+- A recording is **refused** when the configured region is not Indian — refused,
+  not warned about, so nothing is uploaded to the wrong jurisdiction.
+- No playable recording URL reaches a CRM note, an event, or a log. Playback
+  requires the operator key and expires in minutes.
 
 ---
 
@@ -159,14 +165,39 @@ Dependency-free: the Firestore REST API with a service-account JWT signed by
 - [ ] DND scrub provider contract (`DND_SCRUB_URL`)
 - [ ] Call recording storage on Indian soil, 90-day retention (`RECORDING_BUCKET`)
 
-Recording is **not implemented**. The spec requires it; `recordingUrl` is plumbed
-through to the CRM note but nothing writes one.
+~~Recording is **not implemented**.~~ **Implemented.** `api/_lib/recording.js`
+stores to any S3-compatible bucket with a hand-rolled SigV4 signature, and two
+rules fail closed:
+
+1. **A non-Indian region is refused, not warned about.** Nothing is uploaded.
+   `RECORDING_ALLOW_NON_INDIAN_REGION=1` overrides it and is reported as a
+   blocker by `/health`.
+2. **No playable URL ever reaches a CRM.** What is stored and written is an
+   opaque `s3://` reference; playback goes through
+   `GET /api/calls/recording` behind the operator key and mints a URL that
+   expires in minutes. `DELETE` on the same endpoint is the DPDP erasure path.
+
+**What is still yours to do:** the 90-day expiry is a **bucket lifecycle rule**,
+set in your provider's console. This code cannot see it and does not claim to
+enforce it — `recordingStatus().retentionEnforcedBy` says `bucket_lifecycle_policy`
+for exactly that reason. Set the rule, then verify it.
 
 ---
 
 ## Pre-flight checklist
 
 Do not dial a real number until every box is ticked.
+
+One command answers most of this against the LIVE deployment — not the repo,
+which is the distinction that made this document wrong about Firestore for weeks:
+
+```bash
+BASE=https://your-deploy.vercel.app CALLER_AGENT=https://agent.internal \
+  node scripts/preflight.mjs
+```
+
+Exit 0 only when every automated gate is green; it names what is missing and
+prints the hand-checked list it cannot verify. Underneath it is just:
 
 ```bash
 curl -s "$BASE/api/integrations/health" | jq '.ready.production, .blockers'

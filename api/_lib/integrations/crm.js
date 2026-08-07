@@ -106,7 +106,13 @@ export function renderCallNote(lead, review, call = {}) {
     .map((k) => `  • ${k}: ${known[k]}`);
   if (qualifiedLines.length) { L.push('Qualified:'); L.push(...qualifiedLines); L.push(''); }
 
-  if (call.recordingUrl) L.push(`Recording: ${call.recordingUrl}`);
+  // A REFERENCE, never a playable URL. Anything written here is readable by
+  // every rep with CRM access, every integration attached to it, and every
+  // future export of it — a durable link to a customer's phone call does not
+  // belong in that blast radius. Playback goes through
+  // GET /api/calls/recording, which needs the operator key and mints a URL
+  // that dies in five minutes.
+  if (call.recordingRef) L.push(`Recording: ${call.recordingRef} (playback requires operator access)`);
   if (Array.isArray(call.history) && call.history.length) {
     L.push('');
     L.push('Transcript:');
