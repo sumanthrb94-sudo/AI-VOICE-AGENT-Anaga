@@ -1,7 +1,7 @@
 # Go-live — the exact remaining steps
 
-Checked against `https://ai-voice-agent-anaga.vercel.app` on **2026-08-07**, on
-commit `9299e2b`. Live output, not a plan:
+Checked against the live deployment on **2026-08-07**, on commit `b192673`.
+Live output, not a plan:
 
 ```json
 "ready": { "demo": true, "production": false }
@@ -9,9 +9,15 @@ commit `9299e2b`. Live output, not a plan:
   "meta_lead_ads_not_wired", "integrations_api_key_missing",
   "dnd_scrub_not_configured", "suppression_list_not_configured",
   "datastore_not_durable", "dial_queue_not_configured",
-  "outbound_caller_id_missing"
+  "outbound_caller_id_missing", "call_recording_not_configured"
 ]
 ```
+
+That is **eight**, one more than before implementing call recording. Building it
+correctly *added* a blocker rather than removing one: the requirement in
+`docs/COMPLIANCE.md` existed the whole time, and until it was implemented the
+health endpoint could not see that it was unmet. A readiness list that grows
+when you build the thing it asks for is the list working.
 
 **Every one of those is an unset environment variable or a business
 prerequisite. None is unwritten code.** Re-check any time with:
@@ -51,7 +57,7 @@ so no lead push and no outcome report is accepted at all.
 
 ### 3. Recording — closes `call_recording_not_configured`
 
-Appears as a blocker once `cc2633c` is live. An S3-compatible bucket in
+An S3-compatible bucket in
 **`ap-south-1` (Mumbai)** or **`ap-south-2` (Hyderabad)**:
 
 ```
@@ -123,7 +129,9 @@ The pre-flight cannot check these. Nothing can, except doing them:
 - [ ] Telemarketer registration
 - [ ] The bucket lifecycle rule really expires objects at 90 days
 - [ ] Gemini quota restored — the brain answers `503 quota_exceeded` today, so
-      Anaga reads the offline script instead of thinking
+      Anaga reads the offline script instead of thinking. **Check the request
+      count in the Google console before topping it up**: `/api/anaga/turn` was
+      public and unmetered until `b192673`, so the drain may not have been you.
 - [ ] One real call to a **consenting internal number**, end to end
 - [ ] That call's opt-out verified to reach the suppression list, and a re-dial
       of the same number verified to be **refused**
