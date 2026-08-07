@@ -8,7 +8,21 @@
 // browser falls back to its on-device voice — but the chain in _lib/tts.js means
 // that now takes every provider failing, not one.
 
+//
+// ── THIS ENDPOINT SPENDS MONEY AND IS PUBLIC ──────────────────────────────
+// The browser demo calls it with no credential, so it cannot require one — but
+// it was also unmetered, which means anyone (or a crawler) could bill the
+// Gemini/Sarvam account one request at a time from a URL that is indexed.
+// The account's quota being exhausted mid-session is exactly what an unmetered
+// paid endpoint on a public URL looks like.
+//
+// The limiter in guard.js is a per-instance dampener, NOT a hard cap — Vercel
+// scales out and each instance counts separately. It raises the cost of a naive
+// loop; it does not stop a distributed one. For a real ceiling put Vercel WAF or
+// Cloudflare in front, or require a key and drop the anonymous demo.
+
 import { ttsAvailable, ttsStatus, synth } from './_lib/tts.js';
+import { limited } from './_lib/guard.js';
 
 export default async function handler(req, res) {
   // Capability probe — lets the browser decide whether to use cloud voices, and
@@ -21,6 +35,9 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'method_not_allowed' });
   }
+
+  // Metered before any paid provider is touched.
+  if (limited(req, res, { bucket: 'tts', limit: Number(process.env.RATE_LIMIT_TTS || 60) })) return;
 
   let body = req.body;
   if (typeof body === 'string') {

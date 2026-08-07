@@ -10,7 +10,21 @@
 // browser renders a local heuristic review. Bad input -> 400 (never a 500).
 // Secrets/stack traces are never leaked.
 
+//
+// ── THIS ENDPOINT SPENDS MONEY AND IS PUBLIC ──────────────────────────────
+// The browser demo calls it with no credential, so it cannot require one — but
+// it was also unmetered, which means anyone (or a crawler) could bill the
+// Gemini/Sarvam account one request at a time from a URL that is indexed.
+// The account's quota being exhausted mid-session is exactly what an unmetered
+// paid endpoint on a public URL looks like.
+//
+// The limiter in guard.js is a per-instance dampener, NOT a hard cap — Vercel
+// scales out and each instance counts separately. It raises the cost of a naive
+// loop; it does not stop a distributed one. For a real ceiling put Vercel WAF or
+// Cloudflare in front, or require a key and drop the anonymous demo.
+
 import { generate } from '../_lib/llm.js';
+import { limited } from '../_lib/guard.js';
 import { summaryPrompt, SUMMARY_DISPOSITIONS } from '../_lib/prompts.js';
 
 export default async function handler(req, res) {
@@ -18,6 +32,9 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'method_not_allowed' });
   }
+
+  // Metered before any paid provider is touched.
+  if (limited(req, res, { bucket: 'anaga_summary', limit: Number(process.env.RATE_LIMIT_SUMMARY || 10) })) return;
 
   // Parse body robustly: Vercel may hand us a parsed object or a raw string.
   let body = req.body;

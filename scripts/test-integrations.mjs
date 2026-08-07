@@ -365,5 +365,53 @@ await t('wrong method -> 405 with Allow', async () => {
   assert.equal(res.headers['Allow'], 'POST');
 });
 
+console.log('\npaid public endpoints are metered');
+
+await t('the LLM turn endpoint stops calling the provider once limited', async () => {
+  // These endpoints take no credential — the browser demo calls them anonymously
+  // — and each one bills Gemini or Sarvam per request from a URL that is
+  // indexed. Unmetered, a single loop drains the account, which is what an
+  // exhausted quota with nobody using the product looks like.
+  process.env.RATE_LIMIT_TURN = '3';
+  const turn = (await import(`${R}/api/anaga/turn.js`)).default;
+
+  const realFetch = globalThis.fetch;
+  let providerCalls = 0;
+  globalThis.fetch = async () => { providerCalls++; return { ok: false, status: 500, json: async () => ({}), text: async () => '' }; };
+  process.env.GEMINI_API_KEY = 'test-key';
+
+  const ip = '203.0.113.' + Math.floor(Math.random() * 200);   // fresh bucket
+  const req = () => ({ method: 'POST', headers: { 'x-forwarded-for': ip }, body: { history: [], lead: {} }, socket: {} });
+  const codes = [];
+  for (let i = 0; i < 6; i++) { const r = mkRes(); await turn(req(), r); codes.push(r.statusCode); }
+
+  globalThis.fetch = realFetch;
+  delete process.env.GEMINI_API_KEY;
+
+  assert.equal(codes.filter((c) => c === 429).length, 3, `expected 3 rejections, got ${codes.join(',')}`);
+  assert.ok(providerCalls <= 3, `the provider was called ${providerCalls} times despite the limit`);
+});
+
+await t('a different caller is unaffected — the limit is per client, not global', async () => {
+  // Without this the test above would pass against a handler that 429s everyone.
+  process.env.RATE_LIMIT_TURN = '3';
+  const turn = (await import(`${R}/api/anaga/turn.js`)).default;
+  const r = mkRes();
+  await turn({ method: 'POST', headers: { 'x-forwarded-for': '198.51.100.7' }, body: { history: [], lead: {} }, socket: {} }, r);
+  assert.notEqual(r.statusCode, 429);
+});
+
+await t('the free /api/tts capability probe is never rate limited', async () => {
+  // The browser hits GET /api/tts on every page load and it costs nothing.
+  // Metering it would break the voice on a busy day for no saving.
+  process.env.RATE_LIMIT_TTS = '2';
+  const tts = (await import(`${R}/api/tts.js`)).default;
+  for (let i = 0; i < 5; i++) {
+    const r = mkRes();
+    await tts({ method: 'GET', headers: { 'x-forwarded-for': '192.0.2.9' }, socket: {} }, r);
+    assert.equal(r.statusCode, 200, 'the GET probe must stay free');
+  }
+});
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

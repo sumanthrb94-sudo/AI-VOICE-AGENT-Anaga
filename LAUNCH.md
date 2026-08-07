@@ -3,7 +3,7 @@
 An honest state-of-the-system. Written so nobody discovers a gap the week of launch.
 
 **Bottom line:** the software path from *a Facebook lead* to *a CRM note* is built
-and QA-tested end to end — 241 automated tests, including the compliance gate, the
+and QA-tested end to end — 244 automated tests, including the compliance gate, the
 opt-out path, a full call driven over a real WebSocket, and live round-trips
 against the production Firestore project. **It cannot legally
 place a real call yet**, and every remaining blocker is now either a one-call
@@ -12,7 +12,7 @@ verification spike or a business/legal prerequisite — not unwritten code.
 Run the suites yourself:
 
 ```bash
-node --experimental-detect-module scripts/test-integrations.mjs   # 46
+node --experimental-detect-module scripts/test-integrations.mjs   # 49
 node --experimental-detect-module scripts/test-media.mjs          # 12
 node --experimental-detect-module scripts/test-media-server.mjs   # 18
 node --experimental-detect-module scripts/test-firestore.mjs      # 12
