@@ -16,15 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
-    env:
-      # The E2E suite exercises the dial path, which is legally restricted to
-      # 09:00-21:00 IST. CI runs at arbitrary UTC times, so the window is
-      # widened HERE ONLY. The window logic itself is asserted in its own test
-      # below with the real bounds — widening it in CI must never mean it goes
-      # untested.
-      CALLING_WINDOW_START_IST: '0'
-      CALLING_WINDOW_END_IST: '24'
-
     steps:
       - uses: actions/checkout@v4
 
@@ -67,17 +58,20 @@ jobs:
         run: node --experimental-detect-module scripts/test-media-server.mjs
 
       - name: End-to-end QA (Meta lead → call → CRM writeback)
-        # The window is opened for THIS SUITE ONLY, which is how README.md and
-        # LAUNCH.md have always documented running it — CI just never got the
-        # env. Without it this job passed only when the runner happened to fire
-        # between 03:30 and 15:30 UTC (09:00-21:00 IST) and failed the rest of
-        # the day: the repo's most important suite was a coin flip on what time
-        # someone pushed, which is worse than having no gate, because a red
-        # build that clears itself teaches everyone to ignore it.
+        # STEP-scoped, never job-scoped. This suite exercises the dial path,
+        # which is legally restricted to 09:00-21:00 IST, and CI runs at
+        # arbitrary UTC times — so it needs the window open.
         #
-        # This does NOT weaken the calling-window check. That invariant has its
-        # own dedicated step below, with the real 9-21 bounds pinned, and the
-        # suite tests the pipeline rather than the clock.
+        # It used to be set on the JOB, which handed an open calling window to
+        # every other step too. That silently broke the one test asserting the
+        # real 9-21 bounds ("calling window respects IST": true == false) and
+        # left CI red from 2d6c48f through 3d7fa4a — including 9299e2b, which
+        # was promoted to production while its build was failing.
+        #
+        # The old comment on that block even said "widening it in CI must never
+        # mean it goes untested", which is exactly what happened. Scope is the
+        # fix: an env that relaxes a compliance bound belongs on the one step
+        # that needs it and nowhere else.
         env:
           CALLING_WINDOW_START_IST: '0'
           CALLING_WINDOW_END_IST: '24'
