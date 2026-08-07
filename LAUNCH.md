@@ -3,7 +3,7 @@
 An honest state-of-the-system. Written so nobody discovers a gap the week of launch.
 
 **Bottom line:** the software path from *a Facebook lead* to *a CRM note* is built
-and QA-tested end to end — 229 automated tests, including the compliance gate, the
+and QA-tested end to end — 230 automated tests, including the compliance gate, the
 opt-out path, a full call driven over a real WebSocket, and live round-trips
 against the production Firestore project. **It cannot legally
 place a real call yet**, and every remaining blocker is now either a one-call
@@ -22,7 +22,7 @@ node --experimental-detect-module scripts/test-voicestudio.mjs    # 18
 node --experimental-detect-module scripts/test-recording.mjs      # 21
 node --experimental-detect-module scripts/simulate-echo.mjs       # echo simulation
 node scripts/test-browser-echo.mjs                                # 6 (real Chromium)
-node scripts/test-browser-voice.mjs                               # 10 (real Chromium)
+node scripts/test-browser-voice.mjs                               # 11 (real Chromium)
 CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
   node --experimental-detect-module scripts/test-e2e.mjs          # 38
 ```
@@ -50,7 +50,7 @@ CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
 | Browser demo: echo rejection + global opt-out | `web/assets/app.js` | real-Chromium QA (6) |
 | **TTS provider chain (self-hosted → Google Cloud → Google Translate → Sarvam)** | `api/_lib/tts.js` | voice QA (36) |
 | Translation (Cloud Translation → free endpoint → English) | `api/_lib/translate.js`, `api/translate.js` | voice QA (36) |
-| Male voice, and saying so when it can't be served | `web/assets/app.js`, `web/index.html` | real-Chromium QA (10) |
+| Male voice, and saying so when it can't be served | `web/assets/app.js`, `web/index.html` | real-Chromium QA (11) |
 | **Call recording — Indian-region gate, no public URLs, DPDP erasure** | `api/_lib/recording.js`, `api/calls/recording.js` | recording QA (21) |
 | **Self-hosted voice on the call leg** (TTS + STT, WAV rate conversion) | `caller-agent/src/providers/speech.js` | VoiceStudio QA (18) |
 | Self-hosted deployment that cannot quietly expose itself | `deploy/voicestudio/` | VoiceStudio QA §5 |

@@ -255,6 +255,51 @@ await t('and the chip warns rather than presenting a woman as "Arjun"', async ()
   assert.match(title, /no male voice/i, `the reason must be readable, got: ${title}`);
 });
 
+await t('XSS: a hostile LLM reply cannot execute in the transcript', async () => {
+  // Everything that reaches addBubble is attacker-reachable: the model's reply
+  // (which echoes what the caller just said), the translation response, and the
+  // caller's own speech. This page keeps a visitor-supplied Gemini API key in
+  // localStorage, so script execution here is credential theft.
+  const result = await page.evaluate(async () => {
+    window.__xss = false;
+    localStorage.setItem('vaak_canary', 'secret-key-value');
+    const t = document.getElementById('call-transcript');
+    const before = t.querySelectorAll('.bubble').length;
+
+    // Drive the real renderer through the real text path.
+    const input = document.getElementById('call-textinput');
+    const form = document.getElementById('call-textform');
+    input.value = '<img src=x onerror="window.__xss=true">';
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 600));
+
+    const bubbles = [...t.querySelectorAll('.bubble')];
+    const added = bubbles.length > before;
+    const withImg = bubbles.filter((b) => b.querySelector('img')).length;
+    const shown = bubbles.map((b) => (b.querySelector('.bubble__txt') || {}).textContent || '');
+
+    // CONTROL: the same payload through the OLD innerHTML template, into a
+    // detached node. A security test that passes because the payload was inert
+    // proves nothing — this shows the payload really does build an element, so
+    // the assertions above are measuring the fix and not a dud input.
+    const probe = document.createElement('div');
+    probe.innerHTML = `<span class="bubble__txt">${'<img src=x onerror="window.__control=true">'}</span>`;
+    const controlBuiltElement = !!probe.querySelector('img');
+
+    return {
+      xss: window.__xss, added, withImg,
+      showsRaw: shown.some((x) => x.includes('<img')),
+      controlBuiltElement,
+    };
+  });
+
+  assert.equal(result.controlBuiltElement, true,
+    'control failed: the payload must actually build an element via innerHTML');
+  assert.equal(result.xss, false, 'the injected handler MUST NOT have run');
+  assert.equal(result.withImg, 0, 'no element may be created from the payload');
+  assert.equal(result.showsRaw, true, 'and the text should still be displayed, as text');
+});
+
 await t('no uncaught page errors across either world', () => {
   assert.equal(pageErrors.length, 0, `page errors: ${pageErrors.join(' | ')}`);
 });

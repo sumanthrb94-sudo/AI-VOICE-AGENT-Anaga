@@ -468,6 +468,15 @@ const PROVIDER_LABEL = {
 };
 function providerLabel(p) { return PROVIDER_LABEL[p] || p || "cloud voice"; }
 
+/* Module-level escape. The call demo has its own copy inside its closure, which
+   is why the voice picker below could not reach one and interpolated a
+   server-supplied voice id straight into innerHTML. */
+function escHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
 /* Say out loud, in the UI, which voice is actually being used. "Why does it
    sound bad" should never require reading the source. */
 function announceVoiceQuality(cloudOn) {
@@ -570,7 +579,10 @@ if (demoEl) {
     if (CloudTTS.isOn()) {
       const served = CloudTTS.served && CloudTTS.served();
       const who = served ? providerLabel(served.provider) : "Cloud";
-      let msg = "🟢 <b>" + who + "</b> voices" + (served && served.voice ? " — now speaking: " + served.voice : "") + ".";
+      // `served.voice` is whatever the provider returned — a cloned profile id
+      // or a vendor voice name. Ours is the <b>; the value is not.
+      let msg = "🟢 <b>" + escHtml(who) + "</b> voices" +
+        (served && served.voice ? " — now speaking: " + escHtml(served.voice) : "") + ".";
       if (maleOk === false) {
         msg += " Arjun (male) needs Google Cloud Text-to-Speech enabled — the other providers have no male voice.";
       }
@@ -803,10 +815,26 @@ if (demoEl) {
     avatarEl.classList.remove("is-speaking", "is-listening");
     if (mode) avatarEl.classList.add(mode);
   }
+  /* Built as DOM nodes, NOT an innerHTML template.
+     This used to interpolate `text` straight into innerHTML, and everything
+     that lands here is attacker-reachable: the LLM's reply (which echoes back
+     what the caller just said), the translation service's response, and the
+     caller's own recognized speech. A prospect who gets the model to repeat
+     `<img src=x onerror=...>` executed it in the visitor's page — and this site
+     keeps a visitor-supplied Gemini API key in localStorage, so that is
+     credential theft, not a cosmetic bug.
+     escapeHtml() below would also work; textContent is used because it cannot
+     be quietly re-broken by someone editing the markup later. */
   function addBubble(who, text) {
     const b = document.createElement("div");
     b.className = `bubble bubble--${who}`;
-    b.innerHTML = `<span class="bubble__who">${who === "anaga" ? "Anaga" : "You"}</span><span class="bubble__txt">${text}</span>`;
+    const whoEl = document.createElement("span");
+    whoEl.className = "bubble__who";
+    whoEl.textContent = who === "anaga" ? "Anaga" : "You";
+    const txtEl = document.createElement("span");
+    txtEl.className = "bubble__txt";
+    txtEl.textContent = text == null ? "" : String(text);
+    b.append(whoEl, txtEl);
     transcript.appendChild(b);
     transcript.scrollTop = transcript.scrollHeight;
     return b;
@@ -826,7 +854,9 @@ if (demoEl) {
     if (mode === "live") {
       brainEl.hidden = false;
       brainEl.className = "call__brain call__brain--live";
-      brainEl.innerHTML = `<i class="dot"></i> live AI${src ? " · " + src : ""}`;
+      // `src` is the model name from the API response — server data, so it is
+      // escaped rather than interpolated raw. The <i> is ours; the value is not.
+      brainEl.innerHTML = `<i class="dot"></i> live AI${src ? " · " + escapeHtml(src) : ""}`;
       brainEl.title = "Anaga's replies are generated live by Gemini" + (src ? " (" + src + ")." : ".");
     } else if (mode === "offline") {
       brainEl.hidden = false;
@@ -835,7 +865,7 @@ if (demoEl) {
          looked identical to an unreachable server. They need very different
          actions: one is a billing page, the other is a deploy. Say which. */
       const quota = src === "quota_exceeded";
-      brainEl.innerHTML = `<i class="dot"></i> ${quota ? "AI quota exceeded" : "offline script"}`;
+      brainEl.innerHTML = `<i class="dot"></i> ${quota ? "AI quota exceeded" : "offline script"}`;   // both literals
       brainEl.title = quota
         ? "The Gemini API key is out of quota, so Anaga is reading the built-in qualification script instead of thinking. Check your plan and billing at ai.google.dev — nothing is wrong with the app."
         : "No backend reachable — running the on-device qualification script.";

@@ -86,7 +86,7 @@ jobs:
       - name: Recording QA (Indian-region gate, no public URLs, DPDP erasure)
         run: node --experimental-detect-module scripts/test-recording.mjs
 
-      - name: Real-browser voice test (male preset + translation fallback)
+      - name: Real-browser voice test (male preset, translation, XSS regression)
         run: node scripts/test-browser-voice.mjs || echo "::warning::browser test needs Chromium+Playwright on the runner"
 
       - name: Compliance gate must fail closed with nothing configured

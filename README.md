@@ -62,10 +62,10 @@ node --experimental-detect-module scripts/test-voice.mjs          # 36
 node --experimental-detect-module scripts/test-voicestudio.mjs    # 18
 node --experimental-detect-module scripts/test-recording.mjs      # 21
 node scripts/test-browser-echo.mjs                                # 6  (real Chromium)
-node scripts/test-browser-voice.mjs                               # 10 (real Chromium)
+node scripts/test-browser-voice.mjs                               # 11 (real Chromium)
 CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
   node --experimental-detect-module scripts/test-e2e.mjs          # 38
-```                                                               # 229 total
+```                                                               # 230 total
 
 ## Home screen & the Playbook
 
