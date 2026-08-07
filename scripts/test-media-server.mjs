@@ -72,6 +72,102 @@ await t('masked client frames are unmasked', () => {
 });
 
 // ---------------------------------------------------------------------------
+section('hostile peers — this socket is what a telephony provider connects to');
+
+/** Mask a payload the way a conforming client must, and build a raw frame. */
+function clientFrame(opcode, payload, { fin = true, mask = true } = {}) {
+  const body = Buffer.isBuffer(payload) ? payload : Buffer.from(String(payload));
+  const head = [];
+  head.push((fin ? 0x80 : 0x00) | opcode);
+  let lenByte = body.length < 126 ? body.length : body.length < 65536 ? 126 : 127;
+  head.push((mask ? 0x80 : 0x00) | lenByte);
+  let ext = Buffer.alloc(0);
+  if (lenByte === 126) { ext = Buffer.alloc(2); ext.writeUInt16BE(body.length); }
+  else if (lenByte === 127) { ext = Buffer.alloc(8); ext.writeBigUInt64BE(BigInt(body.length)); }
+  const key = mask ? Buffer.from([1, 2, 3, 4]) : Buffer.alloc(0);
+  const out = Buffer.from(body);
+  if (mask) for (let i = 0; i < out.length; i++) out[i] ^= key[i & 3];
+  return Buffer.concat([Buffer.from(head), ext, key, out]);
+}
+
+/** Open a raw TCP socket, complete the handshake by hand, then send bytes. */
+async function rawClient(port, send) {
+  const net = await import('node:net');
+  const crypto = await import('node:crypto');
+  const key = crypto.randomBytes(16).toString('base64');
+  const sock = net.connect(port, '127.0.0.1');
+  await new Promise((r) => sock.once('connect', r));
+  sock.write(
+    'GET /stream HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n' +
+    `Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+  await new Promise((r) => sock.once('data', r));     // the 101
+  let closed = false;
+  sock.on('close', () => { closed = true; });
+  sock.on('error', () => { closed = true; });
+  await send(sock);
+  await new Promise((r) => setTimeout(r, 400));
+  const alive = !closed && !sock.destroyed;
+  sock.destroy();
+  return { closed: !alive };
+}
+
+await t('a flood of EMPTY continuation frames is refused (remote OOM)', async () => {
+  // The byte cap never moves for zero-length fragments, but fragParts grows one
+  // Buffer object per frame. At 6 bytes on the wire per frame, ~100MB of
+  // traffic became gigabytes of array before this was bounded.
+  const { server, port } = await startServer(async () => {});
+  const { closed } = await rawClient(port, (sock) => {
+    sock.write(clientFrame(0x2, Buffer.alloc(0), { fin: false }));      // start
+    for (let i = 0; i < 6000; i++) {
+      sock.write(clientFrame(0x0, Buffer.alloc(0), { fin: false }));    // empty continuations
+    }
+  });
+  assert.equal(closed, true, 'the connection must be closed, not grown indefinitely');
+  server.close();
+});
+
+await t('an oversized control frame is refused, not echoed back', async () => {
+  // A 900KB ping is under the message cap. Echoing it as a pong is both a spec
+  // violation (RFC 6455 §5.5: control frames carry <=125 bytes) and an amplifier.
+  const { server, port } = await startServer(async () => {});
+  const { closed } = await rawClient(port, (sock) => {
+    sock.write(clientFrame(0x9, Buffer.alloc(900_000, 0x41)));
+  });
+  assert.equal(closed, true);
+  server.close();
+});
+
+await t('a fragmented control frame is refused', async () => {
+  const { server, port } = await startServer(async () => {});
+  const { closed } = await rawClient(port, (sock) => {
+    sock.write(clientFrame(0x9, Buffer.from('x'), { fin: false }));
+  });
+  assert.equal(closed, true);
+  server.close();
+});
+
+await t('an UNMASKED client frame is refused (RFC 6455 §5.1)', async () => {
+  // No conforming client can send one, so honouring it only ever helps
+  // something that is not a conforming client.
+  const { server, port } = await startServer(async () => {});
+  const { closed } = await rawClient(port, (sock) => {
+    sock.write(clientFrame(0x1, 'hello', { mask: false }));
+  });
+  assert.equal(closed, true);
+  server.close();
+});
+
+await t('CONTROL: a well-formed masked frame is still accepted', async () => {
+  // The four refusals above would all pass if the server closed on everything.
+  const { server, port } = await startServer(async () => {});
+  const { closed } = await rawClient(port, (sock) => {
+    sock.write(clientFrame(0x9, Buffer.from('ping')));                  // legal ping
+    sock.write(clientFrame(0x1, JSON.stringify({ event: 'connected' })));
+  });
+  assert.equal(closed, false, 'a conforming peer must NOT be disconnected');
+  server.close();
+});
+
 section('interop with Node\'s native WebSocket client');
 
 /** Start a media server on an ephemeral port. */

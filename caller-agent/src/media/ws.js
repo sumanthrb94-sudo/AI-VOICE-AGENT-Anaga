@@ -22,6 +22,18 @@ import crypto from 'node:crypto';
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const MAX_MESSAGE_BYTES = Number(process.env.WS_MAX_MESSAGE_BYTES || 1_000_000);
 
+// A byte cap alone does not bound memory. Continuation frames may be EMPTY, so
+// a peer can send millions of 6-byte zero-length fragments: fragBytes never
+// moves, while fragParts grows one Buffer object per frame. ~100MB of traffic
+// becomes gigabytes of array. This is the dialer, reachable by whatever
+// connects to the media socket, so the frame count is capped too.
+const MAX_MESSAGE_FRAGMENTS = Number(process.env.WS_MAX_MESSAGE_FRAGMENTS || 4096);
+
+// RFC 6455 §5.5: a control frame carries at most 125 bytes and is never
+// fragmented. Without this a 900KB "ping" is accepted AND echoed back as a
+// pong — a spec violation that doubles as a traffic amplifier.
+const MAX_CONTROL_BYTES = 125;
+
 export function acceptKey(key) {
   return crypto.createHash('sha1').update(String(key) + GUID).digest('base64');
 }
@@ -66,9 +78,26 @@ export function upgrade(req, socket, head) {
       if (!frame) break;                 // need more bytes
       buf = buf.subarray(frame.consumed);
 
-      const { fin, opcode, payload } = frame;
+      const { fin, opcode, payload, masked } = frame;
 
-      // --- control frames: never fragmented, handled inline ---------------
+      // RFC 6455 §5.1: every client-to-server frame MUST be masked, and a
+      // server that receives an unmasked one MUST fail the connection. We used
+      // to unmask when a mask was present and accept the payload as-is when it
+      // was not, which honours a frame no conforming client can send.
+      if (!masked) {
+        emit('error', new Error('unmasked_client_frame'));
+        close(1002, 'protocol');
+        return;
+      }
+
+      // --- control frames: never fragmented, bounded, handled inline -------
+      if (opcode >= 0x8) {
+        if (!fin || payload.length > MAX_CONTROL_BYTES) {
+          emit('error', new Error('bad_control_frame'));
+          close(1002, 'protocol');
+          return;
+        }
+      }
       if (opcode === 0x8) { close(1000, 'peer_closed'); return; }
       if (opcode === 0x9) { socket.write(encodeFrame(0xA, payload)); continue; }  // ping -> pong
       if (opcode === 0xA) continue;                                               // pong
@@ -84,6 +113,11 @@ export function upgrade(req, socket, head) {
 
       fragParts.push(payload);
       fragBytes += payload.length;
+      if (fragParts.length > MAX_MESSAGE_FRAGMENTS) {
+        emit('error', new Error('too_many_fragments'));
+        close(1009, 'too_large');
+        return;
+      }
       if (fragBytes > MAX_MESSAGE_BYTES) {
         emit('error', new Error('message_too_large'));
         close(1009, 'too_large');
@@ -162,7 +196,7 @@ export function decodeFrame(buf) {
   const payload = Buffer.from(buf.subarray(offset, offset + len));
   if (mask) for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i & 3];
 
-  return { fin, opcode, payload, consumed: offset + len };
+  return { fin, opcode, payload, masked, consumed: offset + len };
 }
 
 /** Encode a server frame — never masked, per spec. */

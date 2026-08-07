@@ -55,7 +55,7 @@ blocking a real call — is in [`LAUNCH.md`](LAUNCH.md). Read it before pitching
 ```bash
 node --experimental-detect-module scripts/test-integrations.mjs   # 46
 node --experimental-detect-module scripts/test-media.mjs          # 13
-node --experimental-detect-module scripts/test-media-server.mjs   # 13
+node --experimental-detect-module scripts/test-media-server.mjs   # 18
 node --experimental-detect-module scripts/test-firestore.mjs      # 12
 node --experimental-detect-module scripts/test-echo.mjs           # 16
 node --experimental-detect-module scripts/test-voice.mjs          # 36
@@ -65,7 +65,7 @@ node scripts/test-browser-echo.mjs                                # 6  (real Chr
 node scripts/test-browser-voice.mjs                               # 11 (real Chromium)
 CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
   node --experimental-detect-module scripts/test-e2e.mjs          # 38
-```                                                               # 230 total
+```                                                               # 235 total
 
 ## Home screen & the Playbook
 
