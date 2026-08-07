@@ -51,7 +51,8 @@ function reset() { routes = []; calls = []; }
 
 // Modules read env at call time, so each test can set its own world.
 const ENV_KEYS = ['TTS_PROVIDER', 'SARVAM_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_SERVICE_ACCOUNT',
-  'FIREBASE_SERVICE_ACCOUNT', 'TRANSLATE_PROVIDER'];
+  'FIREBASE_SERVICE_ACCOUNT', 'TRANSLATE_PROVIDER', 'VOICESTUDIO_URL', 'VOICESTUDIO_API_KEY',
+  'VOICESTUDIO_MODEL', 'VOICESTUDIO_VOICE_MALE', 'VOICESTUDIO_VOICE_FEMALE'];
 function clearEnv() { for (const k of ENV_KEYS) delete process.env[k]; }
 clearEnv();
 
@@ -131,6 +132,44 @@ await t('TTS_PROVIDER is a chain, and ready[] lists only what can run', () => {
   clearEnv();
 });
 
+await t('leading the default chain with voicestudio changes nothing until it is set', () => {
+  clearEnv();
+  const s = tts.ttsStatus();
+  assert.equal(s.chain[0], 'voicestudio');
+  // Inert without VOICESTUDIO_URL — a deploy that has not stood one up behaves
+  // exactly as it did before the provider existed.
+  assert.equal(s.ready.includes('voicestudio'), false);
+  assert.deepEqual(s.ready, ['gtranslate']);
+  process.env.VOICESTUDIO_URL = 'http://10.0.0.4:3900';
+  assert.equal(tts.ttsStatus().ready[0], 'voicestudio');
+  clearEnv();
+});
+
+await t('VoiceStudio claims a gender only when a profile id backs it', () => {
+  clearEnv();
+  process.env.VOICESTUDIO_URL = 'http://10.0.0.4:3900';
+  // Configured but with no pinned voices: it can run, and can serve neither
+  // gender. Those are different facts and the status must keep them apart.
+  assert.equal(tts.providerReady('voicestudio'), true);
+  assert.equal(tts.genderReady('voicestudio', 'male'), false);
+  assert.equal(tts.genderReady('voicestudio', 'female'), false);
+  assert.equal(tts.ttsStatus().maleCapable, false);
+
+  process.env.VOICESTUDIO_VOICE_MALE = 'prof_arjun';
+  assert.equal(tts.genderReady('voicestudio', 'male'), true);
+  assert.equal(tts.ttsStatus().maleCapable, true, 'a pinned male clone makes the chain male-capable');
+  clearEnv();
+});
+
+await t('Sarvam and the Translate voice are never male-capable, key or no key', () => {
+  clearEnv();
+  process.env.SARVAM_API_KEY = 's';
+  assert.equal(tts.genderReady('sarvam', 'male'), false);
+  assert.equal(tts.genderReady('sarvam', 'female'), true);
+  assert.equal(tts.genderReady('gtranslate', 'male'), false);
+  clearEnv();
+});
+
 // ===========================================================================
 section('§3 synthesis and the fallback chain');
 // ===========================================================================
@@ -176,6 +215,66 @@ await t('an unreachable voice catalogue still honours the gender', async () => {
   assert.equal(sentVoice.ssmlGender, 'MALE');
   assert.equal(sentVoice.name, undefined);
   assert.equal(out.gender, 'male');
+  clearEnv();
+});
+
+await t('VoiceStudio speaks OpenAI /v1/audio/speech and returns the pinned clone', async () => {
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'voicestudio';
+  process.env.VOICESTUDIO_URL = 'http://10.0.0.4:3900/';   // trailing slash on purpose
+  process.env.VOICESTUDIO_VOICE_MALE = 'prof_arjun';
+  process.env.VOICESTUDIO_API_KEY = 'vs-key';
+  let sent = null, sentUrl = null, sentAuth = null;
+  routes = [{ match: /audio\/speech/, reply: (u, init) => {
+    sentUrl = u; sent = JSON.parse(init.body); sentAuth = init.headers.Authorization;
+    return bin([0xff, 0xfb, 0x01, 0x02]);
+  } }];
+  const out = await tts.synth({ text: 'Namaste', lang: 'hi-IN', gender: 'male', pace: 1.1 });
+  assert.equal(sentUrl, 'http://10.0.0.4:3900/v1/audio/speech', 'the trailing slash must not double up');
+  assert.equal(sentAuth, 'Bearer vs-key');
+  assert.equal(sent.voice, 'prof_arjun');
+  assert.equal(sent.language, 'hi');          // the endpoint wants the bare subtag
+  assert.equal(sent.response_format, 'mp3');
+  assert.equal(sent.speed, 1.1);
+  assert.equal(out.provider, 'voicestudio');
+  assert.equal(out.gender, 'male');
+  assert.equal(out.voice, 'prof_arjun');
+  clearEnv();
+});
+
+await t('THE HONESTY RULE: an unpinned gender is refused, not approximated', async () => {
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'voicestudio,sarvam';
+  process.env.VOICESTUDIO_URL = 'http://10.0.0.4:3900';
+  process.env.VOICESTUDIO_VOICE_FEMALE = 'prof_aria';      // no male clone pinned
+  process.env.SARVAM_API_KEY = 's';
+  routes = [
+    { match: /audio\/speech/, reply: () => bin([0xff, 0xfb, 0x01]) },
+    { match: /api\.sarvam\.ai/, reply: () => json({ audios: ['U0FS'] }) },
+  ];
+  const out = await tts.synth({ text: 'hello', lang: 'en-IN', gender: 'male' });
+  // It must NOT synthesize a male request against the female clone. Every engine
+  // will happily produce something; that something is how "Arjun" becomes a woman.
+  assert.equal(out.provider, 'sarvam');
+  assert.equal(out.gender, 'female');
+  assert.equal(calls.some((c) => /audio\/speech/.test(c.url)), false,
+    'VoiceStudio should not have been called at all for an unpinned gender');
+  clearEnv();
+});
+
+await t('a VoiceStudio box that is down costs one hop', async () => {
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'voicestudio,gtranslate';
+  process.env.VOICESTUDIO_URL = 'http://10.0.0.4:3900';
+  process.env.VOICESTUDIO_VOICE_FEMALE = 'prof_aria';
+  routes = [
+    { match: /audio\/speech/, reply: () => { throw new Error('ECONNREFUSED'); } },
+    { match: /translate_tts/, reply: () => bin([0xff, 0xfb, 0x00]) },
+  ];
+  const out = await tts.synth({ text: 'hello', lang: 'en-IN' });
+  // A self-hosted box being cold or down is the NORMAL failure here. It must
+  // read as "try the next provider", never as an outage on the call.
+  assert.equal(out.provider, 'gtranslate');
   clearEnv();
 });
 

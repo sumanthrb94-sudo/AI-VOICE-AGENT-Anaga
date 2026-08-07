@@ -18,6 +18,7 @@ hand warm prospects to human closers — compliant with TRAI/DLT/DND by design.
 | `docs/FINANCIAL_MODEL_NOTES.md` | Unit economics & market assumptions | Investors, founder |
 | `engineering/MULTI_AGENT_SPEC.md` | Production build spec, multi-agent design, work packages | **Engineering — build to this** |
 | `engineering/LIVEKIT_REFERENCE.md` | What we took from livekit/agents, what we didn't, and why | Engineering |
+| `engineering/VOICESTUDIO_REFERENCE.md` | **Self-hosted voice: the AGPL line, data residency, a male voice** | **Engineering — read §1 before writing any adapter** |
 | `web/` | **Home screen (Mission Control)** + the Scratch→Production→Investors→Marketing Playbook + the live "Talk to Anaga" call demo | **Everyone — open `web/index.html`** |
 | `api/` | Serverless **call brain** (provider-abstracted LLM) + the **integration tubing**: Meta Lead Ads webhook, lead intake, compliance gate, dial queue, CRM writeback | Vercel functions |
 | `web/console.html` | **Operator console** — leads in, compliance verdicts, calls queued, outcomes, wiring status | Whoever runs campaigns |
@@ -56,12 +57,12 @@ node --experimental-detect-module scripts/test-media.mjs          # 13
 node --experimental-detect-module scripts/test-media-server.mjs   # 13
 node --experimental-detect-module scripts/test-firestore.mjs      # 12
 node --experimental-detect-module scripts/test-echo.mjs           # 16
-node --experimental-detect-module scripts/test-voice.mjs          # 30
+node --experimental-detect-module scripts/test-voice.mjs          # 36
 node scripts/test-browser-echo.mjs                                # 6  (real Chromium)
 node scripts/test-browser-voice.mjs                               # 10 (real Chromium)
 CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
   node --experimental-detect-module scripts/test-e2e.mjs          # 38
-```                                                               # 184 total
+```                                                               # 190 total
 
 ## Home screen & the Playbook
 

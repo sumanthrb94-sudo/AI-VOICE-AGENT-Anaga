@@ -43,9 +43,30 @@ Anaga speaks through a **provider chain**, tried in order. The default is
 
 | Provider | Needs | Male voice? |
 |---|---|---|
+| `voicestudio` — self-hosted, on your own GPU | `VOICESTUDIO_URL` + a cloned profile id per gender | **Yes** — either gender |
 | `google` — Cloud Text-to-Speech | `GOOGLE_API_KEY` (or the service account) **and** the Text-to-Speech API enabled | **Yes** |
 | `gtranslate` — the voice on translate.google.com | nothing at all | No — one voice per language |
 | `sarvam` — Bulbul v2 | `SARVAM_API_KEY` | No — our speakers are female |
+
+`voicestudio` leads the chain but is **inert until `VOICESTUDIO_URL` is set**, so
+it changes nothing until you stand a box up. It is the only provider whose audio
+never leaves infrastructure you control, which is the data-residency requirement
+in `docs/COMPLIANCE.md` — read
+[`engineering/VOICESTUDIO_REFERENCE.md`](../engineering/VOICESTUDIO_REFERENCE.md)
+first, especially §1: VoiceStudio is AGPL-3.0 and **its source must never be
+copied into this repo**. We call it over its network API and copy nothing.
+
+```
+VOICESTUDIO_URL           http://10.0.0.4:3900
+VOICESTUDIO_API_KEY       optional — loopback is unauthenticated by default
+VOICESTUDIO_MODEL         default "tts-1" (the active engine on that box)
+VOICESTUDIO_VOICE_FEMALE  cloned profile id — GET /v1/audio/voices
+VOICESTUDIO_VOICE_MALE    ditto
+```
+
+A gender with no pinned profile id is **refused**, not approximated, and the
+chain moves on — an engine will happily synthesize *something* for an unknown
+voice, and that something is how a male preset ends up sounding like a woman.
 
 So a fresh deploy has a real voice with no configuration. **A male voice
 ("Arjun") needs Cloud Text-to-Speech and nothing else** — enable the API on

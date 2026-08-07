@@ -5,9 +5,20 @@
 // the same synth() call, so nothing above this file knows who spoke.
 //
 // ── PROVIDERS ─────────────────────────────────────────────────────────────
-//   google     Cloud Text-to-Speech. The only path with a real MALE voice, and
-//              the best quality. Needs GOOGLE_API_KEY (or the service account)
-//              AND the Text-to-Speech API enabled on the project.
+//   voicestudio Self-hosted VoiceStudio (github.com/debpalash/VoiceStudio) via
+//              its OpenAI-compatible /v1/audio/speech. Cloned voices, either
+//              gender, Hindi/Telugu/Tamil/Kannada/Marathi/Bengali, no
+//              per-character cost, and the audio never leaves infrastructure we
+//              control — which is the data-residency requirement in
+//              docs/COMPLIANCE.md, not merely a saving. Needs a GPU host.
+//              ⚠️ LICENSE: VoiceStudio is AGPL-3.0-only. We call it over its
+//              documented network API and copy none of its source, which its
+//              own licence notice covers as ordinary commercial use. Do NOT
+//              vendor its code into this repo — that is what would pull the
+//              AGPL network clause over our server. Read
+//              engineering/VOICESTUDIO_REFERENCE.md before touching this.
+//   google     Cloud Text-to-Speech. Needs GOOGLE_API_KEY (or the service
+//              account) AND the Text-to-Speech API enabled on the project.
 //   gtranslate The voice translate.google.com speaks with. No key, no project,
 //              no billing — it works on a fresh deploy. ONE voice per language,
 //              so it cannot honour a male request. Undocumented endpoint: treat
@@ -16,9 +27,13 @@
 //              set we use.
 //
 // TTS_PROVIDER is a comma-separated CHAIN, tried in order (default
-// "google,gtranslate,sarvam"). The chain exists because of a real incident: one
-// provider hiccup used to drop the whole call to the robotic on-device browser
-// voice, silently, for the rest of the session. Now a failure costs one hop.
+// "voicestudio,google,gtranslate,sarvam"). The chain exists because of a real
+// incident: one provider hiccup used to drop the whole call to the robotic
+// on-device browser voice, silently, for the rest of the session. Now a failure
+// costs one hop. voicestudio leads because when it is configured it is both the
+// cheapest per call and the only one whose audio stays on our own hardware — and
+// it is inert until VOICESTUDIO_URL is set, so leading with it changes nothing
+// on a deployment that has not stood one up.
 //
 // ⚠️ Vendor voice ids drift. Sarvam speaker names and Google voice names both
 // get renamed between releases. Google voices are therefore resolved from the
@@ -38,7 +53,7 @@ const SARVAM_SPEAKERS = ['anushka', 'manisha', 'vidya', 'arya'];
 // The Google Translate endpoint truncates long text; it is built for a phrase.
 const GTRANSLATE_CHUNK = 190;
 
-const DEFAULT_CHAIN = 'google,gtranslate,sarvam';
+const DEFAULT_CHAIN = 'voicestudio,google,gtranslate,sarvam';
 
 const clamp = (n, lo, hi, d) => { n = Number(n); return Number.isNaN(n) ? d : Math.max(lo, Math.min(hi, n)); };
 
@@ -51,10 +66,31 @@ export function providerChain() {
 export function providerReady(name) {
   if (name === 'sarvam') return Boolean(process.env.SARVAM_API_KEY);
   if (name === 'gtranslate') return true;                      // needs nothing
+  if (name === 'voicestudio') return Boolean(process.env.VOICESTUDIO_URL);
   if (name === 'google') {
     return Boolean(process.env.GOOGLE_API_KEY || process.env.GOOGLE_SERVICE_ACCOUNT || process.env.FIREBASE_SERVICE_ACCOUNT);
   }
   return false;
+}
+
+/**
+ * Which providers can serve a given gender.
+ *
+ * VoiceStudio can do either, but only for a voice profile someone actually
+ * cloned and pinned in env — the engine will happily synthesize *something*
+ * otherwise, and "something" is how a male preset ends up sounding like a woman
+ * with nobody noticing. A gender is claimed only when there is a concrete
+ * profile id behind it.
+ */
+export function genderReady(name, gender) {
+  const male = String(gender).toLowerCase() === 'male';
+  if (name === 'google') return providerReady('google');       // resolves by ssmlGender
+  if (name === 'voicestudio') {
+    if (!providerReady('voicestudio')) return false;
+    return Boolean(male ? process.env.VOICESTUDIO_VOICE_MALE : process.env.VOICESTUDIO_VOICE_FEMALE);
+  }
+  // gtranslate has one voice per language; every Sarvam speaker we use is female.
+  return !male && providerReady(name);
 }
 
 /** True when at least one provider in the chain can run. */
@@ -69,9 +105,9 @@ export function ttsStatus() {
     available: chain.some(providerReady),
     chain,
     ready: chain.filter(providerReady),
-    // Only Cloud TTS can actually speak as a man. Saying so up front beats
-    // shipping a "male" preset that quietly returns a woman's voice.
-    maleCapable: chain.includes('google') && providerReady('google'),
+    // Whether ANY provider in the chain can genuinely speak as a man. Saying so
+    // up front beats shipping a "male" preset that quietly returns a woman.
+    maleCapable: chain.some((p) => genderReady(p, 'male')),
   };
 }
 
@@ -97,6 +133,7 @@ export async function synth(opts = {}) {
   const errors = [];
   for (const provider of chain) {
     try {
+      if (provider === 'voicestudio') return await viaVoiceStudio(text, opts);
       if (provider === 'google') return await viaGoogle(text, opts);
       if (provider === 'gtranslate') return await viaGoogleTranslate(text, opts);
       if (provider === 'sarvam') return await viaSarvam(text, opts);
@@ -110,7 +147,74 @@ export async function synth(opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// google — Cloud Text-to-Speech (the male voice lives here)
+// voicestudio — self-hosted, OpenAI-compatible
+// ---------------------------------------------------------------------------
+//
+// Speaks POST /v1/audio/speech, so this is the same shape as any OpenAI audio
+// client. Pin cloned profile ids per gender:
+//
+//   VOICESTUDIO_URL          http://10.0.0.4:3900   (no trailing slash needed)
+//   VOICESTUDIO_API_KEY      optional — loopback is unauthenticated by default
+//   VOICESTUDIO_MODEL        default "tts-1" (whatever engine is active there)
+//   VOICESTUDIO_VOICE_FEMALE cloned profile id, from GET /v1/audio/voices
+//   VOICESTUDIO_VOICE_MALE   ditto
+//
+// A gender with no profile id is REFUSED rather than approximated, so the chain
+// moves to a provider that can actually do it. Every engine will synthesize
+// *something* for an unknown voice, and that something is how "Arjun" ends up
+// sounding like a woman.
+
+async function viaVoiceStudio(text, opts) {
+  const base = String(process.env.VOICESTUDIO_URL || '').replace(/\/+$/, '');
+  if (!base) throw new Error('voicestudio_not_configured');
+
+  const wantMale = String(opts.gender || 'female').toLowerCase() === 'male';
+  const profile = wantMale ? process.env.VOICESTUDIO_VOICE_MALE : process.env.VOICESTUDIO_VOICE_FEMALE;
+  if (!profile) throw new Error(`voicestudio_no_${wantMale ? 'male' : 'female'}_voice`);
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (process.env.VOICESTUDIO_API_KEY) headers.Authorization = `Bearer ${process.env.VOICESTUDIO_API_KEY}`;
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), Number(process.env.VOICESTUDIO_TIMEOUT_MS || 25000));
+  let res;
+  try {
+    res = await fetch(`${base}/v1/audio/speech`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: process.env.VOICESTUDIO_MODEL || 'tts-1',
+        input: text.slice(0, 4096),           // the endpoint's documented cap
+        voice: profile,
+        response_format: 'mp3',
+        speed: clamp(opts.pace, 0.25, 4, 1),  // its own accepted range
+        language: shortLang(opts.lang),
+      }),
+      signal: ctrl.signal,
+    });
+  } catch (err) {
+    // A self-hosted box that is down or cold is the normal failure here, and it
+    // must read as "try the next provider", not as an outage.
+    throw new Error(err?.name === 'AbortError' ? 'voicestudio_timeout' : 'voicestudio_unreachable');
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!res.ok) throw new Error(`voicestudio_tts_${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (!buf.length) throw new Error('voicestudio_tts_empty');
+
+  return {
+    audio: buf.toString('base64'),
+    mime: 'audio/mpeg',
+    provider: 'voicestudio',
+    voice: profile,
+    gender: wantMale ? 'male' : 'female',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// google — Cloud Text-to-Speech
 // ---------------------------------------------------------------------------
 
 // Preference, best first. Only hints: whatever the live catalogue offers wins.
