@@ -146,7 +146,7 @@ const metaHandler    = (await import(`${ROOT}/api/integrations/meta/leads.js`)).
 const outcomeHandler = (await import(`${ROOT}/api/calls/outcome.js`)).default;
 const summaryHandler = (await import(`${ROOT}/api/console/summary.js`)).default;
 const intakeHandler  = (await import(`${ROOT}/api/leads/intake.js`)).default;
-const { handleJob, verifyJobSignature, validateJob, withinCallingWindow } =
+const { handleJob, verifyJobSignature, validateJob, withinCallingWindow, claimCallId, _resetClaimedCallIds } =
   await import(`${ROOT}/caller-agent/src/server.js`);
 const { createMockTelephony } = await import(`${ROOT}/caller-agent/src/providers/telephony/mock.js`);
 const { detectOptOut } = await import(`${ROOT}/caller-agent/src/optout.js`);
@@ -431,6 +431,58 @@ await t('a job with a non-E.164 number is refused', () => {
   assert.equal(validateJob({
     type: 'outbound_call', lead: { phone: '9876543210' }, compliance: { allowed: true },
   }).error, 'invalid_phone');
+});
+
+const freshJob = (over = {}) => ({
+  type: 'outbound_call',
+  lead: { phone: '+919876543210' },
+  compliance: { allowed: true },
+  createdAt: new Date().toISOString(),
+  ...over,
+});
+
+await t('CONTROL: a fresh, authorized job validates', () => {
+  // The three refusals below would all pass against a validateJob that rejected
+  // everything. This is what makes them mean something.
+  assert.equal(validateJob(freshJob()).ok, true);
+});
+
+await t('a STALE job is refused — the gate verdict inside it has expired', () => {
+  // A signature proves the API wrote the job; it says nothing about when. The
+  // compliance verdict travels inside and is never re-checked here, so an old
+  // job is an old authorization — possibly from before the person opted out.
+  const old = new Date(Date.now() - 3600_000).toISOString();   // 1h, cap is 15m
+  const v = validateJob(freshJob({ createdAt: old }));
+  assert.equal(v.ok, false);
+  assert.equal(v.error, 'job_expired');
+});
+
+await t('a job with no createdAt is refused, not assumed fresh', () => {
+  const v = validateJob(freshJob({ createdAt: undefined }));
+  assert.equal(v.ok, false);
+  assert.equal(v.error, 'missing_created_at');
+});
+
+await t('a job stamped in the future is refused', () => {
+  const ahead = new Date(Date.now() + 3600_000).toISOString();
+  assert.equal(validateJob(freshJob({ createdAt: ahead })).error, 'job_from_the_future');
+});
+
+await t('REPLAY: the same callId is claimed once and only once', () => {
+  _resetClaimedCallIds();
+  assert.equal(claimCallId('call_abc'), true, 'first delivery must be accepted');
+  assert.equal(claimCallId('call_abc'), false, 'a redelivery must be refused');
+  assert.equal(claimCallId('call_other'), true, 'a different call is unaffected');
+  // Without this, an at-least-once queue whose ack is lost dials the same
+  // person twice — which is the exact harm the compliance gate exists to stop.
+});
+
+await t('a claim expires so a legitimate re-dial later is possible', () => {
+  _resetClaimedCallIds();
+  const t0 = Date.now();
+  assert.equal(claimCallId('call_ttl', t0), true);
+  assert.equal(claimCallId('call_ttl', t0 + 60_000), false, 'still claimed a minute later');
+  assert.equal(claimCallId('call_ttl', t0 + 3_600_001), true, 'released after the TTL');
 });
 
 // --- 5. failure paths -----------------------------------------------------

@@ -87,7 +87,17 @@ export function verifyJobSignature(rawBody, header) {
 // ---------------------------------------------------------------------------
 // job validation
 // ---------------------------------------------------------------------------
-export function validateJob(job) {
+// How long a signed dial job stays valid. A signature proves the API authored
+// the job; it says nothing about WHEN. Without an age limit a job captured
+// today is still perfectly valid next month — including after the person on it
+// has opted out, because the gate verdict travels inside the job and is never
+// re-checked here. Bounding the age bounds how stale that verdict can be.
+export const JOB_MAX_AGE_SEC = Number(process.env.JOB_MAX_AGE_SEC || 900);
+// Tolerance for clock skew between the API and this host, in the other
+// direction. A job stamped in the future is a broken clock or a forgery.
+const JOB_FUTURE_SKEW_SEC = Number(process.env.JOB_FUTURE_SKEW_SEC || 300);
+
+export function validateJob(job, { now = Date.now() } = {}) {
   if (!job || typeof job !== 'object') return { ok: false, error: 'invalid_job' };
   if (job.type !== 'outbound_call') return { ok: false, error: 'unsupported_job_type' };
   if (!job.lead || !/^\+\d{8,15}$/.test(String(job.lead.phone || ''))) {
@@ -96,8 +106,46 @@ export function validateJob(job) {
   // The API must have authorized this dial. A job without a gate verdict is a
   // job that skipped the gate — refuse it rather than trust the caller.
   if (job.compliance?.allowed !== true) return { ok: false, error: 'no_compliance_authorization' };
+
+  // Freshness, checked last so the more specific refusals above win. createdAt
+  // is inside the signed body, so it cannot be moved without breaking the HMAC.
+  const created = Date.parse(job.createdAt || '');
+  if (!Number.isFinite(created)) return { ok: false, error: 'missing_created_at' };
+  const ageSec = (now - created) / 1000;
+  if (ageSec > JOB_MAX_AGE_SEC) return { ok: false, error: 'job_expired' };
+  if (ageSec < -JOB_FUTURE_SKEW_SEC) return { ok: false, error: 'job_from_the_future' };
+
   return { ok: true };
 }
+
+// ---------------------------------------------------------------------------
+// replay / redelivery guard
+// ---------------------------------------------------------------------------
+//
+// A signed job replayed twice used to run twice — two calls to the same person.
+// That is not only an attack: the endpoint acks 202 and then dials
+// asynchronously, so an at-least-once queue whose ack is lost redelivers, and a
+// plain network retry does the same. Repeat unsolicited calls are precisely the
+// harm TRAI rules exist to prevent, and LAUNCH.md's "atomic dedupe" claim is
+// about lead INTAKE, not about this leg.
+//
+// SCOPE HONESTY, same as guard.js on rate limiting: this map is per process.
+// Two agent instances behind a load balancer each dedupe locally, so this stops
+// redelivery and casual replay, not a determined attacker hitting both. For a
+// hard guarantee the claim belongs in Firestore next to the lead dedupe.
+const JOB_DEDUPE_TTL_MS = Number(process.env.JOB_DEDUPE_TTL_MS || 3_600_000);
+const claimedCallIds = new Map();   // callId -> expiry ms
+
+export function claimCallId(id, now = Date.now()) {
+  if (!id) return false;
+  for (const [k, exp] of claimedCallIds) if (exp <= now) claimedCallIds.delete(k);
+  if (claimedCallIds.has(id)) return false;
+  claimedCallIds.set(id, now + JOB_DEDUPE_TTL_MS);
+  return true;
+}
+
+/** Test seam only. */
+export function _resetClaimedCallIds() { claimedCallIds.clear(); }
 
 export function loadPersona(p = PERSONA_PATH) {
   try {
@@ -217,6 +265,14 @@ export function createServer() {
     // Accept, then run. The queue gets a fast ack; the call outcome goes to
     // /api/calls/outcome, not to this response.
     const callId = job.callId || `call_${Date.now().toString(36)}`;
+
+    // 4. replay / redelivery — claim the id BEFORE acking, so a redelivery that
+    //    arrives while the first call is still running is refused too.
+    if (!claimCallId(callId)) {
+      log('job_rejected', { reason: 'duplicate_call_id', callId });
+      return send(409, { error: 'duplicate_call_id', callId });
+    }
+
     send(202, { accepted: true, callId });
 
     handleJob({ ...job, callId }).catch((err) => {

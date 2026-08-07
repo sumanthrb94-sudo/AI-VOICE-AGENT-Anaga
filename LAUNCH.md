@@ -3,7 +3,7 @@
 An honest state-of-the-system. Written so nobody discovers a gap the week of launch.
 
 **Bottom line:** the software path from *a Facebook lead* to *a CRM note* is built
-and QA-tested end to end — 235 automated tests, including the compliance gate, the
+and QA-tested end to end — 241 automated tests, including the compliance gate, the
 opt-out path, a full call driven over a real WebSocket, and live round-trips
 against the production Firestore project. **It cannot legally
 place a real call yet**, and every remaining blocker is now either a one-call
@@ -24,7 +24,7 @@ node --experimental-detect-module scripts/simulate-echo.mjs       # echo simulat
 node scripts/test-browser-echo.mjs                                # 6 (real Chromium)
 node scripts/test-browser-voice.mjs                               # 11 (real Chromium)
 CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
-  node --experimental-detect-module scripts/test-e2e.mjs          # 38
+  node --experimental-detect-module scripts/test-e2e.mjs          # 44
 ```
 
 ---
@@ -59,6 +59,13 @@ CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
 
 - A dial is **refused** when the DND scrub is unreachable, unconfigured, the
   consent is missing/expired, or the number is suppressed.
+- A **signed dial job expires** (15 min default). A signature proves the API
+  wrote the job; it says nothing about when, and the gate verdict travels inside
+  the job and is never re-checked at the dialler — so an old job is an old
+  authorization, possibly from before the person opted out.
+- A **redelivered dial job does not dial twice**. The endpoint acks 202 and
+  dials asynchronously, so an at-least-once queue whose ack is lost would
+  otherwise call the same person again.
 - **Disclosure is the first thing said on every call**, from the persona file,
   never model-generated.
 - An opt-out ends the call **before the LLM gets another turn** — asserted with a
