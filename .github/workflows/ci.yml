@@ -67,7 +67,33 @@ jobs:
         run: node --experimental-detect-module scripts/test-media-server.mjs
 
       - name: End-to-end QA (Meta lead → call → CRM writeback)
+        # The window is opened for THIS SUITE ONLY, which is how README.md and
+        # LAUNCH.md have always documented running it — CI just never got the
+        # env. Without it this job passed only when the runner happened to fire
+        # between 03:30 and 15:30 UTC (09:00-21:00 IST) and failed the rest of
+        # the day: the repo's most important suite was a coin flip on what time
+        # someone pushed, which is worse than having no gate, because a red
+        # build that clears itself teaches everyone to ignore it.
+        #
+        # This does NOT weaken the calling-window check. That invariant has its
+        # own dedicated step below, with the real 9-21 bounds pinned, and the
+        # suite tests the pipeline rather than the clock.
+        env:
+          CALLING_WINDOW_START_IST: '0'
+          CALLING_WINDOW_END_IST: '24'
         run: node --experimental-detect-module scripts/test-e2e.mjs
+
+      - name: Voice QA (provider chain, fallback, and the honesty rules)
+        run: node --experimental-detect-module scripts/test-voice.mjs
+
+      - name: Self-hosted voice QA (telephony sample rates — the chipmunk bug)
+        run: node --experimental-detect-module scripts/test-voicestudio.mjs
+
+      - name: Recording QA (Indian-region gate, no public URLs, DPDP erasure)
+        run: node --experimental-detect-module scripts/test-recording.mjs
+
+      - name: Real-browser voice test (male preset + translation fallback)
+        run: node scripts/test-browser-voice.mjs || echo "::warning::browser test needs Chromium+Playwright on the runner"
 
       - name: Compliance gate must fail closed with nothing configured
         # The single most important assertion in this repo, run in isolation
@@ -102,14 +128,62 @@ jobs:
           console.log('OK: calling window enforced');
           "
 
+      - name: Recording residency must fail closed
+        # Same shape as the compliance gate above, and for the same reason: a
+        # recording of an Indian consumer's call must never be uploadable to a
+        # foreign region, and that has to be asserted in isolation rather than
+        # inferred from a suite that might be reordered later.
+        env:
+          RECORDING_BUCKET: ci-bucket
+          RECORDING_REGION: us-east-1
+          RECORDING_ACCESS_KEY_ID: ci
+          RECORDING_SECRET_ACCESS_KEY: ci
+        run: |
+          node --experimental-detect-module -e "
+          const r = await import('./api/_lib/recording.js');
+          let uploaded = false;
+          globalThis.fetch = async () => { uploaded = true; return { ok: true, status: 200 }; };
+          const out = await r.putRecording({ callId: 'ci', audio: Buffer.from('x') });
+          if (out.ok || uploaded) {
+            console.error('FAIL: a recording was accepted for a NON-INDIAN region.');
+            process.exit(1);
+          }
+          console.log('OK: refused —', out.error);
+          "
+
+      - name: A playable recording URL must never reach a CRM note
+        run: |
+          node --experimental-detect-module -e "
+          const fs = await import('node:fs');
+          const crm = fs.readFileSync('api/_lib/integrations/crm.js', 'utf8');
+          if (/call\.recordingUrl/.test(crm)) {
+            console.error('FAIL: the CRM note writes a playable recording URL.');
+            process.exit(1);
+          }
+          console.log('OK: the CRM note carries a reference only');
+          "
+
       - name: No secrets committed
         run: |
           set -e
           # Real keys, not the placeholder names in .env.sample or docs.
-          if grep -rInE '(AIza[0-9A-Za-z_-]{30,}|sk-[A-Za-z0-9]{32,}|xox[baprs]-[0-9A-Za-z-]{10,})' \
+          #
+          # The allowlist below is values that are PUBLISHED BY THEIR VENDOR as
+          # documentation examples, plus fixtures that say so in the string
+          # itself. It exists so this check stays strict: without it the four
+          # known fixtures fail every run, and the first person to hit a red
+          # build weakens the pattern instead — which is how secret scanning
+          # quietly stops scanning. Anything not on this list still fails.
+          MATCHES=$(grep -rInE '(AIza[0-9A-Za-z_-]{30,}|sk-[A-Za-z0-9]{32,}|sk_[a-z0-9]{8}_[A-Za-z0-9]{20,}|xox[baprs]-[0-9A-Za-z-]{10,}|AKIA[0-9A-Z]{16}|-----BEGIN[A-Z ]*PRIVATE KEY-----)' \
                --include='*.js' --include='*.json' --include='*.mjs' --include='*.yml' \
-               api caller-agent shared web scripts 2>/dev/null; then
-            echo "FAIL: a credential-shaped string is committed"; exit 1
+               api caller-agent shared web scripts 2>/dev/null \
+             | grep -vF 'AKIAIOSFODNN7EXAMPLE' \
+             | grep -vF 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' \
+             | grep -vF 'not-a-real-key' || true)
+          if [ -n "$MATCHES" ]; then
+            echo "FAIL: a credential-shaped string is committed"
+            echo "$MATCHES"
+            exit 1
           fi
           echo "no committed secrets"
 
