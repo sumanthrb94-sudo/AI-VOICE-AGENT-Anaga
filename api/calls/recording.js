@@ -14,6 +14,7 @@
 
 import { requireMethod, authorize } from '../_lib/integrations/http.js';
 import { limited, log, requestId } from '../_lib/guard.js';
+import { record } from '../_lib/events.js';
 import { playbackUrl, deleteRecording, recordingStatus, refToKey } from '../_lib/recording.js';
 
 const DEFAULT_TTL = 300;
@@ -39,9 +40,15 @@ export default async function handler(req, res) {
 
   if (req.method === 'DELETE') {
     const out = await deleteRecording(ref);
-    // Erasure is a compliance action and must leave a trace — of the deletion,
-    // not of the audio. The DPDP right is to the recording, not to the fact
-    // that a lawful call happened.
+    // Erasure is a compliance action and must leave a DURABLE trace — of the
+    // deletion, not of the audio. The DPDP right is to the recording, not to
+    // the fact that a lawful call happened, and `docs/COMPLIANCE.md` asks for an
+    // immutable per-call log. A `log()` line alone lives in whatever the
+    // platform retains, which is not an audit trail we control.
+    //
+    // The reference is recorded rather than the phone number: it identifies the
+    // call for an auditor without putting a number into another store.
+    record('recording.erased', { ref, ok: out.ok, error: out.error || null });
     log('RECORDING_DELETED', { rid, ok: out.ok, error: out.error || null });
     return res.status(out.ok ? 200 : 502).json(out);
   }

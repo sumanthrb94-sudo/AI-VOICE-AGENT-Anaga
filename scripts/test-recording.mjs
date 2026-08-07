@@ -219,6 +219,41 @@ await t('playbackUrl refuses a reference for another bucket', () => {
   clearEnv();
 });
 
+await t('REGRESSION: `..` inside the key cannot climb out of the bucket', () => {
+  mumbai();
+  // The first version of refToKey checked the bucket name and returned the rest
+  // verbatim, so the bucket check was bypassed by putting the traversal AFTER
+  // it. Against a path-style endpoint (MinIO, Wasabi, most Indian S3-compatible
+  // providers serve https://host/bucket/key) those segments resolve into a
+  // different bucket, and the URL normalises before the request is even sent:
+  // /vaak-recordings/../../etc/passwd -> /etc/passwd.
+  for (const evil of [
+    's3://vaak-recordings/../../etc/passwd',
+    's3://vaak-recordings/calls/../../../elsewhere',
+    's3://vaak-recordings/calls/2026-08-05/../../../x.wav',
+    's3://vaak-recordings/%2e%2e/secret',
+    's3://vaak-recordings/..%2f..%2fsecret',
+    's3://vaak-recordings//etc/passwd',
+    's3://vaak-recordings/a b.wav',
+    's3://vaak-recordings/calls/2026-08-05/x.wav .txt',
+  ]) {
+    assert.equal(rec.refToKey(evil), null, `must reject: ${JSON.stringify(evil)}`);
+    assert.equal(rec.playbackUrl(evil), null, `must not presign: ${JSON.stringify(evil)}`);
+  }
+  clearEnv();
+});
+
+await t('...and the shape it DOES accept is exactly what recordingKey produces', () => {
+  mumbai();
+  // An allowlist is only safe if it still admits the real thing — a rule that
+  // rejects everything would pass the test above and break every playback.
+  const key = rec.recordingKey('call_abc-123', new Date('2026-08-05T10:00:00Z'));
+  const ref = `s3://vaak-recordings/${key}`;
+  assert.equal(rec.refToKey(ref), key);
+  assert.match(rec.playbackUrl(ref, 60), /X-Amz-Signature=[0-9a-f]{64}/);
+  clearEnv();
+});
+
 await t('playbackUrl signs a valid reference', () => {
   mumbai();
   const url = rec.playbackUrl('s3://vaak-recordings/calls/2026-08-05/c9.wav', 120);

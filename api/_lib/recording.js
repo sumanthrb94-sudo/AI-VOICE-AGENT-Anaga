@@ -239,15 +239,37 @@ export async function putRecording({ callId, audio, contentType = 'audio/wav', a
   }
 }
 
+/**
+ * The exact shape recordingKey() produces, and the ONLY shape accepted back.
+ *
+ * Matching the whole key rather than filtering bad characters is deliberate.
+ * The first version of this checked only the bucket name and returned the rest
+ * of the reference verbatim, which accepted `s3://our-bucket/../../etc/passwd`
+ * — and against a PATH-STYLE endpoint (MinIO, Wasabi, most Indian S3-compatible
+ * providers serve `https://host/bucket/key`) those `..` segments climb out of
+ * our bucket and presign an object in someone else's. The bucket check that was
+ * supposed to prevent exactly that was trivially bypassed by putting the
+ * traversal after it.
+ *
+ * An allowlist of one known-good pattern cannot be walked around the same way.
+ */
+const KEY_SHAPE = /^calls\/\d{4}-\d{2}-\d{2}\/[A-Za-z0-9_-]{1,64}\.wav$/;
+
 /** Parse `s3://bucket/key` back to its key, rejecting anything else. */
 export function refToKey(ref) {
-  const m = /^s3:\/\/([^/]+)\/(.+)$/.exec(String(ref || ''));
+  const s = String(ref || '');
+  // Control characters would be invisible in a log and can split a request line.
+  if (/[ -]/.test(s)) return null;
+
+  const m = /^s3:\/\/([^/]+)\/(.+)$/.exec(s);
   if (!m) return null;
+
   const { bucket } = recordingConfig();
   // Refuse a reference for a different bucket — otherwise this endpoint would
   // presign arbitrary objects for anyone who can guess a bucket name.
   if (bucket && m[1] !== bucket) return null;
-  return m[2];
+
+  return KEY_SHAPE.test(m[2]) ? m[2] : null;
 }
 
 /** Short-lived playback URL for a stored reference. */
