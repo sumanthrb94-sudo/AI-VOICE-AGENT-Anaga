@@ -214,10 +214,15 @@ export function createTTS({ provider = process.env.TTS_PROVIDER || 'sarvam' } = 
     id: 'sarvam',
     async synth(text, lang) {
       const body = {
-        text: String(text).slice(0, 1500),
+        // v3 accepts 2500 per request, up from v2's 1500.
+        text: String(text).slice(0, Number(process.env.SARVAM_MAX_CHARS || 2500)),
         target_language_code: lang || 'en-IN',
         speaker: process.env.TTS_SPEAKER || 'anushka',
-        model: process.env.SARVAM_TTS_MODEL || 'bulbul:v2',
+        // v3 by default. Sarvam's own evaluation calls it the most preferred
+        // option at 8kHz TELEPHONY, which is precisely this code path — the
+        // call leg, not the browser demo — and it is trained on the code-mixed,
+        // numeric, named-entity text that this conversation is made of.
+        model: process.env.SARVAM_TTS_MODEL || 'bulbul:v3',
         // Telephony is 8kHz. Synthesizing at 22050 and resampling wastes both
         // latency and quality; ask for the rate the phone line actually uses.
         speech_sample_rate: Number(process.env.TELEPHONY_SAMPLE_RATE || 8000),

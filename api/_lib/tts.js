@@ -23,8 +23,13 @@
 //              no billing — it works on a fresh deploy. ONE voice per language,
 //              so it cannot honour a male request. Undocumented endpoint: treat
 //              it as a floor, not a promise.
-//   sarvam     Sarvam Bulbul v2. Strong Indic prosody and Indian data
-//              residency. Seven speakers, FOUR female and THREE male.
+//   sarvam     Sarvam Bulbul, v3 by default. Indic-native and Indian data
+//              residency. v3 is the reason to be here rather than v2: Sarvam's
+//              own evaluation puts it first at 8kHz TELEPHONY — which is the
+//              call leg, not the demo — it is trained on the code-mixed,
+//              numeric and named-entity text these conversations are made of,
+//              and it ships 30+ voices against v2's seven. SARVAM_TTS_MODEL
+//              pins it back to bulbul:v2 if v3 ever regresses.
 //   indicf5    Self-hosted AI4Bharat IndicF5 — 11 Indian languages INCLUDING
 //              Telugu, reference-audio voice cloning, no per-character cost.
 //              Needs a GPU host. This is the open-source option, and it is
@@ -63,12 +68,20 @@ const GOOGLE_TTS_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const GOOGLE_VOICES_URL = 'https://texttospeech.googleapis.com/v1/voices';
 const GTRANSLATE_TTS_URL = 'https://translate.googleapis.com/translate_tts';
 
-// Every speaker bulbul:v2 actually accepts, probed against the live API rather
-// than copied from docs. The list used to hold only the four female voices,
-// which is why this file claimed Sarvam could never speak as a man and why the
-// male preset was told to go and enable Google Cloud TTS. It can: abhilash,
-// karun and hitesh are male and work in en-IN, hi-IN and te-IN today.
-const SARVAM_SPEAKERS = ['anushka', 'manisha', 'vidya', 'arya', 'abhilash', 'karun', 'hitesh'];
+// Speakers, probed against the live API rather than copied from docs. The list
+// used to hold only the four female voices, which is why this file claimed
+// Sarvam could never speak as a man and why the male preset was told to go and
+// enable Google Cloud TTS. It can: abhilash, karun and hitesh are male and work
+// in en-IN, hi-IN and te-IN.
+//
+// ⚠️ THESE ARE THE v2 SPEAKERS AND THE DEFAULT MODEL IS NOW v3. Sarvam say v3
+// ships 30+ voices; their names have NOT been probed from here (egress to
+// api.sarvam.ai is blocked in this environment), so the allowlist below is
+// still v2's and the extra voices are unreachable until somebody probes them.
+// SARVAM_SPEAKERS overrides it without a deploy, and the probe is one loop over
+// candidate names against /text-to-speech — the same way this list was built.
+const SARVAM_SPEAKERS = (process.env.SARVAM_SPEAKERS || 'anushka,manisha,vidya,arya,abhilash,karun,hitesh')
+  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
 const SARVAM_MALE_SPEAKERS = ['abhilash', 'karun', 'hitesh'];
 
 // The Google Translate endpoint truncates long text; it is built for a phrase.
@@ -541,10 +554,11 @@ async function viaSarvam(text, opts) {
     : 'anushka';
 
   const body = {
-    text: text.slice(0, 1500),
+    // v3 accepts 2500 per request, up from v2's 1500.
+    text: text.slice(0, Number(process.env.SARVAM_MAX_CHARS || 2500)),
     target_language_code: normalizeLang(opts.lang),
     speaker: spk,
-    model: process.env.SARVAM_TTS_MODEL || 'bulbul:v2',
+    model: process.env.SARVAM_TTS_MODEL || 'bulbul:v3',
     pitch: clamp(opts.pitch, -1, 1, 0),
     pace: clamp(opts.pace, 0.3, 3, 1.0),
     loudness: clamp(opts.loudness, 0.1, 3, 1.0),
