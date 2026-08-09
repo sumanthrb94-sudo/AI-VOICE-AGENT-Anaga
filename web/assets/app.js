@@ -673,6 +673,73 @@ if (demoEl) {
 (function voicePicker() {
   const picker = document.getElementById("voice-picker");
   if (!picker) return;
+
+  /* ── SARVAM'S OWN VOICES, FROM THE SERVER ───────────────────────────────
+     The seven cards in the HTML are presets we invented (Aria, Kiara, Meher…)
+     mapped onto Bulbul v2 speakers. Nobody could tell what they were actually
+     hearing, or quote a voice name back to Sarvam, and the list silently went
+     stale when v3 shipped thirty-seven voices under completely different
+     names.
+
+     So the picker is now rendered from GET /api/tts, which reports the
+     speakers the CONFIGURED MODEL will actually accept. The static cards stay
+     as the markup fallback for a deploy with no Sarvam key — they are replaced
+     the moment the server says otherwise, so the page can never offer a voice
+     the API would reject. */
+  function renderServerVoices(voices) {
+    if (!Array.isArray(voices) || !voices.length) return;
+    picker.textContent = "";
+    voices.forEach(v => {
+      const b = document.createElement("button");
+      b.className = "voice-card";
+      b.type = "button";
+      b.dataset.voice = v.id;
+
+      const wave = document.createElement("span");
+      wave.className = "voice-card__wave";
+      wave.setAttribute("aria-hidden", "true");
+      for (let i = 0; i < 4; i++) wave.appendChild(document.createElement("i"));
+      b.appendChild(wave);
+
+      const txt = document.createElement("span");
+      txt.className = "voice-card__txt";
+      const nm = document.createElement("b");
+      // textContent, not innerHTML: this is a vendor-supplied string.
+      nm.textContent = v.name;
+      const sub = document.createElement("em");
+      // An INFERRED gender is marked as such. Sarvam publish the speaker names
+      // but not their genders, and guessing from a name is what once put a
+      // woman's voice behind a male preset.
+      sub.textContent = v.genderVerified ? v.gender : v.gender + " ?";
+      sub.title = v.genderVerified
+        ? "Gender confirmed by listening"
+        : "Gender inferred from the name — not yet verified";
+      txt.appendChild(nm); txt.appendChild(sub);
+      b.appendChild(txt);
+
+      const play = document.createElement("span");
+      play.className = "voice-card__play";
+      play.setAttribute("aria-hidden", "true");
+      play.textContent = "\u25B6";
+      b.appendChild(play);
+
+      picker.appendChild(b);
+    });
+
+    // The presets the rest of the page speaks in terms of ARE these voices now.
+    VOICES.length = 0;
+    voices.forEach((v, i) => VOICES.push({
+      id: v.id, name: v.name, style: v.gender, idx: i,
+      pitch: 1, rate: 1, gender: v.gender, sarvam: v.id, hints: [],
+    }));
+    if (!VOICES.some(v => v.id === selectedVoiceId)) setSelectedVoice(VOICES[0].id);
+  }
+
+  fetch("/api/tts")
+    .then(r => (r.ok ? r.json() : null))
+    .then(d => { if (d && d.voices) { renderServerVoices(d.voices); wire(); refresh(); } })
+    .catch(() => {});
+
   const cards = [...picker.querySelectorAll(".voice-card")];
   const note = document.getElementById("voice-resolved");
   const refresh = () => cards.forEach(c => c.classList.toggle("is-active", c.dataset.voice === selectedVoiceId));
@@ -726,7 +793,8 @@ if (demoEl) {
   setTimeout(updateNote, 600);    // voices often load a beat after first paint
   setTimeout(updateNote, 1600);   // and after the cloud-TTS capability probe resolves
 
-  cards.forEach(card => card.addEventListener("click", () => {
+  function wire() {
+  [...picker.querySelectorAll(".voice-card")].forEach(card => card.addEventListener("click", () => {
     setSelectedVoice(card.dataset.voice);
     refresh();
     // Unlock inside the tap. Also note the old guard: previews only played when
@@ -735,6 +803,8 @@ if (demoEl) {
     CloudTTS.unlock();
     speakText("Hi, I'm Anaga, your AI voice agent. How can I help you today?", "en-IN", { voice: currentVoice() });
   }));
+  }
+  wire();
 })();
 
 /* ===================================================================

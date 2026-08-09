@@ -68,21 +68,70 @@ const GOOGLE_TTS_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const GOOGLE_VOICES_URL = 'https://texttospeech.googleapis.com/v1/voices';
 const GTRANSLATE_TTS_URL = 'https://translate.googleapis.com/translate_tts';
 
-// Speakers, probed against the live API rather than copied from docs. The list
-// used to hold only the four female voices, which is why this file claimed
-// Sarvam could never speak as a man and why the male preset was told to go and
-// enable Google Cloud TTS. It can: abhilash, karun and hitesh are male and work
-// in en-IN, hi-IN and te-IN.
+// SARVAM SPEAKERS, PER MODEL. These are Sarvam's OWN names, from their docs —
+// not presets we invented. The app used to show seven made-up names (Aria,
+// Kiara, Meher…) mapped onto v2 speakers, which made it impossible for anyone
+// to tell what they were actually listening to or to ask Sarvam about it.
 //
-// ⚠️ THESE ARE THE v2 SPEAKERS AND THE DEFAULT MODEL IS NOW v3. Sarvam say v3
-// ships 30+ voices; their names have NOT been probed from here (egress to
-// api.sarvam.ai is blocked in this environment), so the allowlist below is
-// still v2's and the extra voices are unreachable until somebody probes them.
-// SARVAM_SPEAKERS overrides it without a deploy, and the probe is one loop over
-// candidate names against /text-to-speech — the same way this list was built.
-const SARVAM_SPEAKERS = (process.env.SARVAM_SPEAKERS || 'anushka,manisha,vidya,arya,abhilash,karun,hitesh')
-  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-const SARVAM_MALE_SPEAKERS = ['abhilash', 'karun', 'hitesh'];
+// Names are case-sensitive and must be lowercase.
+const SARVAM_VOICES = {
+  // v3 — 30+ voices. Default speaker is "shubh".
+  'bulbul:v3': [
+    'shubh', 'aditya', 'ritu', 'priya', 'neha', 'rahul', 'pooja', 'rohan',
+    'simran', 'kavya', 'amit', 'dev', 'ishita', 'shreya', 'ratan', 'varun',
+    'manan', 'sumit', 'roopa', 'kabir', 'aayan', 'ashutosh', 'advait', 'anand',
+    'tanya', 'tarun', 'sunny', 'mani', 'gokul', 'vijay', 'shruti', 'suhani',
+    'mohit', 'kavitha', 'rehan', 'soham', 'rupali',
+  ],
+  // v2 — the seven this repo probed against the live API. Kept so pinning
+  // SARVAM_TTS_MODEL=bulbul:v2 still works.
+  'bulbul:v2': ['anushka', 'manisha', 'vidya', 'arya', 'abhilash', 'karun', 'hitesh'],
+};
+
+const SARVAM_DEFAULT_SPEAKER = { 'bulbul:v3': 'shubh', 'bulbul:v2': 'anushka' };
+
+// ⚠️ GENDER BELOW IS INFERRED FROM THE NAME AND HAS NOT BEEN LISTENED TO.
+//
+// Sarvam's docs list the speakers but not their gender. Inferring it from a
+// name is exactly the guess that once had the "Arjun" preset answered by a
+// woman, so it is marked as an inference everywhere it is used rather than
+// presented as fact, and `scripts/probe-sarvam-voices.mjs` exists to replace it
+// with something heard. The v2 entries ARE verified — they were probed.
+const SARVAM_MALE_SPEAKERS = [
+  // verified (v2, probed against the live API)
+  'abhilash', 'karun', 'hitesh',
+  // INFERRED (v3, from the name only)
+  'shubh', 'aditya', 'rahul', 'rohan', 'amit', 'dev', 'ratan', 'varun', 'manan',
+  'sumit', 'kabir', 'aayan', 'ashutosh', 'advait', 'anand', 'tarun', 'sunny',
+  'mani', 'gokul', 'vijay', 'mohit', 'rehan', 'soham',
+];
+const SARVAM_VERIFIED_GENDER = new Set(['abhilash', 'karun', 'hitesh', 'anushka', 'manisha', 'vidya', 'arya']);
+
+export function sarvamModel() {
+  return process.env.SARVAM_TTS_MODEL || 'bulbul:v3';
+}
+
+/** Every speaker the configured model accepts. Env overrides win, so a name
+ *  Sarvam adds tomorrow needs no deploy. */
+export function sarvamSpeakers(model = sarvamModel()) {
+  const override = process.env.SARVAM_SPEAKERS;
+  if (override) return override.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  return SARVAM_VOICES[model] || SARVAM_VOICES['bulbul:v3'];
+}
+
+/** The catalogue the UI renders. `genderVerified:false` means nobody listened. */
+export function sarvamCatalogue(model = sarvamModel()) {
+  return sarvamSpeakers(model).map((name) => ({
+    id: name,
+    name,                                   // Sarvam's own name, shown as-is
+    provider: 'sarvam',
+    model,
+    gender: SARVAM_MALE_SPEAKERS.includes(name) ? 'male' : 'female',
+    genderVerified: SARVAM_VERIFIED_GENDER.has(name),
+  }));
+}
+
+const SARVAM_SPEAKERS = sarvamSpeakers();
 
 // The Google Translate endpoint truncates long text; it is built for a phrase.
 const GTRANSLATE_CHUNK = 190;
@@ -209,6 +258,12 @@ export function ttsStatus() {
     // Whether ANY provider in the chain can genuinely speak as a man. Saying so
     // up front beats shipping a "male" preset that quietly returns a woman.
     maleCapable: chain.some((p) => genderReady(p, 'male')),
+    // The voices the UI should offer, by their VENDOR names. Served from here
+    // rather than hardcoded in the browser so the picker cannot drift from what
+    // the API will actually accept — the drift that had the page offering seven
+    // invented names for a model with thirty-seven real ones.
+    voices: providerReady('sarvam') ? sarvamCatalogue() : [],
+    model: sarvamModel(),
   };
 }
 
@@ -549,16 +604,38 @@ async function viaSarvam(text, opts) {
   const key = process.env.SARVAM_API_KEY;
   if (!key) throw new Error('sarvam_not_configured');
 
-  const spk = SARVAM_SPEAKERS.includes(String(opts.speaker || '').toLowerCase())
-    ? String(opts.speaker).toLowerCase()
-    : 'anushka';
+  // Resolved against the CONFIGURED MODEL's speaker list, and defaulted to that
+  // model's own default — v2's "anushka" is not a v3 speaker, so hardcoding it
+  // would have made every v3 request fall back to a name the API rejects.
+  const model = sarvamModel();
+  const allowed = sarvamSpeakers(model);
+  const asked = String(opts.speaker || '').toLowerCase();
+
+  // A NAME THIS MODEL DOES NOT HAVE FALLS BACK WITHIN THE REQUESTED GENDER.
+  //
+  // Falling back to the model's own default is what a first version of this did
+  // and it is wrong in a way that is hard to notice: v2's speakers are not v3's,
+  // so a deployment carrying TTS_SPEAKER=anushka (a woman) through the upgrade
+  // silently got "shubh" — a man — on every line, with a 200 and no warning.
+  // That is the same failure as serving a woman behind an "Arjun" preset, only
+  // arriving through a version bump instead of a missing profile.
+  //
+  // So the gender of what was ASKED FOR is what survives, and the specific voice
+  // is what gets substituted.
+  const wantMale = asked
+    ? SARVAM_MALE_SPEAKERS.includes(asked)
+    : String(opts.gender || 'female').toLowerCase() === 'male';
+  const sameGender = allowed.filter((n) => SARVAM_MALE_SPEAKERS.includes(n) === wantMale);
+  const spk = allowed.includes(asked)
+    ? asked
+    : (sameGender[0] || SARVAM_DEFAULT_SPEAKER[model] || allowed[0]);
 
   const body = {
     // v3 accepts 2500 per request, up from v2's 1500.
     text: text.slice(0, Number(process.env.SARVAM_MAX_CHARS || 2500)),
     target_language_code: normalizeLang(opts.lang),
     speaker: spk,
-    model: process.env.SARVAM_TTS_MODEL || 'bulbul:v3',
+    model,
     pitch: clamp(opts.pitch, -1, 1, 0),
     pace: clamp(opts.pace, 0.3, 3, 1.0),
     loudness: clamp(opts.loudness, 0.1, 3, 1.0),

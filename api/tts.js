@@ -52,7 +52,9 @@ export default async function handler(req, res) {
   if (!text) return res.status(400).json({ error: 'text_required' });
 
   const lang = typeof body.lang === 'string' ? body.lang : 'en-IN';
-  const speaker = typeof body.speaker === 'string' ? body.speaker : 'anushka';
+  // No default here: an absent speaker is resolved per-model inside synth(),
+  // because "anushka" is a v2 name and would be rejected by v3.
+  const speaker = typeof body.speaker === 'string' ? body.speaker : undefined;
   const gender = String(body.gender || 'female').toLowerCase() === 'male' ? 'male' : 'female';
   const voice = typeof body.voice === 'string' ? body.voice : undefined;
   const { pitch, pace, loudness } = body;   // optional modulation (clamped in synth)

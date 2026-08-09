@@ -52,7 +52,8 @@ function reset() { routes = []; calls = []; }
 // Modules read env at call time, so each test can set its own world.
 const ENV_KEYS = ['TTS_PROVIDER', 'SARVAM_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_SERVICE_ACCOUNT',
   'FIREBASE_SERVICE_ACCOUNT', 'TRANSLATE_PROVIDER', 'VOICESTUDIO_URL', 'VOICESTUDIO_API_KEY',
-  'VOICESTUDIO_MODEL', 'VOICESTUDIO_VOICE_MALE', 'VOICESTUDIO_VOICE_FEMALE', 'SARVAM_STREAM'];
+  'VOICESTUDIO_MODEL', 'VOICESTUDIO_VOICE_MALE', 'VOICESTUDIO_VOICE_FEMALE', 'SARVAM_STREAM',
+  'SARVAM_TTS_MODEL', 'SARVAM_SPEAKERS', 'INDICF5_URL', 'INDICF5_VOICE_MALE', 'INDICF5_VOICE_FEMALE'];
 function clearEnv() { for (const k of ENV_KEYS) delete process.env[k]; }
 clearEnv();
 
@@ -201,9 +202,29 @@ await t('a male Sarvam speaker is reported as male, not assumed female', async (
   process.env.TTS_PROVIDER = 'sarvam';
   process.env.SARVAM_API_KEY = 's';
   routes = [{ match: /api\.sarvam\.ai/, reply: () => bin([0xff, 0xfb, 0x53]) }];
+  process.env.SARVAM_TTS_MODEL = 'bulbul:v2';     // these are v2 speaker names
   assert.equal((await tts.synth({ text: 'x', lang: 'en-IN', speaker: 'abhilash' })).gender, 'male');
   assert.equal((await tts.synth({ text: 'x', lang: 'en-IN', speaker: 'karun' })).gender, 'male');
   assert.equal((await tts.synth({ text: 'x', lang: 'en-IN', speaker: 'anushka' })).gender, 'female');
+  clearEnv();
+});
+
+await t('A VERSION BUMP MUST NOT CHANGE SOMEBODY\'S GENDER', async () => {
+  // v2's speakers are not v3's. A deployment carrying TTS_SPEAKER=anushka (a
+  // woman) through the upgrade used to get "shubh" — a man — on every line,
+  // with a 200 and nothing to say so. Same failure as serving a woman behind an
+  // "Arjun" preset, arriving through a version bump instead of a missing profile.
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'sarvam';
+  process.env.SARVAM_API_KEY = 's';
+  routes = [{ match: /api\.sarvam\.ai/, reply: () => bin([0xff, 0xfb, 0x53]) }];
+
+  const her = await tts.synth({ text: 'x', lang: 'en-IN', speaker: 'anushka' });   // v2 female
+  assert.equal(her.gender, 'female', 'a female speaker must not become a man on upgrade');
+  assert.notEqual(her.voice, 'anushka', 'and it must actually substitute, not send a name v3 rejects');
+
+  const him = await tts.synth({ text: 'x', lang: 'en-IN', speaker: 'abhilash' });  // v2 male
+  assert.equal(him.gender, 'male');
   clearEnv();
 });
 
@@ -252,6 +273,7 @@ await t('every probed bulbul:v2 speaker is accepted, and an unknown one falls ba
   clearEnv(); reset();
   process.env.TTS_PROVIDER = 'sarvam';
   process.env.SARVAM_API_KEY = 's';
+  process.env.SARVAM_TTS_MODEL = 'bulbul:v2';   // this test is about v2's names
   let sent = null;
   routes = [{ match: /api\.sarvam\.ai/, reply: (_u, init) => { sent = JSON.parse(init.body); return bin([0xff, 0xfb, 0x53]); } }];
 
@@ -351,7 +373,12 @@ await t('THE HONESTY RULE: an unpinned gender is refused, not approximated', asy
   // It must NOT synthesize a male request against the female clone. Every engine
   // will happily produce something; that something is how "Arjun" becomes a woman.
   assert.equal(out.provider, 'sarvam');
-  assert.equal(out.gender, 'female');
+  // UPDATED: this asserted 'female'. That was correct when Sarvam's no-speaker
+  // default was hardcoded to "anushka", so a male request landed on a woman and
+  // the most this rule could do was make the UI admit it. Sarvam has male
+  // speakers and the resolver now honours the REQUESTED gender, so the right
+  // outcome is no longer "a woman, honestly labelled" — it is a man.
+  assert.equal(out.gender, 'male', 'Sarvam can speak as a man; a male request should get one');
   assert.equal(calls.some((c) => /audio\/speech/.test(c.url)), false,
     'VoiceStudio should not have been called at all for an unpinned gender');
   clearEnv();
