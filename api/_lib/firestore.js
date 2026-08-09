@@ -212,6 +212,21 @@ export async function setDoc(collection, id, data) {
   return res.ok ? { ok: true } : { ok: false, error: `firestore_${res.status}` };
 }
 
+/**
+ * Delete a document. Firestore answers 200 for a document that was not there,
+ * so this is idempotent and `ok` does NOT mean "something was removed".
+ *
+ * encodeURIComponent matters more than it looks: suppression document ids ARE
+ * phone numbers, so they begin with "+". Left unencoded, the delete lands on a
+ * different path, returns 200, and the row stays — a silent no-op that reads as
+ * success. That is not hypothetical; it is how a cleanup pass appeared to work
+ * while removing nothing.
+ */
+export async function deleteDoc(collection, id) {
+  const res = await call(`/${collection}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  return res.ok ? { ok: true } : { ok: false, error: `firestore_${res.status}` };
+}
+
 /** Append a document with a server-generated id. */
 export async function addDoc(collection, data) {
   const res = await call(`/${collection}`, { method: 'POST', body: { fields: toFields(data) } });

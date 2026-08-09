@@ -12,11 +12,20 @@
 //
 // Run:  node --experimental-detect-module scripts/test-firestore.mjs
 // Live: FIREBASE_SERVICE_ACCOUNT="$(cat .secrets/firebase-adminsdk.json)" node ...
+//       (or put the same JSON in FIREBASE_SERVICE_ACCOUNT_LIVE)
+//
+// ⚠️ The live half WRITES to the real project. Every document it creates is
+// named qa_probe/…-<timestamp> so it can be told apart from real traffic.
 
 import assert from 'node:assert';
 import crypto from 'node:crypto';
 
 const ROOT = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
+
+// Captured BEFORE the offline half swaps in malformed credentials and then
+// deletes the variable. Reading it later gets whatever the last offline test
+// left behind, which is the bug that kept the live half from ever running.
+const SERVICE_ACCOUNT_AT_STARTUP = process.env.FIREBASE_SERVICE_ACCOUNT || null;
 
 let pass = 0, fail = 0, skipped = 0;
 const failures = [];
@@ -137,13 +146,37 @@ delete process.env.FIREBASE_SERVICE_ACCOUNT;
 // ---------------------------------------------------------------------------
 section('live project (requires FIREBASE_SERVICE_ACCOUNT)');
 
-const LIVE = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_LIVE);
-if (!LIVE) {
-  skip('live round-trips', 'set FIREBASE_SERVICE_ACCOUNT_LIVE to run');
+// Accept the credential from EITHER variable. This used to read only
+// FIREBASE_SERVICE_ACCOUNT_LIVE and copy it across — but the way this file
+// documents itself is to pass the JSON in FIREBASE_SERVICE_ACCOUNT, which the
+// offline half deletes above. So the documented invocation ran the live half
+// against an empty credential, the store fell back to 'memory', and all five
+// tests failed in a way that looked like a broken project rather than a broken
+// harness. Which is to say: this half had never actually run.
+const CREDENTIAL = looksLikeCredential(process.env.FIREBASE_SERVICE_ACCOUNT_LIVE)
+  ? process.env.FIREBASE_SERVICE_ACCOUNT_LIVE
+  : SERVICE_ACCOUNT_AT_STARTUP;
+
+function looksLikeCredential(v) {
+  if (typeof v !== 'string' || v.length < 32) return false;
+  return v.trim().startsWith('{') || /^[A-Za-z0-9+/=\s]+$/.test(v.trim());
+}
+
+if (!CREDENTIAL) {
+  skip('live round-trips', 'set FIREBASE_SERVICE_ACCOUNT to run');
 } else {
-  process.env.FIREBASE_SERVICE_ACCOUNT = process.env.FIREBASE_SERVICE_ACCOUNT_LIVE;
+  process.env.FIREBASE_SERVICE_ACCOUNT = CREDENTIAL;
   const store = await import(`${ROOT}/api/_lib/store.js?live=1`);
+  const fsdb = await import(`${ROOT}/api/_lib/firestore.js?live=1`);
   const stamp = Date.now();
+
+  // Everything this half writes is registered here and removed at the end.
+  // A suite that leaves rows behind in a REAL project is not a neutral
+  // observer: fake leads and fake events land in the operator console's funnel
+  // and the numbers a human reads become part-fiction. (Found the hard way —
+  // four runs left 60 probe documents in the live project.)
+  const litter = [];
+  const wrote = (collection, id) => { litter.push([collection, id]); return id; };
 
   await t('the store reports itself as durable and reachable', async () => {
     const s = await store.storeStatus();
@@ -153,7 +186,7 @@ if (!LIVE) {
   });
 
   await t('a suppressed number reads back as suppressed', async () => {
-    const phone = `+9199000${String(stamp).slice(-5)}`;
+    const phone = wrote('suppression', `+9199000${String(stamp).slice(-5)}`);
     const before = await store.isSuppressed(phone);
     assert.equal(before.suppressed, false);
     assert.equal(before.known, true, 'a reachable store must return known:true');
@@ -167,7 +200,7 @@ if (!LIVE) {
   });
 
   await t('suppression is idempotent — re-suppressing does not duplicate', async () => {
-    const phone = `+9199001${String(stamp).slice(-5)}`;
+    const phone = wrote('suppression', `+9199001${String(stamp).slice(-5)}`);
     await store.suppress(phone, { reason: 'first' });
     await store.suppress(phone, { reason: 'second' });
     const r = await store.isSuppressed(phone);
@@ -175,7 +208,7 @@ if (!LIVE) {
   });
 
   await t('lead dedupe is ATOMIC across instances', async () => {
-    const lead = { id: `qa:${stamp}`, source: 'qa', sourceId: String(stamp), phone: '+919876543210' };
+    const lead = { id: wrote('leads', `qa:${stamp}`), source: 'qa', sourceId: String(stamp), phone: '+919876543210' };
     // Two concurrent claims, as two serverless instances would race.
     const [a, b] = await Promise.all([store.claimLead(lead), store.claimLead(lead)]);
     const created = [a, b].filter((r) => r.created).length;
@@ -183,8 +216,9 @@ if (!LIVE) {
   });
 
   await t('events append and read back newest-first', async () => {
-    await store.recordEvent('qa.probe', { stamp, n: 1 });
-    await store.recordEvent('qa.probe', { stamp, n: 2 });
+    const e1 = await store.recordEvent('qa.probe', { stamp, n: 1 });
+    const e2 = await store.recordEvent('qa.probe', { stamp, n: 2 });
+    for (const e of [e1, e2]) if (e.id) wrote('events', e.id);
     const r = await store.recentEvents(20);
     assert.equal(r.ok, true, `query failed: ${r.error}`);
     assert.ok(r.docs.length >= 2, 'both events should be readable');
@@ -192,6 +226,32 @@ if (!LIVE) {
     if (r.docs.length >= 2) {
       assert.ok(r.docs[0].at >= r.docs[1].at, 'events must come back newest-first');
     }
+  });
+
+  await t('a call record survives the round trip, transcript and all', async () => {
+    // The encoding most likely to break is the transcript: an array of maps,
+    // nested inside a document, through Firestore's typed-value format. Proving
+    // it offline against a double proves the double.
+    const callId = wrote('calls', `qa_probe_call_${stamp}`);
+    const history = [
+      { role: 'agent', text: "Hi, I'm Anaga, an AI voice assistant from Vaak." },
+      { role: 'user', text: 'Haan bolo — 3BHK, around 1.5 crore, buying in two months.' },
+      { role: 'agent', text: 'Could I book you a site visit this weekend?' },
+    ];
+    const w = await store.recordCall(callId, {
+      callId, disposition: 'booked', score: 87, band: 'hot',
+      qualification: { purpose: 'end-use', budget: 'in-range' },
+      transcript: history, turns: history.length,
+      lead: { phoneMasked: '+9198XXXXXX78', crmRecordId: 'qa_probe' },
+    });
+    assert.equal(w.durable, true, `the call was not stored: ${w.error}`);
+
+    const r = await store.getCall(callId);
+    assert.equal(r.found, true, 'the call must be readable back');
+    assert.deepEqual(r.data.transcript, history, 'the conversation must survive the encoding');
+    assert.equal(r.data.score, 87);
+    assert.equal(r.data.qualification.budget, 'in-range', 'nested maps must survive too');
+    assert.ok(!JSON.stringify(r.data).includes('+919812345678'), 'no full number at rest');
   });
 
   await t('no composite index is required by any query this app runs', async () => {
@@ -202,6 +262,29 @@ if (!LIVE) {
     const c = await store.recentCalls(10);
     for (const [name, r] of [['events', a], ['suppressions', b], ['calls', c]]) {
       assert.equal(r.ok, true, `${name} query needs an index: ${r.error}`);
+    }
+  });
+
+  await t('the suite leaves the project as it found it', async () => {
+    const failed = [];
+    for (const [collection, id] of litter) {
+      const r = await fsdb.deleteDoc(collection, id);
+      if (!r.ok) failed.push(`${collection}/${id}: ${r.error}`);
+    }
+    assert.deepEqual(failed, [], `probe documents left behind:\n  ${failed.join('\n  ')}`);
+
+    // Prove it, rather than trusting a 200 — Firestore answers 200 for a
+    // delete that matched nothing, which is exactly how an earlier cleanup
+    // appeared to work while removing nothing at all.
+    for (const [collection, id] of litter) {
+      if (collection === 'calls') {
+        const still = await store.getCall(id);
+        assert.equal(still.found, false, `${collection}/${id} survived the delete`);
+      }
+      if (collection === 'suppression') {
+        const still = await store.isSuppressed(id);
+        assert.equal(still.suppressed, false, `${collection}/${id} survived the delete`);
+      }
     }
   });
 }
