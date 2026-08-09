@@ -25,15 +25,21 @@
 //              it as a floor, not a promise.
 //   sarvam     Sarvam Bulbul v2. Strong Indic prosody and Indian data
 //              residency. Seven speakers, FOUR female and THREE male.
+//   indicf5    Self-hosted AI4Bharat IndicF5 — 11 Indian languages INCLUDING
+//              Telugu, reference-audio voice cloning, no per-character cost.
+//              Needs a GPU host. This is the open-source option, and it is
+//              IndicF5 rather than the better-known Fish-Speech or GPT-SoVITS
+//              for one disqualifying reason: neither of those officially
+//              supports Telugu or Hindi, so on this product they are a GPU
+//              bill for languages we do not sell in.
 //
 // TTS_PROVIDER is a comma-separated CHAIN, tried in order (default
-// "voicestudio,google,sarvam,gtranslate"). The chain exists because of a real
+// "sarvam,google,indicf5,voicestudio,gtranslate"). The chain exists because of a real
 // incident: one provider hiccup used to drop the whole call to the robotic
 // on-device browser voice, silently, for the rest of the session. Now a failure
-// costs one hop. voicestudio leads because when it is configured it is both the
-// cheapest per call and the only one whose audio stays on our own hardware — and
-// it is inert until VOICESTUDIO_URL is set, so leading with it changes nothing
-// on a deployment that has not stood one up.
+// costs one hop. The order is a COST decision — cheapest per call first — and
+// every provider is inert until its own env is set, so the order changes
+// nothing on a deployment that has only configured one of them.
 //
 // gtranslate is LAST and must stay last: it needs no credential, so anywhere it
 // sits in the chain, nothing after it is ever reached. See DEFAULT_CHAIN.
@@ -79,7 +85,17 @@ const GTRANSLATE_CHUNK = 190;
 //
 // Verified on the deployment: POST /api/tts returned provider "gtranslate"
 // with SARVAM_API_KEY set.
-const DEFAULT_CHAIN = 'voicestudio,google,sarvam,gtranslate';
+// ORDER IS A COST DECISION, not a quality one, and it is set deliberately:
+//   sarvam     cheapest per character, and Indic-native
+//   google     next cheapest, and the only one with a guaranteed male voice
+//   indicf5    self-hosted AI4Bharat — no per-character cost once the box is
+//              paid for, but a box has to exist and be warm. Ahead of
+//              voicestudio because it is the one that speaks Telugu.
+//   voicestudio the other self-hosted option, kept so an existing deployment
+//              that stood one up does not silently lose its voice
+//   gtranslate free, keyless, and the worst. LAST, always: anything after a
+//              provider that cannot fail is unreachable.
+const DEFAULT_CHAIN = 'sarvam,google,indicf5,voicestudio,gtranslate';
 
 const clamp = (n, lo, hi, d) => { n = Number(n); return Number.isNaN(n) ? d : Math.max(lo, Math.min(hi, n)); };
 
@@ -93,6 +109,7 @@ export function providerReady(name) {
   if (name === 'sarvam') return Boolean(process.env.SARVAM_API_KEY);
   if (name === 'gtranslate') return true;                      // needs nothing
   if (name === 'voicestudio') return Boolean(process.env.VOICESTUDIO_URL);
+  if (name === 'indicf5') return Boolean(process.env.INDICF5_URL);
   if (name === 'google') {
     return Boolean(process.env.GOOGLE_API_KEY || process.env.GOOGLE_SERVICE_ACCOUNT || process.env.FIREBASE_SERVICE_ACCOUNT);
   }
@@ -114,6 +131,15 @@ export function genderReady(name, gender) {
   if (name === 'voicestudio') {
     if (!providerReady('voicestudio')) return false;
     return Boolean(male ? process.env.VOICESTUDIO_VOICE_MALE : process.env.VOICESTUDIO_VOICE_FEMALE);
+  }
+  // IndicF5 clones whatever reference clip it is pointed at, so a gender is
+  // only claimed when a reference for it is actually configured. Same rule as
+  // VoiceStudio, same reason: the model will happily synthesize SOMETHING for
+  // a missing reference, and "something" is how a male preset ends up sounding
+  // like a woman with nobody noticing.
+  if (name === 'indicf5') {
+    if (!providerReady('indicf5')) return false;
+    return Boolean(male ? process.env.INDICF5_VOICE_MALE : process.env.INDICF5_VOICE_FEMALE);
   }
   // Sarvam has male speakers (probed live: abhilash, karun, hitesh), so it is
   // male-capable. gtranslate genuinely is not — one voice per language.
@@ -200,6 +226,7 @@ export async function synth(opts = {}) {
       else if (provider === 'google') out = await viaGoogle(text, opts);
       else if (provider === 'gtranslate') out = await viaGoogleTranslate(text, opts);
       else if (provider === 'sarvam') out = await viaSarvam(text, opts);
+      else if (provider === 'indicf5') out = await viaIndicF5(text, opts);
       else continue;
 
       // A FALLBACK IS NOT A SUCCESS, even though the response is a 200.
@@ -243,6 +270,79 @@ export async function synth(opts = {}) {
 // moves to a provider that can actually do it. Every engine will synthesize
 // *something* for an unknown voice, and that something is how "Arjun" ends up
 // sounding like a woman.
+
+// ---------------------------------------------------------------------------
+// indicf5 — self-hosted AI4Bharat, the open-source option
+// ---------------------------------------------------------------------------
+//
+// IndicF5 covers 11 Indian languages INCLUDING TELUGU, which is the reason it
+// is here and the reason the obvious open-source picks are not: Fish-Speech and
+// GPT-SoVITS are excellent and neither officially supports Telugu or Hindi, so
+// on this product they would be a GPU bill for a language we do not sell in.
+//
+// It is a reference-audio cloning model: it needs a voice clip and that clip's
+// transcript, not a voice id. Shipping a WAV on every request would be absurd,
+// so the references live ON THE SERVER under names, and we send the name. The
+// server contract is ours and is implemented in deploy/indicf5/ —
+//
+//   POST {INDICF5_URL}/tts
+//     { text, language, voice, sample_rate }  ->  audio/wav bytes
+//
+// ⚠️ VERIFICATION: this adapter has never run against a live box. It is written
+// against the contract in deploy/indicf5/, and that server is written against
+// AI4Bharat's documented inference call. Treat both as unproven until a real
+// GPU has answered one request — exactly the status the VoiceStudio path has.
+//
+// LICENCE: the model card requires that you only clone voices you have explicit
+// permission to clone. A reference clip of a person who did not agree is not a
+// configuration detail, it is the thing that makes this unlawful.
+async function viaIndicF5(text, opts) {
+  const base = String(process.env.INDICF5_URL || '').replace(/\/+$/, '');
+  if (!base) throw new Error('indicf5_not_configured');
+
+  const wantMale = String(opts.gender || 'female').toLowerCase() === 'male';
+  const voice = wantMale ? process.env.INDICF5_VOICE_MALE : process.env.INDICF5_VOICE_FEMALE;
+  if (!voice) throw new Error(`indicf5_no_${wantMale ? 'male' : 'female'}_voice`);
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (process.env.INDICF5_API_KEY) headers.Authorization = `Bearer ${process.env.INDICF5_API_KEY}`;
+
+  const ctrl = new AbortController();
+  // Longer than the hosted vendors on purpose: a cold GPU loading weights is
+  // the normal first request, and killing it at 8s means the box never gets to
+  // warm up and the provider looks permanently broken.
+  const timer = setTimeout(() => ctrl.abort(), Number(process.env.INDICF5_TIMEOUT_MS || 30000));
+  let res;
+  try {
+    res = await fetch(`${base}/tts`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        text: text.slice(0, 2000),
+        language: shortLang(opts.lang),
+        voice,
+        sample_rate: Number(process.env.INDICF5_SAMPLE_RATE || 24000),
+      }),
+      signal: ctrl.signal,
+    });
+  } catch (err) {
+    throw new Error(err?.name === 'AbortError' ? 'indicf5_timeout' : 'indicf5_unreachable');
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!res.ok) throw new Error(`indicf5_tts_${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (!buf.length) throw new Error('indicf5_tts_empty');
+
+  return {
+    audio: buf.toString('base64'),
+    mime: 'audio/wav',
+    provider: 'indicf5',
+    voice,
+    gender: wantMale ? 'male' : 'female',
+  };
+}
 
 async function viaVoiceStudio(text, opts) {
   const base = String(process.env.VOICESTUDIO_URL || '').replace(/\/+$/, '');

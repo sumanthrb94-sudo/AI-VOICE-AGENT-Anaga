@@ -56,3 +56,5 @@ obj/
 
 # Ruflo swarm telemetry — SQLite written on every session, never source
 .swarm/
+deploy/indicf5/voices/*
+!deploy/indicf5/voices/README.md

@@ -1,0 +1,30 @@
+# IndicF5 TTS — self-hosted, GPU.
+#
+# LOOPBACK ONLY. server.py has no authentication, so a published port is an
+# open voice-cloning endpoint on the internet. Reach it over a tunnel, or put a
+# reverse proxy in front and set INDICF5_API_KEY.
+services:
+  indicf5:
+    build: .
+    # 127.0.0.1 prefix is load-bearing — "8080:8080" would publish to 0.0.0.0.
+    ports: ["127.0.0.1:8080:8080"]
+    volumes:
+      # Reference clips + their exact transcripts. Read-only: the server never
+      # writes here, and a voice appearing at runtime should be a deliberate act.
+      - ./voices:/voices:ro
+      # Weights survive a rebuild; otherwise every restart re-downloads GBs.
+      - hf-cache:/root/.cache/huggingface
+    environment:
+      - INDICF5_VOICES=/voices
+      - PORT=8080
+      # - INDICF5_API_KEY=${INDICF5_API_KEY}
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+volumes:
+  hf-cache:

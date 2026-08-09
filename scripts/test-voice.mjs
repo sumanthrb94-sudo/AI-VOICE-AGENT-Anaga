@@ -207,16 +207,17 @@ await t('a male Sarvam speaker is reported as male, not assumed female', async (
   clearEnv();
 });
 
-await t('leading the default chain with voicestudio changes nothing until it is set', () => {
+await t('an unconfigured provider in the chain changes nothing', () => {
   clearEnv();
   const s = tts.ttsStatus();
-  assert.equal(s.chain[0], 'voicestudio');
-  // Inert without VOICESTUDIO_URL — a deploy that has not stood one up behaves
-  // exactly as it did before the provider existed.
+  // Every paid/self-hosted provider is inert until its own env exists, so the
+  // chain ORDER can be changed on cost grounds without affecting a deployment
+  // that has only configured one of them.
   assert.equal(s.ready.includes('voicestudio'), false);
-  assert.deepEqual(s.ready, ['gtranslate']);
+  assert.equal(s.ready.includes('indicf5'), false);
+  assert.deepEqual(s.ready, ['gtranslate'], 'a bare deploy has exactly one usable voice');
   process.env.VOICESTUDIO_URL = 'http://10.0.0.4:3900';
-  assert.equal(tts.ttsStatus().ready[0], 'voicestudio');
+  assert.ok(tts.ttsStatus().ready.includes('voicestudio'));
   clearEnv();
 });
 
@@ -434,6 +435,69 @@ await t('the endpoint logs the fallback and does NOT leak it to the caller', asy
   assert.equal(event.served, 'gtranslate');
   assert.equal(event.severity, 'high', 'serving the fallback voice to prospects is an incident');
   assert.ok(!('fellBackFrom' in res.body), 'internal provider errors must not reach the client');
+  clearEnv();
+});
+
+await t('the default chain is cheapest-first, with the free voice LAST', async () => {
+  clearEnv(); reset();
+  const chain = tts.providerChain();
+  assert.deepEqual(chain, ['sarvam', 'google', 'indicf5', 'voicestudio', 'gtranslate']);
+  assert.equal(chain[chain.length - 1], 'gtranslate',
+    'gtranslate needs no credential, so anything after it is unreachable');
+  clearEnv();
+});
+
+await t('indicf5 is inert until a box is configured', async () => {
+  clearEnv(); reset();
+  assert.equal(tts.providerReady('indicf5'), false, 'no URL must mean no attempt');
+  process.env.INDICF5_URL = 'http://gpu.invalid:8080';
+  assert.equal(tts.providerReady('indicf5'), true);
+  clearEnv();
+});
+
+await t('indicf5 refuses a gender it has no reference clip for', async () => {
+  clearEnv(); reset();
+  process.env.INDICF5_URL = 'http://gpu.invalid:8080';
+  process.env.INDICF5_VOICE_FEMALE = 'anaga_te_f';
+  assert.equal(tts.genderReady('indicf5', 'female'), true);
+  // The model will clone SOMETHING for a missing reference. Refusing is what
+  // stops a male preset being served in a woman's voice.
+  assert.equal(tts.genderReady('indicf5', 'male'), false);
+  clearEnv();
+});
+
+await t('indicf5 speaks, and reports itself honestly', async () => {
+  clearEnv(); reset();
+  process.env.INDICF5_URL = 'http://gpu.invalid:8080';
+  process.env.INDICF5_VOICE_FEMALE = 'anaga_te_f';
+  process.env.TTS_PROVIDER = 'indicf5,gtranslate';
+  let sent = null;
+  routes = [
+    { match: /gpu\.invalid/, reply: (_u, init) => { sent = JSON.parse(init.body); return bin([0x52, 0x49, 0x46, 0x46]); } },
+    { match: /translate_tts/, reply: () => bin([0xff, 0xfb]) },
+  ];
+  const out = await tts.synth({ text: 'నమస్కారం', lang: 'te-IN' });
+  assert.equal(out.provider, 'indicf5');
+  assert.equal(out.mime, 'audio/wav');
+  assert.equal(out.voice, 'anaga_te_f');
+  assert.equal(sent.language, 'te', 'the bare subtag, as the server contract expects');
+  assert.equal(sent.voice, 'anaga_te_f', 'the reference NAME, never a clip');
+  clearEnv();
+});
+
+await t('a cold GPU costs one hop, not the call', async () => {
+  clearEnv(); reset();
+  process.env.INDICF5_URL = 'http://gpu.invalid:8080';
+  process.env.INDICF5_VOICE_FEMALE = 'anaga_te_f';
+  process.env.SARVAM_API_KEY = 's';
+  process.env.TTS_PROVIDER = 'indicf5,sarvam';
+  routes = [
+    { match: /gpu\.invalid/, reply: () => { throw new Error('ECONNREFUSED'); } },
+    { match: /api\.sarvam\.ai/, reply: () => bin([0xff, 0xfb, 0x53]) },
+  ];
+  const out = await tts.synth({ text: 'hello', lang: 'te-IN' });
+  assert.equal(out.provider, 'sarvam', 'a box that is down or cold must not end the call');
+  assert.ok(out.fellBackFrom.join(' ').includes('indicf5'), 'and the fallback must be reported');
   clearEnv();
 });
 
