@@ -56,6 +56,27 @@ if (process.env.STUB_VENDORS === '1') {
     const u = String(url);
     let body = null;
     try { body = init.body ? JSON.parse(init.body) : null; } catch { /* form data */ }
+
+    // The BRAIN. Stubbed for the same reason the vendors are: what we ask it is
+    // ours to get right, what it answers is Google's. Note the URL carries the
+    // key, so only the path is recorded.
+    if (/generativelanguage\.googleapis/.test(u)) {
+      vendorCalls.push({ url: u.split('?')[0], body });
+      // A brain that is down is the common case, not the exotic one — quota,
+      // a retired model name, a missing key. It has to be testable.
+      if (process.env.STUB_LLM_FAIL === '1') {
+        return new Response('{"error":{"message":"stubbed outage"}}', {
+          status: 503, headers: { 'content-type': 'application/json' },
+        });
+      }
+      const said = process.env.STUB_LLM_SAY
+        || 'మీరు ఉండటానికా, లేక పెట్టుబడి కోసమా చూస్తున్నారు?';
+      const payload = JSON.stringify({ say: said, end: false, disposition: 'qualifying' });
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: payload }] } }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+
     if (/sarvam\.ai|texttospeech\.googleapis|translate_tts|voicestudio|indicf5/.test(u)
         || /gpu|10\.0\.0/.test(u)) {
       vendorCalls.push({ url: u.split('?')[0], body });

@@ -44,6 +44,33 @@
   .v .n em{font-style:normal;color:var(--dim);font-size:11px;
     font-variant-numeric:tabular-nums}
   footer{padding:0 16px 28px;color:var(--dim);font-size:11px;line-height:1.6}
+
+  /* live transcript — both sides, as it happens */
+  .talkbar{padding:0 16px 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .talk{background:var(--accent);color:#0b0b0b;border:0;border-radius:999px;
+    padding:10px 16px;font:600 14px/1 inherit;cursor:pointer;
+    -webkit-tap-highlight-color:transparent}
+  .talk[aria-pressed=true]{background:var(--ok)}
+  .talk:disabled{opacity:.5;cursor:default}
+  /* Typing is not a lesser path: Firefox and every desktop without Web Speech
+     has no mic recogniser at all, and the transcript is the point. */
+  .sayform{display:flex;gap:6px;flex:1;min-width:180px}
+  .sayform input{flex:1;min-width:0;background:var(--card);color:var(--txt);
+    border:1px solid var(--line);border-radius:999px;padding:9px 14px;font:inherit}
+  .sayform input:focus{outline:none;border-color:var(--accent)}
+  .send{background:var(--card);color:var(--txt);border:1px solid var(--line);
+    border-radius:999px;width:40px;font-size:16px;cursor:pointer}
+  .log{margin:0 16px 14px;max-height:38vh;overflow-y:auto;display:flex;
+    flex-direction:column;gap:6px}
+  .log:empty{display:none}
+  .ln{padding:8px 11px;border-radius:11px;max-width:88%;font-size:14px;
+    white-space:pre-wrap;overflow-wrap:anywhere}
+  .ln.you{align-self:flex-end;background:#1b2330;border:1px solid #26374d}
+  .ln.her{align-self:flex-start;background:#1b1408;border:1px solid #3a2a10}
+  /* interim recognition: visibly not final yet */
+  .ln.draft{opacity:.55;font-style:italic}
+  .ln small{display:block;color:var(--dim);font-size:10px;margin-bottom:2px;
+    font-style:normal;opacity:.9}
 </style>
 </head>
 <body>
@@ -61,12 +88,23 @@
   <span class="val" id="pitchV">0</span>
 </div>
 
+<div class="talkbar">
+  <button id="talk" type="button" class="talk" aria-pressed="false">🎙 మాట్లాడండి</button>
+  <form id="sayform" class="sayform" autocomplete="off">
+    <input id="saytxt" type="text" placeholder="టైప్ చేయండి…" aria-label="Type your reply to Anaga">
+    <button type="submit" class="send" aria-label="Send">→</button>
+  </form>
+  <span class="tag" id="talkstate"></span>
+</div>
+<div id="log" class="log" aria-live="polite" aria-label="Live transcript"></div>
+
 <div id="status">Loading voices…</div>
 <div class="grid" id="voices"></div>
 
 <footer>
-  Tap a voice to hear it. Nothing plays until you tap.<br>
-  The number beside each name is time-to-first-audio, measured on your device.
+  Tap a voice to hear it, and to make it Anaga's voice. Nothing plays until you tap.<br>
+  The number beside each name is time-to-first-audio, measured on your device.<br>
+  Speak or type and both sides of the conversation appear above as they happen.
 </footer>
 
 <script src="assets/tel.js" defer></script>
