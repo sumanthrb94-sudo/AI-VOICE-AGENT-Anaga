@@ -109,17 +109,23 @@ await t('Cloud TTS is ready on an API key OR a service account', () => {
   clearEnv();
 });
 
-await t('only Cloud TTS reports itself male-capable', () => {
+await t('maleCapable reflects what the providers can really do', () => {
   clearEnv();
-  // Default chain, no Google credential: a male voice cannot be served, and
-  // ttsStatus must say so rather than let the UI promise one.
+  // Nothing configured: only gtranslate can run, and it has one voice per
+  // language, so a male voice cannot be served and the UI must not promise one.
   assert.equal(tts.ttsStatus().maleCapable, false);
+
   process.env.GOOGLE_API_KEY = 'k';
-  assert.equal(tts.ttsStatus().maleCapable, true);
-  // Sarvam alone is never male-capable, key or no key.
+  assert.equal(tts.ttsStatus().maleCapable, true, 'Cloud TTS resolves by ssmlGender');
+  clearEnv();
+
+  // CORRECTED: this used to assert Sarvam was never male-capable, which was a
+  // belief of mine and not a fact. Probing bulbul:v2 with a live key shows
+  // abhilash, karun and hitesh all return audio in en-IN, hi-IN and te-IN. The
+  // test was encoding the mistake, so the fix is here as well as in the code.
   process.env.TTS_PROVIDER = 'sarvam';
   process.env.SARVAM_API_KEY = 's';
-  assert.equal(tts.ttsStatus().maleCapable, false);
+  assert.equal(tts.ttsStatus().maleCapable, true, 'Sarvam has male speakers');
   clearEnv();
 });
 
@@ -192,12 +198,31 @@ await t('VoiceStudio claims a gender only when a profile id backs it', () => {
   clearEnv();
 });
 
-await t('Sarvam and the Translate voice are never male-capable, key or no key', () => {
+await t('the Translate voice is never male-capable; Sarvam is', () => {
   clearEnv();
   process.env.SARVAM_API_KEY = 's';
-  assert.equal(tts.genderReady('sarvam', 'male'), false);
-  assert.equal(tts.genderReady('sarvam', 'female'), true);
+  assert.equal(tts.genderReady('sarvam', 'male'), true, 'abhilash/karun/hitesh');
+  assert.equal(tts.genderReady('sarvam', 'female'), true, 'anushka/manisha/vidya/arya');
+  // gtranslate really does have exactly one voice per language.
   assert.equal(tts.genderReady('gtranslate', 'male'), false);
+  assert.equal(tts.genderReady('gtranslate', 'female'), true);
+  clearEnv();
+});
+
+await t('every probed bulbul:v2 speaker is accepted, and an unknown one falls back', async () => {
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'sarvam';
+  process.env.SARVAM_API_KEY = 's';
+  let sent = null;
+  routes = [{ match: /api\.sarvam\.ai/, reply: (_u, init) => { sent = JSON.parse(init.body); return json({ audios: ['U0FS'] }); } }];
+
+  for (const spk of ['anushka', 'manisha', 'vidya', 'arya', 'abhilash', 'karun', 'hitesh']) {
+    await tts.synth({ text: 'x', lang: 'te-IN', speaker: spk });
+    assert.equal(sent.speaker, spk, `${spk} must be passed through, not silently replaced`);
+  }
+  // A name the API would reject must not reach it.
+  await tts.synth({ text: 'x', lang: 'te-IN', speaker: 'not-a-real-speaker' });
+  assert.equal(sent.speaker, 'anushka');
   clearEnv();
 });
 

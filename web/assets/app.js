@@ -200,8 +200,14 @@ const VOICES = [
     hints: ["google uk english female", "kalpana", "tessa", "catherine", "serena", "fiona"] },
   { id: "meher", name: "Meher", style: "High & gentle",  idx: 2, pitch: 1.5,  rate: 0.85, gender: "female", sarvam: "vidya",
     hints: ["victoria", "swara", "raveena", "moira", "karen", "nicky"] },
-  { id: "arjun", name: "Arjun", style: "Male · steady",  idx: 3, pitch: 0.75, rate: 0.98, gender: "male",   sarvam: null,
-    hints: MALE_HINTS }
+  { id: "arjun", name: "Arjun", style: "Male · steady",  idx: 3, pitch: 0.75, rate: 0.98, gender: "male",   sarvam: "abhilash",
+    hints: MALE_HINTS },
+  { id: "karun", name: "Karun", style: "Male · warm",    idx: 4, pitch: 0.85, rate: 0.95, gender: "male",   sarvam: "karun",
+    hints: MALE_HINTS },
+  { id: "hitesh", name: "Hitesh", style: "Male · bright", idx: 5, pitch: 0.95, rate: 1.05, gender: "male",  sarvam: "hitesh",
+    hints: MALE_HINTS },
+  { id: "arya",  name: "Arya",  style: "Female · calm",  idx: 6, pitch: 1.05, rate: 0.95, gender: "female", sarvam: "arya",
+    hints: FEMALE_HINTS }
 ];
 let selectedVoiceId = (function () {
   try { return localStorage.getItem("vaak_voice") || "aria"; } catch (e) { return "aria"; }

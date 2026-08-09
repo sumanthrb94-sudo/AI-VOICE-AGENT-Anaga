@@ -58,14 +58,14 @@ node --experimental-detect-module scripts/test-media.mjs          # 13
 node --experimental-detect-module scripts/test-media-server.mjs   # 18
 node --experimental-detect-module scripts/test-firestore.mjs      # 6 (+6 live)
 node --experimental-detect-module scripts/test-echo.mjs           # 16
-node --experimental-detect-module scripts/test-voice.mjs          # 38
+node --experimental-detect-module scripts/test-voice.mjs          # 39
 node --experimental-detect-module scripts/test-voicestudio.mjs    # 18
 node --experimental-detect-module scripts/test-recording.mjs      # 21
 node scripts/test-browser-echo.mjs                                # 6  (real Chromium)
 node scripts/test-browser-voice.mjs                               # 11 (real Chromium)
 CALLING_WINDOW_START_IST=0 CALLING_WINDOW_END_IST=24 \
   node --experimental-detect-module scripts/test-e2e.mjs          # 44
-```                                                               # 240 total
+```                                                               # 241 total
 #      (+6 more when FIREBASE_SERVICE_ACCOUNT_LIVE is set: 244)
 
 ## Home screen & the Playbook

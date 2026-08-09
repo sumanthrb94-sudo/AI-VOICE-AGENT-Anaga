@@ -23,8 +23,8 @@
 //              no billing — it works on a fresh deploy. ONE voice per language,
 //              so it cannot honour a male request. Undocumented endpoint: treat
 //              it as a floor, not a promise.
-//   sarvam     Sarvam Bulbul. Strong Indic prosody, female speakers only in the
-//              set we use.
+//   sarvam     Sarvam Bulbul v2. Strong Indic prosody and Indian data
+//              residency. Seven speakers, FOUR female and THREE male.
 //
 // TTS_PROVIDER is a comma-separated CHAIN, tried in order (default
 // "voicestudio,google,sarvam,gtranslate"). The chain exists because of a real
@@ -50,8 +50,13 @@ const GOOGLE_TTS_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const GOOGLE_VOICES_URL = 'https://texttospeech.googleapis.com/v1/voices';
 const GTRANSLATE_TTS_URL = 'https://translate.googleapis.com/translate_tts';
 
-// female Bulbul v2 speakers used by the UI voices
-const SARVAM_SPEAKERS = ['anushka', 'manisha', 'vidya', 'arya'];
+// Every speaker bulbul:v2 actually accepts, probed against the live API rather
+// than copied from docs. The list used to hold only the four female voices,
+// which is why this file claimed Sarvam could never speak as a man and why the
+// male preset was told to go and enable Google Cloud TTS. It can: abhilash,
+// karun and hitesh are male and work in en-IN, hi-IN and te-IN today.
+const SARVAM_SPEAKERS = ['anushka', 'manisha', 'vidya', 'arya', 'abhilash', 'karun', 'hitesh'];
+const SARVAM_MALE_SPEAKERS = ['abhilash', 'karun', 'hitesh'];
 
 // The Google Translate endpoint truncates long text; it is built for a phrase.
 const GTRANSLATE_CHUNK = 190;
@@ -103,7 +108,9 @@ export function genderReady(name, gender) {
     if (!providerReady('voicestudio')) return false;
     return Boolean(male ? process.env.VOICESTUDIO_VOICE_MALE : process.env.VOICESTUDIO_VOICE_FEMALE);
   }
-  // gtranslate has one voice per language; every Sarvam speaker we use is female.
+  // Sarvam has male speakers (probed live: abhilash, karun, hitesh), so it is
+  // male-capable. gtranslate genuinely is not — one voice per language.
+  if (name === 'sarvam') return providerReady('sarvam');
   return !male && providerReady(name);
 }
 
@@ -416,7 +423,10 @@ async function viaSarvam(text, opts) {
     pitch: clamp(opts.pitch, -1, 1, 0),
     pace: clamp(opts.pace, 0.3, 3, 1.0),
     loudness: clamp(opts.loudness, 0.1, 3, 1.0),
-    speech_sample_rate: 22050,
+    // 22050 was leaving quality on the table: bulbul:v2 accepts up to 48000
+    // (probed). The browser plays whatever it is given, so ask for the good one.
+    // The CALL leg overrides this to the telephony rate — see caller-agent.
+    speech_sample_rate: Number(process.env.SARVAM_SAMPLE_RATE || 24000),
     enable_preprocessing: true,
   };
 

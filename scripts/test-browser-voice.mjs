@@ -158,9 +158,9 @@ console.log('\n═══ REAL BROWSER: male voice + Google translation ═══
 // ---------------------------------------------------------------------------
 let page = await open();
 
-await t('the picker offers a male voice alongside the three female ones', async () => {
+await t('the picker offers all seven Sarvam voices, four female and three male', async () => {
   const cards = await page.$$eval('#voice-picker .voice-card', (n) => n.map((c) => c.dataset.voice));
-  assert.deepEqual(cards, ['aria', 'kiara', 'meher', 'arjun']);
+  assert.deepEqual(cards, ['aria', 'kiara', 'meher', 'arya', 'arjun', 'karun', 'hitesh']);
 });
 
 await t('selecting Arjun asks the server for a MALE voice', async () => {

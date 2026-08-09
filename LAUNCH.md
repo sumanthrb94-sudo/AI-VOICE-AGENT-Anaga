@@ -3,7 +3,7 @@
 An honest state-of-the-system. Written so nobody discovers a gap the week of launch.
 
 **Bottom line:** the software path from *a Facebook lead* to *a CRM note* is built
-and QA-tested end to end — 240 automated tests (244 with a live Firestore
+and QA-tested end to end — 241 automated tests (244 with a live Firestore
 credential, which CI does not have and must not have), including the compliance gate, the
 opt-out path, a full call driven over a real WebSocket, and live round-trips
 against the production Firestore project. **It cannot legally
@@ -18,7 +18,7 @@ node --experimental-detect-module scripts/test-media.mjs          # 12
 node --experimental-detect-module scripts/test-media-server.mjs   # 18
 node --experimental-detect-module scripts/test-firestore.mjs      # 6 (+6 live)
 node --experimental-detect-module scripts/test-echo.mjs           # 16
-node --experimental-detect-module scripts/test-voice.mjs          # 38
+node --experimental-detect-module scripts/test-voice.mjs          # 39
 node --experimental-detect-module scripts/test-voicestudio.mjs    # 18
 node --experimental-detect-module scripts/test-recording.mjs      # 21
 node --experimental-detect-module scripts/simulate-echo.mjs       # echo simulation
