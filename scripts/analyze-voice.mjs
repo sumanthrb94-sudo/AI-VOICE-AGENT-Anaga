@@ -303,6 +303,60 @@ if (isMain) {
     return i >= 0 ? argv[i + 1] : null;
   };
 
+  // --all: measure EVERY voice the deployment offers, and report which are
+  // actually male. This exists because "abhilash is male" was written down
+  // after checking only that the vendor returned 200 — nobody listened, and a
+  // name is not evidence. F0 is: adult male speech sits around 85-180 Hz and
+  // adult female around 165-255 Hz, so the median pitch of a rendered sentence
+  // settles it without an opinion.
+  if (argv.includes('--all')) {
+    const base = (flag('base') || process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+    if (!base) { console.error('--all needs --base https://your-deploy'); process.exit(2); }
+    const lang = flag('lang') || 'en-IN';
+    const text = flag('text') || 'Namaste, I am calling about the property you enquired about.';
+
+    const probe = await fetch(`${base}/api/tts`).then((r) => r.json()).catch(() => null);
+    const voices = (probe && probe.voices) || [];
+    if (!voices.length) { console.error('the deployment reports no voices'); process.exit(1); }
+
+    console.log(`\n═══ ${voices.length} voices · ${probe.model || '?'} · ${lang} ═══\n`);
+    console.log('voice           claimed   measured F0   verdict');
+    console.log('─'.repeat(62));
+    let wrong = 0;
+    for (const v of voices) {
+      let line;
+      try {
+        const res = await fetch(`${base}/api/tts`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, lang, speaker: v.id, gender: v.gender }),
+        });
+        const out = await res.json();
+        if (!out.audio || !/wav/.test(out.mime || '')) {
+          line = `${String(v.id).padEnd(15)} ${String(v.gender).padEnd(9)} —             ${out.mime || out.error || 'no wav (set SARVAM_STREAM=0)'}`;
+        } else {
+          const { samples, sampleRate } = pcmFromWav(Buffer.from(out.audio, 'base64'));
+          const a = analyze(samples, sampleRate);
+          const f0 = a.f0MedianHz;
+          // Deliberately conservative: 150-175 Hz is genuinely ambiguous for a
+          // light male or a low female voice, so it is reported as such rather
+          // than forced into a bucket.
+          const heard = f0 == null ? 'unknown' : f0 < 150 ? 'male' : f0 > 175 ? 'female' : 'ambiguous';
+          const bad = heard !== 'unknown' && heard !== 'ambiguous' && heard !== v.gender;
+          if (bad) wrong++;
+          line = `${String(v.id).padEnd(15)} ${String(v.gender).padEnd(9)} ${String(f0 ?? '—').padEnd(13)} ${heard}${bad ? '   ⚠ MISLABELLED' : ''}`;
+        }
+      } catch (e) {
+        line = `${String(v.id).padEnd(15)} ${String(v.gender).padEnd(9)} —             ${e.message}`;
+      }
+      console.log(line);
+    }
+    console.log('─'.repeat(62));
+    console.log(`\nmislabelled: ${wrong}`);
+    console.log('Put the measured genders into SARVAM_SPEAKERS_MALE, or paste this');
+    console.log('table back and I will correct the table in api/_lib/tts.js.\n');
+    process.exit(wrong ? 1 : 0);
+  }
+
   let wav;
   const text = flag('text');
   if (text) {
