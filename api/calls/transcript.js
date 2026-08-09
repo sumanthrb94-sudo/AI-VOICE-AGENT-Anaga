@@ -24,8 +24,8 @@
 
 import { requireMethod, authorize } from '../_lib/integrations/http.js';
 import { limited, log, requestId } from '../_lib/guard.js';
-import { maskPhone } from '../_lib/integrations/lead.js';
 import { getCall, recentCalls, storeBackend } from '../_lib/store.js';
+import { callView } from '../_lib/callview.js';
 
 const MAX_LIMIT = 100;
 
@@ -54,7 +54,7 @@ export default async function handler(req, res) {
     // Reading a transcript is reading what a member of the public said on a
     // recorded call. It is logged for the same reason playback is.
     log('TRANSCRIPT_READ', { rid, callId, turns: Array.isArray(out.data?.transcript) ? out.data.transcript.length : 0 });
-    return res.status(200).json({ ok: true, call: safeCall(out.data, { transcript: true }) });
+    return res.status(200).json({ ok: true, call: callView(out.data, { transcript: true }) });
   }
 
   const limit = Math.max(1, Math.min(Number(req.query?.limit) || 25, MAX_LIMIT));
@@ -63,51 +63,7 @@ export default async function handler(req, res) {
 
   return res.status(200).json({
     ok: true,
-    calls: (out.docs || []).map((d) => safeCall(d, { transcript: false })),
+    calls: (out.docs || []).map((d) => callView(d, { transcript: false })),
     note: 'transcripts are omitted from the list — request one by callId',
   });
-}
-
-/** Shape a stored call for the wire. Never emits an unmasked number. */
-function safeCall(d, { transcript }) {
-  if (!d || typeof d !== 'object') return null;
-  const lead = d.lead && typeof d.lead === 'object' ? d.lead : {};
-
-  const out = {
-    callId: d.callId || null,
-    at: d.at || null,
-    startedAt: d.startedAt || null,
-    durationSec: d.durationSec ?? null,
-    disposition: d.disposition || null,
-    optOut: d.optOut === true,
-    // Lead potency, with the arithmetic that produced it.
-    score: d.score ?? null,
-    band: d.band || null,
-    scoring: d.scoring || null,
-    qualification: d.qualification || null,
-    summary: d.summary || null,
-    nextAction: d.nextAction || null,
-    comment: d.comment || null,
-    reviewedBy: d.reviewedBy || null,
-    turns: d.turns ?? (Array.isArray(d.transcript) ? d.transcript.length : null),
-    // An opaque s3:// reference, never a playable URL. Audio is fetched from
-    // /api/calls/recording, which mints a short-lived signed URL and logs it.
-    recordingRef: typeof d.recordingRef === 'string' ? d.recordingRef : null,
-    lead: {
-      // Masked by the writer; masked again here in case an older record, or a
-      // record written by something else, got in with a full number.
-      phoneMasked: lead.phoneMasked || (lead.phone ? maskPhone(lead.phone) : null),
-      name: lead.name || null,
-      source: lead.source || null,
-      sourceId: lead.sourceId || null,
-      crmRecordId: lead.crmRecordId || null,
-    },
-  };
-
-  if (transcript) {
-    out.transcript = (Array.isArray(d.transcript) ? d.transcript : [])
-      .filter((t) => t && typeof t === 'object' && typeof t.text === 'string')
-      .map((t) => ({ role: t.role === 'agent' ? 'agent' : 'user', text: t.text }));
-  }
-  return out;
 }

@@ -92,6 +92,9 @@ jobs:
       - name: Real-browser voice test (male preset, translation, XSS regression)
         run: node scripts/test-browser-voice.mjs || echo "::warning::browser test needs Chromium+Playwright on the runner"
 
+      - name: Real-browser console test (call review, transcript XSS, signed playback)
+        run: node scripts/test-browser-console.mjs || echo "::warning::browser test needs Chromium+Playwright on the runner"
+
       - name: Compliance gate must fail closed with nothing configured
         # The single most important assertion in this repo, run in isolation
         # with a clean environment so no other test's setup can mask it.

@@ -464,3 +464,29 @@ button, a { cursor: pointer; }
   .main { padding: var(--space-2xl); }
   .grid { gap: var(--space-lg); }
 }
+
+/* ---------- finished calls: transcript + playback ---------- */
+.btn--sm {
+  padding: 4px 10px;
+  font-size: var(--text-xs);
+  margin-right: 6px;
+}
+
+.transcript {
+  padding: var(--space-3) 0;
+  border-left: 2px solid var(--border-strong);
+  padding-left: var(--space-3);
+  max-width: 68ch;
+}
+
+/* Speech from a phone call wraps where it wants to — never force it into a
+   nowrap cell, and never let a long unbroken string blow out the table. */
+.transcript__line {
+  margin: 0 0 var(--space-2);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.transcript__line--agent { color: var(--text); }
+.transcript__line--user  { color: var(--text-muted); }
+
+.transcript audio, .table audio { max-width: 220px; height: 32px; vertical-align: middle; }

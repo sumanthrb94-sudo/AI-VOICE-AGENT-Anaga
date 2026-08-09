@@ -13,7 +13,8 @@
 
 import { authorize, requireMethod } from '../_lib/integrations/http.js';
 import { list, rollup, meta, history } from '../_lib/events.js';
-import { storeStatus } from '../_lib/store.js';
+import { storeStatus, recentCalls } from '../_lib/store.js';
+import { callView } from '../_lib/callview.js';
 import { metaStatus } from '../_lib/integrations/meta.js';
 import { crmStatus } from '../_lib/integrations/crm.js';
 import { complianceStatus } from '../_lib/compliance.js';
@@ -44,7 +45,11 @@ export default async function handler(req, res) {
   const limit = Math.max(1, Math.min(200, Number(req.query?.limit) || 50));
 
   // Durable history when Firestore is wired; this instance's buffer otherwise.
-  const [events, store] = await Promise.all([history(limit), storeStatus()]);
+  // Finished calls come from the durable store only — an event buffer holds
+  // summaries, not conversations, so there is nothing to show without it.
+  const [events, store, calls] = await Promise.all([
+    history(limit), storeStatus(), recentCalls(25),
+  ]);
 
   return res.status(200).json({
     ok: true,
@@ -65,6 +70,11 @@ export default async function handler(req, res) {
 
     // the stream
     events: events.docs,
+
+    // finished calls — score, disposition and a reference to the recording.
+    // Transcripts are NOT here: they are fetched one at a time from
+    // /api/calls/transcript?callId=…, which logs each read.
+    calls: (calls.docs || []).map((d) => callView(d, { transcript: false })),
 
     // provenance — the console states exactly what is backing these numbers
     store: events.durable

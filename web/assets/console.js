@@ -107,8 +107,20 @@
         if (!r.ok) throw new Error("http_" + r.status);
         return r.json();
       })
-      .then(function (data) { render(data); })
+      .then(function (data) {
+        // Rendering runs OUTSIDE the network catch below. Sharing it meant a
+        // bug in a render function reported itself as "Offline — retrying",
+        // so a console that was broken looked exactly like a console that
+        // could not reach the API, forever.
+        try {
+          render(data);
+        } catch (e) {
+          setFreshness("Display error — " + e.message, "danger");
+          throw new Error("__rendered__");
+        }
+      })
       .catch(function (err) {
+        if (err.message === "__rendered__") return;
         if (err.message === "unauthorized") {
           sessionStorage.removeItem(KEY_SS);
           return showGate("That key was rejected. Check INTEGRATIONS_API_KEY on the deployment.");
@@ -133,6 +145,7 @@
     renderKpis(data.funnel, data.wiring);
     renderFunnel(data.funnel);
     renderBlocks(data.funnel);
+    renderCalls(data.calls, data.store);
     renderEvents(data.events);
     renderWiring(data.wiring);
 
@@ -295,6 +308,181 @@
       outside_calling_window: "Outside 9am–9pm IST"
     };
     return map[r] || r;
+  }
+
+  /* ---------------- finished calls ----------------
+     A row per call with the score and how it was reached. The transcript is
+     NOT in this payload — it is fetched one call at a time on demand, because
+     a response carrying fifty conversations is an exfiltration shape and
+     because every read of one is logged server-side. */
+  function renderCalls(calls, store) {
+    var host = $("calls-body");
+    host.textContent = "";
+    calls = calls || [];
+    $("calls-count").textContent = calls.length ? calls.length + " calls" : "";
+
+    if (!calls.length) {
+      // "No calls yet" and "no database" mean opposite things, and an operator
+      // staring at an empty table deserves to know which one this is.
+      return host.appendChild(store && store.durable
+        ? emptyState("i-phone", "No finished calls yet",
+          "A call reported to /api/calls/outcome appears here with its transcript and score.")
+        : emptyState("i-alert", "Calls are not being kept",
+          "Transcripts need a durable store. Set FIREBASE_SERVICE_ACCOUNT on the deployment."));
+    }
+
+    var wrap = el("div", "table-wrap");
+    var table = el("table", "table");
+    var thead = el("thead");
+    var hr = el("tr");
+    ["Time", "Outcome", "Lead", "Number", "Potency", "Length", ""].forEach(function (h) {
+      hr.appendChild(el("th", null, h));
+    });
+    thead.appendChild(hr);
+    table.appendChild(thead);
+
+    var tbody = el("tbody");
+    calls.forEach(function (c) { appendCallRow(tbody, c); });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    host.appendChild(wrap);
+  }
+
+  function appendCallRow(tbody, c) {
+    var tr = el("tr");
+
+    var time = el("td", "mono");
+    time.textContent = c.startedAt || c.at ? new Date(c.startedAt || c.at).toLocaleString() : "—";
+    tr.appendChild(time);
+
+    var out = el("td");
+    var spec = {
+      "booked": ["ok", "i-check"], "callback": ["warn", "i-phone"],
+      "opt-out": ["danger", "i-block"], "not-interested": ["muted", "i-inbox"]
+    }[c.disposition] || ["muted", "i-inbox"];
+    var b = el("span", "badge badge--" + spec[0]);
+    b.appendChild(icon(spec[1]));
+    b.appendChild(el("span", null, c.disposition || "unknown"));
+    out.appendChild(b);
+    tr.appendChild(out);
+
+    tr.appendChild(el("td", null, (c.lead && c.lead.name) || "—"));
+
+    var ph = el("td", "mono");
+    ph.textContent = (c.lead && c.lead.phoneMasked) || "—";
+    tr.appendChild(ph);
+
+    // Score AND coverage. A 70 off four answers and a 70 off one are not the
+    // same lead, so the console never shows one without the other.
+    var pot = el("td");
+    if (c.score == null) {
+      pot.textContent = "—";
+    } else {
+      var pb = el("span", "badge badge--" + bandKind(c.band));
+      pb.appendChild(el("span", null, c.score + "/100 " + (c.band || "")));
+      pot.appendChild(pb);
+      if (c.scoring && c.scoring.of) {
+        pot.appendChild(el("div", "muted", c.scoring.answered + " of " + c.scoring.of + " questions answered"));
+      }
+    }
+    tr.appendChild(pot);
+
+    tr.appendChild(el("td", "mono", c.durationSec ? c.durationSec + "s" : "—"));
+
+    var actions = el("td");
+    var open = el("button", "btn btn--sm", "Transcript");
+    open.type = "button";
+    actions.appendChild(open);
+    if (c.recordingRef) {
+      var play = el("button", "btn btn--sm", "Recording");
+      play.type = "button";
+      play.addEventListener("click", function () { playRecording(play, c.recordingRef); });
+      actions.appendChild(play);
+    }
+    tr.appendChild(actions);
+    tbody.appendChild(tr);
+
+    var detail = el("tr");
+    detail.hidden = true;
+    var cell = el("td");
+    cell.colSpan = 7;
+    detail.appendChild(cell);
+    tbody.appendChild(detail);
+
+    var loaded = false;
+    open.addEventListener("click", function () {
+      detail.hidden = !detail.hidden;
+      if (detail.hidden || loaded) return;
+      loaded = true;
+      cell.textContent = "Loading…";
+      fetchTranscript(c.callId)
+        .then(function (full) { cell.textContent = ""; cell.appendChild(transcriptView(full)); })
+        .catch(function (e) { loaded = false; cell.textContent = "Could not load the transcript (" + e.message + ")."; });
+    });
+  }
+
+  function bandKind(band) {
+    return { hot: "ok", warm: "warn", cool: "muted", cold: "muted" }[band] || "muted";
+  }
+
+  function fetchTranscript(callId) {
+    return fetch("/api/calls/transcript?callId=" + encodeURIComponent(callId), {
+      headers: { Authorization: "Bearer " + getKey() }
+    }).then(function (r) {
+      if (!r.ok) throw new Error("http_" + r.status);
+      return r.json();
+    }).then(function (d) { return d.call; });
+  }
+
+  /** The conversation, plus where the score came from. */
+  function transcriptView(call) {
+    var box = el("div", "transcript");
+
+    if (call.scoring && call.scoring.explain) {
+      box.appendChild(el("p", "muted", call.scoring.explain));
+    }
+    if (call.summary) box.appendChild(el("p", null, call.summary));
+    if (call.nextAction) box.appendChild(el("p", null, "Next: " + call.nextAction));
+
+    (call.transcript || []).forEach(function (t) {
+      var line = el("div", "transcript__line transcript__line--" + (t.role === "agent" ? "agent" : "user"));
+      line.appendChild(el("strong", null, t.role === "agent" ? "Anaga: " : "Prospect: "));
+      // textContent, never innerHTML: this is speech transcribed from a stranger
+      // on a phone call, and it renders inside an authenticated operator page.
+      line.appendChild(document.createTextNode(t.text));
+      box.appendChild(line);
+    });
+
+    if (!(call.transcript || []).length) {
+      box.appendChild(el("p", "muted", "No transcript was stored for this call."));
+    }
+    return box;
+  }
+
+  /** Mint a short-lived signed URL and play it. The URL is never rendered. */
+  function playRecording(btn, ref) {
+    btn.disabled = true;
+    btn.textContent = "Loading…";
+    fetch("/api/calls/recording?ref=" + encodeURIComponent(ref), {
+      headers: { Authorization: "Bearer " + getKey() }
+    })
+      .then(function (r) {
+        if (r.status === 503) throw new Error("recording storage is not configured");
+        if (!r.ok) throw new Error("http_" + r.status);
+        return r.json();
+      })
+      .then(function (d) {
+        var audio = el("audio");
+        audio.controls = true;
+        audio.src = d.url;
+        btn.parentNode.replaceChild(audio, btn);
+        audio.play().catch(function () { /* the operator can press play */ });
+      })
+      .catch(function (e) {
+        btn.disabled = false;
+        btn.textContent = "Recording";
+        setFreshness("Playback failed — " + e.message, "danger");
+      });
   }
 
   function renderEvents(events) {
