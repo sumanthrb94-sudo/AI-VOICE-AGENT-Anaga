@@ -13,6 +13,50 @@
       "goto": "optout"
     }
   },
+  "qualification": {
+    "_note": "What a closer needs to know, and what each answer is worth. The reviewer LLM only puts each answer in a bucket; the score is computed in code from the weights below (api/_lib/scoring.js), so two identical calls always score identically and a closer can be shown exactly how the number was reached.",
+    "fields": [
+      {
+        "id": "purpose",
+        "label": "Buying to live in, or to invest",
+        "weight": 15,
+        "buckets": { "end-use": 100, "investment": 85, "unclear": 30 }
+      },
+      {
+        "id": "budget",
+        "label": "Budget range",
+        "weight": 30,
+        "buckets": { "above-range": 100, "in-range": 90, "below-range": 20, "unclear": 30 }
+      },
+      {
+        "id": "config",
+        "label": "Configuration wanted",
+        "weight": 15,
+        "buckets": { "match": 100, "mismatch": 35, "unclear": 30 }
+      },
+      {
+        "id": "timeline",
+        "label": "When they intend to buy",
+        "weight": 40,
+        "buckets": { "immediate": 100, "3-6-months": 75, "exploring": 35, "unclear": 30 }
+      }
+    ],
+    "dispositionCeiling": {
+      "_note": "However well someone answered, the outcome caps the score. Somebody who opted out is not a warm lead because they told us their budget first.",
+      "opt-out": 0,
+      "not-interested": 10,
+      "busy": 45,
+      "undecided": 70,
+      "callback": 85,
+      "booked": 100
+    },
+    "bands": [
+      { "min": 75, "label": "hot" },
+      { "min": 50, "label": "warm" },
+      { "min": 25, "label": "cool" },
+      { "min": 0, "label": "cold" }
+    ]
+  },
   "steps": [
     {
       "id": "greet",

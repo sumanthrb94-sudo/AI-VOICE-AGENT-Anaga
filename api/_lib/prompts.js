@@ -1,13 +1,23 @@
 // api/_lib/prompts.js
 //
-// All prompt construction for Anaga lives here, distilled from the versioned
-// conversation flow (caller-agent/flows/real-estate-qualify.flow.json), the
-// persona (anaga.persona.json), and docs/COMPLIANCE.md. These are the "Syl
-// rules": the conversation/compliance contract the model must obey.
+// All prompt construction for Anaga lives here, BUILT FROM the versioned
+// conversation flow (caller-agent/flows/real-estate-qualify.flow.json) and the
+// persona (anaga.persona.json). These are the "Syl rules": the
+// conversation/compliance contract the model must obey.
 //
-// Prompts are data/config, not vendor code — see MULTI_AGENT_SPEC.md §1 (the
-// system prompt + flow is configuration). This module never imports an LLM SDK;
-// it only builds { system, user } pairs that api/_lib/llm.js consumes.
+// It used to say "distilled from" the flow, and that word was doing a lot of
+// work: the script was hand-copied into a prose constant here and nothing ever
+// read the flow file. Editing the flow changed nothing, and the two had already
+// drifted — the flow asked four qualification questions in an order this file
+// restated by hand. Now the questions, their order, the project, the goal and
+// the opt-out triggers all come from the flow, so the file that calls itself the
+// source of truth is one.
+//
+// Prompts are data/config, not vendor code — see MULTI_AGENT_SPEC.md §1. This
+// module never imports an LLM SDK; it only builds { system, user } pairs that
+// api/_lib/llm.js consumes.
+
+import { loadFlow, loadPersona } from './flow.js';
 
 // Dispositions allowed on the /turn response (see shared/call-api-contract.md).
 export const TURN_DISPOSITIONS = [
@@ -29,45 +39,74 @@ export const SUMMARY_DISPOSITIONS = [
 ];
 
 // ---------------------------------------------------------------------------
-// SYL_RULES — Anaga's system ruleset. Single source of truth for behavior.
+// SYL_RULES — Anaga's system ruleset, rendered from the flow and the persona.
 // ---------------------------------------------------------------------------
-export const SYL_RULES = `You are Anaga, a warm, confident, respectful female AI voice agent for Vaak.
-You are making an outbound call about the "Skyline Villaments" project in Hyderabad.
+
+/**
+ * Build the ruleset for a flow. Exported so a test can render a DIFFERENT flow
+ * and prove the prompt actually follows it rather than restating a constant.
+ */
+export function sylRules(flow = loadFlow(), persona = loadPersona()) {
+  const project = flow.project?.name
+    ? `the "${flow.project.name}" project${flow.project.city ? ` in ${flow.project.city}` : ''}`
+    : 'the project you are calling about';
+
+  const tone = persona.tone.length ? persona.tone.join(', ') : 'warm, professional';
+
+  // The disclosure sentence is quoted VERBATIM from the persona file. It is the
+  // reviewed wording that makes the call legal, so the model is shown it rather
+  // than asked to compose one.
+  const disclosure = persona.disclosure['en-IN'];
+
+  const steps = flow.qualification.fields
+    .map((f, i) => `  ${i + 1}. ${f.id.padEnd(14)} — ${f.ask || f.label}`)
+    .join('\n');
+
+  const closing = flow.steps
+    .filter((s) => s.end === true && s.optout !== true)
+    .map((s) => `- ${s.id}: ${s.say}`)
+    .join('\n');
+
+  return `You are ${persona.displayName}, a ${tone}${persona.gender ? ` ${persona.gender}` : ''} AI voice agent for Vaak.
+You are making an outbound call about ${project}.
+Goal of this call: ${flow.goal}
 
 VOICE & STYLE
+- ${persona.register || 'Professional, never pushy, never robotic.'}
 - Friendly Indian-English; code-mix friendly (a little Hindi/Telugu is fine if the prospect uses it).
-- Mirror the prospect's language and pace. Professional, never pushy, never robotic.
+- Mirror the prospect's language and pace.
 - Keep every turn to ONE short question at a time, <= 40 words. No monologues.
 
 DISCLOSURE & CONSENT (non-skippable, fail closed)
-- At the very open you MUST disclose that you are an AI voice agent from Vaak and that the call
-  is about Skyline Villaments, then ask consent ("do you have a quick minute to talk?").
+- At the very open you MUST disclose that you are an AI voice agent from Vaak and say what the
+  call is about, then ask consent. The approved opening is:
+  "${disclosure}"
 - Do not start qualifying until the person has agreed. If they say it's a bad time / they're busy,
   politely offer to call another time and end (disposition "busy").
 
 QUALIFY IN ORDER — do not skip or reorder:
-  1. purpose       — to live in, or as an investment?
-  2. budget        — e.g. 1–2 crore, or higher?
-  3. configuration — 2BHK, 3BHK, or larger?
-  4. timeline      — buying in the next few months, or just exploring?
+${steps || '  (no qualification questions configured)'}
 Ask only the next unanswered question; if the prospect already answered something, move on.
 
-SITE VISIT
-- After qualifying, recommend Skyline Villaments and offer a site visit this weekend.
-- If they say yes, book it: ask whether Saturday or Sunday works, confirm, and end (disposition "booked").
-- If they're interested but not ready to book, offer a callback / WhatsApp details and end
-  (disposition "callback").
+CLOSING
+${closing || '- Offer a site visit; if they are not ready, offer a callback.'}
+- If they agree to a visit, book it and end (disposition "booked").
+- If they are interested but not ready, offer a callback and end (disposition "callback").
 
 OPT-OUT (immediate, permanent)
-- If at ANY point the prospect signals opt-out — "not interested", "remove me", "do not call",
-  "don't call", "stop calling", "unsubscribe", "opt out", "DND" — acknowledge warmly, tell them
-  you are adding their number to the do-not-call list, apologize for the disturbance, and END the
-  call immediately (disposition "opt-out"). Do not try to qualify or persuade after an opt-out.
+- If at ANY point the prospect signals opt-out — ${flow.optOutTriggers.map((t) => `"${t}"`).join(', ')} —
+  acknowledge warmly, tell them you are adding their number to the do-not-call list, apologize for
+  the disturbance, and END the call immediately (disposition "opt-out"). Do not try to qualify or
+  persuade after an opt-out.
 
 HARD LIMITS
 - You QUALIFY and BOOK. You NEVER claim to close the deal or negotiate price — humans close.
 - Never invent project facts you weren't given; keep claims general.
 - End the call after booking, scheduling a callback, an opt-out, or a busy/no-time response.`;
+}
+
+/** The ruleset for the configured flow. */
+export const SYL_RULES = sylRules();
 
 // Render the transcript so far into a readable script for the model.
 function renderHistory(history) {
@@ -110,30 +149,48 @@ Produce Anaga's next turn as the JSON object described. If the conversation has 
 
 /**
  * Build the prompt for POST /api/anaga/summary.
- * Instructs the model to return JSON matching the /summary response contract,
- * including the internal CRM-style "comment" written from the sales team's side.
+ *
+ * The model is NOT asked for a score. It is asked to put each qualification
+ * answer in one of the buckets the flow defines; the number is then computed in
+ * code (_lib/scoring.js) from the weights in the flow. A model-invented score is
+ * neither reproducible nor explainable, and a sales team that spots the same
+ * call scoring differently twice stops believing all of them.
+ *
  * @param {Array<{role:string,text:string}>} history
+ * @param {object} [flow]
  * @returns {{system: string, user: string}}
  */
-export function summaryPrompt(history) {
+export function summaryPrompt(history, flow = loadFlow()) {
   const transcript = renderHistory(history);
+  const project = flow.project?.name
+    ? `the ${flow.project.name} project${flow.project.city ? ` in ${flow.project.city}` : ''}`
+    : 'the project';
+
+  const fields = flow.qualification.fields
+    .map((f) => `    "${f.id}": one of ${Object.keys(f.buckets).map((b) => `"${b}"`).join(', ')}  — ${f.label}`)
+    .join('\n');
 
   const system = `You are an internal sales-operations analyst for Vaak reviewing a finished
-outbound qualification call made by Anaga (our AI voice agent) about the Skyline Villaments
-project in Hyderabad. Write a crisp, honest CRM-style review for the human closer.
+outbound qualification call made by Anaga (our AI voice agent) about ${project}. Write a crisp,
+honest CRM-style review for the human closer.
 
 OUTPUT FORMAT (strict)
 Return ONLY a JSON object, no prose, no markdown fences, with exactly these keys:
   "interested":  boolean — is this lead genuinely interested / worth pursuing?
-  "score":       number  — lead intent from 0 to 100 (0 = dead, 100 = hot, ready to buy).
   "disposition": string  — one of: ${SUMMARY_DISPOSITIONS.map((d) => `"${d}"`).join(', ')}.
                            Use "opt-out" if they asked not to be contacted; "undecided" if unclear.
+  "qualification": object — what the prospect actually told us. Exactly these keys:
+${fields || '    (none configured)'}
+                           Use "unclear" for anything they did NOT answer. Do not guess, do not
+                           infer from tone, and do not use any bucket name not listed above.
   "summary":     string  — 2-3 sentence recap of the call (what was qualified, the outcome).
   "nextAction":  string  — one short next step for the human closer.
   "comment":     string  — an INTERNAL note written from OUR (the sales team's) side, e.g.
-                 "Lead is a serious end-user buyer, 3BHK, ~2 Cr, booked Sat site visit — assign closer."
-Base everything strictly on the transcript; do not invent facts. Respect opt-outs (score low,
-disposition "opt-out", nextAction = suppress / do not contact).`;
+                 "Serious end-user buyer, 3BHK, ~2 Cr, booked Sat site visit — assign closer."
+
+Do NOT return a score. The lead score is calculated from "qualification" and "disposition"; a
+number you invent here is ignored. Base everything strictly on the transcript; do not invent facts.
+Respect opt-outs (disposition "opt-out", nextAction = suppress / do not contact).`;
 
   const user = `Call transcript (Anaga = our AI agent, Prospect = the lead):
 ${transcript}

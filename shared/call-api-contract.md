@@ -41,15 +41,44 @@ Summarize the finished call and write the internal "is the lead interested?" com
 ```json
 {
   "interested": true,
-  "score": 0,
+  "score": 87,
+  "band": "hot" | "warm" | "cool" | "cold",
   "disposition": "booked" | "callback" | "not-interested" | "opt-out" | "undecided",
+  "qualification": { "purpose": "end-use", "budget": "in-range", "config": "match", "timeline": "immediate" },
+  "scoring": {
+    "band": "hot", "coverage": 100, "answered": 4, "of": 4, "cappedBy": null,
+    "fields": [ { "id": "budget", "label": "Budget range", "bucket": "in-range", "worth": 90, "weight": 30, "points": 27, "answered": true } ],
+    "explain": "87/100 (hot), 4 of 4 questions answered. …"
+  },
   "summary": "2-3 sentence recap of the call",
   "nextAction": "short next step for the human closer",
   "comment": "CRM-style internal note written from our side"
 }
 ```
-- `score` is 0–100 lead intent.
+- `score` is 0–100 lead intent, and **the model does not produce it**. The model only puts each
+  qualification answer in one of the buckets the flow defines; the number is computed from the
+  weights in `caller-agent/flows/*.flow.json` by `api/_lib/scoring.js`. Two reviews of the same
+  call therefore give the same score, and `scoring.explain` says how it was reached.
+- `coverage` is how much of the qualification actually got done. A 70 off four answers and a 70
+  off one are not the same lead.
+- `cappedBy` is set when the outcome limited the score — an opt-out scores 0 however well the
+  prospect qualified beforehand.
 - **Response 503** `{ "error": "llm_unavailable" }` — client renders a local heuristic review.
+
+## GET `/api/calls/transcript`
+Read back a finished call. Requires `Authorization: Bearer INTEGRATIONS_API_KEY`.
+
+| Query | Returns |
+|---|---|
+| `?callId=…` | one call, including `transcript` |
+| `?limit=50` | recent calls, **without** transcripts |
+
+- Written by `POST /api/calls/outcome`; a call reported there is readable here.
+- Phone numbers are masked. The link back to the person is `crmRecordId` / `sourceId`.
+- `recordingRef` is an opaque `s3://` reference — audio is fetched from `/api/calls/recording`,
+  which mints a short-lived signed URL and logs every playback.
+- The list view omits transcripts on purpose: one request returning fifty conversations is an
+  exfiltration shape, and callers arrive with a call id from the CRM note anyway.
 
 ## Rules (both endpoints)
 - POST + JSON only; validate input; never echo secrets.

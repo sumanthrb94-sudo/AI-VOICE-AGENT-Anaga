@@ -300,6 +300,12 @@ export function startMediaServer(port = Number(process.env.MEDIA_PORT || 8081)) 
         say: (t, opts) => transport.say(t, opts),
         listen: () => transport.listen(),
         prewarm: (lines) => transport.prewarm(lines),
+        // Both legs of the call, mixed. session.js uploads this to the
+        // recording store before it reports the outcome. Without it the entire
+        // recording path below (SigV4 upload, residency gate, presigned
+        // playback, DPDP erasure) was unreachable and every call produced
+        // silence — see media/recorder.js.
+        recording: () => transport.recording(),
         async hangup(reason) { transport.close(reason); return { ended: reason }; },
       };
 

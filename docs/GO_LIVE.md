@@ -72,6 +72,27 @@ A non-Indian region is **refused**, not warned about — nothing uploads.
 **Then set the 90-day lifecycle rule on the bucket.** This code cannot see it
 and does not claim to enforce it; `docs/COMPLIANCE.md` requires it.
 
+The audio itself is captured by `caller-agent/src/media/recorder.js`, which
+mixes both legs of the call onto one timeline. It is on by default;
+`CALL_RECORDING=off` disables it, and `CALL_MAX_SECONDS` is the ceiling — a call
+that outruns it is logged as `RECORDING_TRUNCATED` rather than filed as if it
+were whole.
+
+### 3b. Transcript and lead score — need `FIREBASE_SERVICE_ACCOUNT`
+
+The transcript, the disposition, the lead score and the scoring breakdown are
+written to the `calls` collection by `POST /api/calls/outcome` and read back
+through `GET /api/calls/transcript?callId=…` with the operator key. Without
+Firestore configured the call still completes and still reports, but the
+conversation is not kept — the endpoint logs `CALL_NOT_PERSISTED` at severity
+`high` for exactly that case.
+
+The score is computed from the weights in
+`caller-agent/flows/real-estate-qualify.flow.json` (`qualification`), not
+invented by the model, so it is reproducible and every point is explained in
+`scoring.explain`. **Tuning what a lead is worth is an edit to that flow file
+and a redeploy — it is not a code change.**
+
 ### 4. `PUBLIC_BASE_URL`
 
 `https://ai-voice-agent-anaga.vercel.app`. Used to build the dial job's callback

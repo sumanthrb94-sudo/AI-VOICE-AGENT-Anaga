@@ -26,6 +26,7 @@
 import { generate } from '../_lib/llm.js';
 import { limited } from '../_lib/guard.js';
 import { summaryPrompt, SUMMARY_DISPOSITIONS } from '../_lib/prompts.js';
+import { scoreLead, explainScore } from '../_lib/scoring.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -82,13 +83,17 @@ export default async function handler(req, res) {
   // Coerce / validate fields against the contract.
   const interested = out.interested === true;
 
-  let score = Number(out.score);
-  if (!Number.isFinite(score)) score = 0;
-  score = Math.max(0, Math.min(100, Math.round(score))); // clamp 0-100
-
   const disposition = SUMMARY_DISPOSITIONS.includes(out.disposition)
     ? out.disposition
     : 'undecided';
+
+  // The model is asked to BUCKET each qualification answer, not to score. The
+  // number is computed here from the weights in the flow, so the same call
+  // always scores the same and the breakdown explains where it came from.
+  // Reading out.score would now silently return 0 on every call, because the
+  // prompt no longer asks for it.
+  const qualification = out.qualification && typeof out.qualification === 'object' ? out.qualification : {};
+  const scored = scoreLead({ qualification, disposition });
 
   const summary = typeof out.summary === 'string' ? out.summary.trim() : '';
   const nextAction = typeof out.nextAction === 'string' ? out.nextAction.trim() : '';
@@ -96,8 +101,16 @@ export default async function handler(req, res) {
 
   return res.status(200).json({
     interested,
-    score,
+    score: scored.score,
+    band: scored.band,
     disposition,
+    qualification,
+    scoring: {
+      band: scored.band, coverage: scored.coverage,
+      answered: scored.answered, of: scored.of,
+      cappedBy: scored.cappedBy, fields: scored.fields,
+      explain: explainScore(scored),
+    },
     summary,
     nextAction,
     comment,

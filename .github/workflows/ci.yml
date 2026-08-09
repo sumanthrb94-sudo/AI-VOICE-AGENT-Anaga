@@ -86,6 +86,9 @@ jobs:
       - name: Recording QA (Indian-region gate, no public URLs, DPDP erasure)
         run: node --experimental-detect-module scripts/test-recording.mjs
 
+      - name: Call record QA (audio capture, transcript, lead score, flow-driven script)
+        run: node --experimental-detect-module scripts/test-call-record.mjs
+
       - name: Real-browser voice test (male preset, translation, XSS regression)
         run: node scripts/test-browser-voice.mjs || echo "::warning::browser test needs Chromium+Playwright on the runner"
 

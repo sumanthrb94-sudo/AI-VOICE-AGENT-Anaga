@@ -33,6 +33,7 @@
 import { createEchoGuard } from '../../../shared/echo-guard.js';
 import { splitForSpeech } from '../providers/speech.js';
 import { timings } from './timings.js';
+import { createCallRecorder } from './recorder.js';
 
 // The false-interruption resume below follows the design in livekit/agents
 // (Apache-2.0), voice/turn.py. See engineering/LIVEKIT_REFERENCE.md for what was
@@ -59,6 +60,12 @@ export function createMediaTransport({
   falseInterruptionTimeoutMs, resumeFalseInterruption,
   speculateMs, maxSpeculations, chunkSpeech, chunkMaxChars,
   echoGuard = null,
+  // Recording is ON unless explicitly disabled: docs/COMPLIANCE.md requires a
+  // recording of every call, and the failure mode of a missing one is that a
+  // disputed call cannot be evidenced at all.
+  recorder = String(process.env.CALL_RECORDING ?? 'on') === 'off'
+    ? null
+    : createCallRecorder({ now }),
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
 } = {}) {
   const T = timings({
@@ -67,6 +74,13 @@ export function createMediaTransport({
     speculateMs, maxSpeculations, chunkSpeech, chunkMaxChars,
   });
   const echo = echoGuard || createEchoGuard({ now });
+
+  // Every outbound frame goes out through here so the recording captures what
+  // the callee actually heard — including a line cut off mid-word by barge-in,
+  // which is exactly the moment a reviewer needs to hear.
+  const emit = recorder
+    ? (frame) => { recorder.outbound(frame, now()); audioOut(frame); }
+    : audioOut;
   /** @type {Array<Buffer>} */
   let buffer = [];
   let speechStartedAt = null;
@@ -101,6 +115,13 @@ export function createMediaTransport({
   function pushAudio(chunk, { hasVoice } = {}) {
     if (closed) return;
     const t = now();
+
+    // Recorded BEFORE the voice test, and regardless of it. A recording that
+    // only contains the frames we decided were speech is not a recording of the
+    // call — the pauses are how a reviewer tells a considered "no" from a
+    // flustered one, and a silence-trimmed file smears the timeline of who
+    // spoke over whom.
+    if (recorder) recorder.inbound(chunk, t);
 
     if (isVoice(chunk, hasVoice)) {
       // Track how long voice has been continuous, so barge-in can require a
@@ -328,7 +349,7 @@ export function createMediaTransport({
         for (; i < frames.length; i++) {
           if (wrote) await sleep(T.frameMs);
           if (me.cancelled || closed) break;
-          audioOut(frames[i]);
+          emit(frames[i]);
           wrote = true;
         }
 
@@ -381,7 +402,7 @@ export function createMediaTransport({
         for (let i = from; i < frames.length; i++) {
           if (wrote) await sleep(T.frameMs);
           if (me.cancelled || closed) return false;
-          audioOut(frames[i]);
+          emit(frames[i]);
           wrote = true;
         }
         return true;
@@ -419,6 +440,19 @@ export function createMediaTransport({
       } catch {
         return 0;
       }
+    },
+
+    /**
+     * Both legs of the call, mixed, as WAV bytes — or null if nothing was
+     * captured. session.js calls this at the end of every call and hands the
+     * result to storeRecording(). It is the `telephony.recording()` that
+     * nothing has ever implemented until now.
+     */
+    recording() {
+      if (!recorder) return null;
+      const wav = recorder.wav();
+      for (const [event, data] of recorder.report()) log(event, { lang, ...data });
+      return wav;
     },
 
     /** Wait for the prospect's next utterance. */

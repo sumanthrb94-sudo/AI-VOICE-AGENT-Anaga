@@ -176,13 +176,20 @@ export async function recentEvents(limit = 200) {
 // ---------------------------------------------------------------------------
 
 export async function recordCall(callId, data) {
-  if (!firestoreConfigured()) return { ok: false, durable: false };
+  if (!firestoreConfigured()) return { ok: false, durable: false, error: 'firestore_not_configured' };
   return safely(async () => {
     const res = await setDoc(COL.calls, docId(callId || `call_${Date.now()}`), {
       ...data, at: new Date().toISOString(),
     });
-    return { ok: res.ok, durable: res.ok };
+    return { ok: res.ok, durable: res.ok, error: res.error || null };
   }, { ok: false, durable: false });
+}
+
+/** One finished call, transcript and all. */
+export async function getCall(callId) {
+  if (!firestoreConfigured()) return { ok: true, found: false, data: null };
+  if (!callId) return { ok: true, found: false, data: null };
+  return safely(() => getDoc(COL.calls, docId(callId)), { ok: false, found: false, data: null });
 }
 
 export async function recentCalls(limit = 50) {

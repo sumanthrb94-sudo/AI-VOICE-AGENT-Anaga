@@ -27,6 +27,8 @@ import { normalizeLead, validateLead, maskPhone } from '../_lib/integrations/lea
 import { record } from '../_lib/events.js';
 import { generate } from '../_lib/llm.js';
 import { summaryPrompt, SUMMARY_DISPOSITIONS } from '../_lib/prompts.js';
+import { scoreLead, explainScore } from '../_lib/scoring.js';
+import { recordCall } from '../_lib/store.js';
 import { addToSuppression } from '../_lib/compliance.js';
 import * as crm from '../_lib/integrations/crm.js';
 import { limited, log, requestId } from '../_lib/guard.js';
@@ -74,7 +76,9 @@ export default async function handler(req, res) {
   if (optedOut) {
     review.disposition = 'opt-out';
     review.interested = false;
-    review.score = 0;
+    // Rescore rather than assigning 0 by hand: the ceiling for "opt-out" lives
+    // in the flow, and the breakdown must agree with the number next to it.
+    Object.assign(review, applyScore(review));
     suppression = await addToSuppression(lead.phone, 'opt_out_on_call');
     if (!suppression.durable) {
       // Loud: without a durable list this number can be dialed again.
@@ -110,6 +114,50 @@ export default async function handler(req, res) {
 
   const dnc = optedOut ? await crm.markOptOut(lead, 'opt_out_on_call') : null;
 
+  // --- 4. the call record -------------------------------------------------
+  // The TRANSCRIPT is kept here, and this is the only place it is kept. Until
+  // now `recordCall` existed in store.js and was called by nothing: a finished
+  // call left an event with a summary on it and the conversation itself was
+  // discarded the moment the request returned. docs/COMPLIANCE.md requires a
+  // call to be evidenced, a closer needs to read what was actually said, and a
+  // disputed opt-out is settled by the transcript or not at all.
+  //
+  // The phone is stored MASKED. The link back to the person is crmRecordId /
+  // sourceId, which is enough to work the lead and not enough to make this
+  // collection a phone book.
+  const stored = await recordCall(call.id, {
+    callId: call.id || null,
+    startedAt: call.startedAt || null,
+    durationSec: Number(call.durationSec) || null,
+    disposition: review.disposition,
+    score: review.score,
+    band: review.band,
+    scoring: review.scoring,
+    qualification: review.qualification,
+    summary: review.summary,
+    nextAction: review.nextAction,
+    comment: review.comment,
+    reviewedBy: review.generatedBy,
+    optOut: optedOut,
+    recordingRef,
+    turns: history.length,
+    transcript: history,
+    lead: {
+      phoneMasked: maskPhone(lead.phone),
+      name: lead.name || null,
+      source: lead.source || null,
+      sourceId: lead.sourceId || null,
+      crmRecordId: lead.crmRecordId || null,
+    },
+  });
+  if (!stored.durable) {
+    log('CALL_NOT_PERSISTED', {
+      rid, callId: call.id || null, error: stored.error || null,
+      severity: 'high',
+      detail: 'the transcript for this call was not stored — wire FIREBASE_SERVICE_ACCOUNT',
+    });
+  }
+
   record('call.completed', {
     source: lead.source,
     phone: maskPhone(lead.phone),
@@ -117,9 +165,14 @@ export default async function handler(req, res) {
     callId: call.id || null,
     disposition: review.disposition,
     score: review.score,
+    band: review.band || null,
+    // How much of the qualification actually got done. A 70 off four answers
+    // and a 70 off one are not the same lead.
+    coverage: review.scoring?.coverage ?? null,
     durationSec: Number(call.durationSec) || null,
     nextAction: review.nextAction || null,
     reviewedBy: review.generatedBy,
+    transcriptStored: stored.durable === true,
     // The audit trail docs/COMPLIANCE.md asks for: the event carries the
     // recording REFERENCE, so a call can be evidenced without the audio being
     // reachable from the event itself.
@@ -134,6 +187,7 @@ export default async function handler(req, res) {
     suppression: suppression ? { ok: suppression.ok, durable: suppression.durable, error: suppression.error } : null,
     crm: { provider: crm.crmProvider(), logged: written.ok, error: written.error, dncFlagged: dnc ? dnc.ok : null },
     recording: recordingRef ? { stored: true } : { stored: false },
+    transcript: { stored: stored.durable === true, turns: history.length },
   });
 }
 
@@ -164,20 +218,38 @@ async function buildReview(given, history, call) {
   return heuristicReview(history, call);
 }
 
-function coerce(out) {
-  let score = Number(out.score);
-  if (!Number.isFinite(score)) score = 0;
-  score = Math.max(0, Math.min(100, Math.round(score)));
-
+/**
+ * Score a review from its qualification buckets, and attach the breakdown.
+ *
+ * Any `score` the model returned is DISCARDED. The number is computed from the
+ * weights in the flow (see _lib/scoring.js) so that the same call always scores
+ * the same, and so "why is this a 48?" is answerable without the transcript.
+ */
+function applyScore(review) {
+  const s = scoreLead({ qualification: review.qualification, disposition: review.disposition });
   return {
+    score: s.score,
+    band: s.band,
+    scoring: {
+      band: s.band, coverage: s.coverage, answered: s.answered, of: s.of,
+      cappedBy: s.cappedBy, fields: s.fields, explain: explainScore(s),
+    },
+  };
+}
+
+function coerce(out) {
+  const review = {
     interested: out.interested === true,
-    score,
     disposition: SUMMARY_DISPOSITIONS.includes(out.disposition) ? out.disposition : 'undecided',
+    // What the prospect actually told us, bucketed. This is the lead potency
+    // input, and it is also the part a closer reads first.
+    qualification: out.qualification && typeof out.qualification === 'object' ? out.qualification : {},
     summary: typeof out.summary === 'string' ? out.summary.trim() : '',
     nextAction: typeof out.nextAction === 'string' ? out.nextAction.trim() : '',
     comment: typeof out.comment === 'string' ? out.comment.trim() : '',
     generatedBy: out.generatedBy || 'llm',
   };
+  return { ...review, ...applyScore(review) };
 }
 
 /** No LLM, no supplied review — still produce something a closer can act on. */
@@ -187,11 +259,12 @@ function heuristicReview(history, call) {
     ? call.disposition
     : (detectOptOut(said).optOut ? 'opt-out' : 'undecided');
 
-  const score = disposition === 'booked' ? 80 : disposition === 'callback' ? 50 : 0;
-  return {
+  // No qualification data means every field scores "unclear" — which is the
+  // honest answer. A call nobody could review is not a warm lead.
+  const review = {
     interested: disposition === 'booked' || disposition === 'callback',
-    score,
     disposition,
+    qualification: {},
     summary: `Call ended with disposition "${disposition}". ${history.length} turns exchanged. Automatic review unavailable — read the transcript.`,
     nextAction: disposition === 'booked'
       ? 'Confirm the site visit and assign a closer.'
@@ -201,4 +274,5 @@ function heuristicReview(history, call) {
     comment: 'Generated without the LLM reviewer (fallback). Transcript attached.',
     generatedBy: 'heuristic',
   };
+  return { ...review, ...applyScore(review) };
 }

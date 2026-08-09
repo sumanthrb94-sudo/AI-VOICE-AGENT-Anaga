@@ -12,6 +12,44 @@
     "project": { "type": "object" },
     "goal": { "type": "string" },
     "globals": { "type": "object" },
+    "notes": { "type": "string" },
+    "qualification": {
+      "description": "What the call must find out and what each answer is worth. The reviewer only buckets each answer; the score is computed in code from these weights, so it is reproducible and explainable.",
+      "type": "object",
+      "required": ["fields"],
+      "properties": {
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "weight", "buckets"],
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "weight": { "type": "number", "minimum": 0 },
+              "buckets": {
+                "description": "bucket name -> 0-100 worth. MUST include \"unclear\" — an unanswered question is a fact about the lead, not a missing value.",
+                "type": "object",
+                "required": ["unclear"],
+                "additionalProperties": { "type": "number", "minimum": 0, "maximum": 100 }
+              }
+            }
+          }
+        },
+        "dispositionCeiling": {
+          "description": "How the call ended caps the score, whatever was answered along the way.",
+          "type": "object"
+        },
+        "bands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["min", "label"],
+            "properties": { "min": { "type": "number" }, "label": { "type": "string" } }
+          }
+        }
+      }
+    },
     "steps": {
       "type": "array",
       "items": {
