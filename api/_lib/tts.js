@@ -75,20 +75,30 @@ const GTRANSLATE_TTS_URL = 'https://translate.googleapis.com/translate_tts';
 //
 // Names are case-sensitive and must be lowercase.
 const SARVAM_VOICES = {
-  // v3 — 30+ voices. Default speaker is "shubh".
+  // v3 — 37 voices. Sarvam's own default is "shubh"; ours is "pooja" (below).
+  //
+  // 'amelia' and 'sophia' briefly appeared here, from a docs summary that
+  // claimed 39. The API disagreed in as many words — "Speaker 'sophia' is not
+  // recognized" — and its 400 body enumerates every name it accepts, so this
+  // list is now vendor-confirmed rather than second-hand. A summary is not a
+  // probe.
   'bulbul:v3': [
     'shubh', 'aditya', 'ritu', 'priya', 'neha', 'rahul', 'pooja', 'rohan',
     'simran', 'kavya', 'amit', 'dev', 'ishita', 'shreya', 'ratan', 'varun',
-    'manan', 'sumit', 'roopa', 'kabir', 'aayan', 'ashutosh', 'advait', 'amelia',
-    'sophia', 'anand', 'tanya', 'tarun', 'sunny', 'mani', 'gokul', 'vijay',
-    'shruti', 'suhani', 'mohit', 'kavitha', 'rehan', 'soham', 'rupali',
+    'manan', 'sumit', 'roopa', 'kabir', 'aayan', 'ashutosh', 'advait', 'anand',
+    'tanya', 'tarun', 'sunny', 'mani', 'gokul', 'vijay', 'shruti', 'suhani',
+    'mohit', 'kavitha', 'rehan', 'soham', 'rupali',
   ],
   // v2 — the seven this repo probed against the live API. Kept so pinning
   // SARVAM_TTS_MODEL=bulbul:v2 still works.
   'bulbul:v2': ['anushka', 'manisha', 'vidya', 'arya', 'abhilash', 'karun', 'hitesh'],
 };
 
-const SARVAM_DEFAULT_SPEAKER = { 'bulbul:v3': 'shubh', 'bulbul:v2': 'anushka' };
+// Anaga is a woman, so the default cannot be Sarvam's own default 'shubh'.
+// 'pooja' was CHOSEN — listened to on a handset and picked. That is the whole
+// difference between this and the default-voice bug: a default nobody selected
+// is a substitution, a default somebody sat down and picked is a decision.
+const SARVAM_DEFAULT_SPEAKER = { 'bulbul:v3': 'pooja', 'bulbul:v2': 'anushka' };
 
 // ⚠️ NOT LISTENED TO — DOCUMENTED, WHICH IS ONE STEP BETTER THAN GUESSED.
 //
@@ -106,8 +116,7 @@ const SARVAM_MALE_SPEAKERS = [
   'sumit', 'kabir', 'aayan', 'ashutosh', 'advait', 'anand', 'tarun', 'sunny',
   'mani', 'gokul', 'vijay', 'mohit', 'rehan', 'soham',
 ];
-// 'amelia' and 'sophia' are absent from both published lists; they fall through
-// as female here, which is an assumption and is flagged as one in the UI.
+
 const SARVAM_VERIFIED_GENDER = new Set(['abhilash', 'karun', 'hitesh', 'anushka', 'manisha', 'vidya', 'arya']);
 
 export function sarvamModel() {
@@ -711,7 +720,9 @@ async function viaSarvam(text, opts) {
     try {
       const e = await res.json();
       const msg = e?.error?.message || e?.message || e?.error || e?.detail;
-      detail += ': ' + (typeof msg === 'string' ? msg : JSON.stringify(e)).slice(0, 300);
+      // 600, not 300: Sarvam's "not recognized" body enumerates every speaker
+      // it accepts, and that list is the most useful sentence the API emits.
+      detail += ': ' + (typeof msg === 'string' ? msg : JSON.stringify(e)).slice(0, 600);
     } catch { /* body was not JSON; the status alone stands */ }
     throw new Error('sarvam_tts_failed: ' + detail);
   }

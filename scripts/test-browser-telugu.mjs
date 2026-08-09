@@ -71,11 +71,14 @@ await t('NOTHING PLAYS UNTIL A TAP', async () => {
   assert.equal(vendorCalls.length, 0, 'the vendor was called with nobody asking');
 });
 
-await t('NO VOICE IS PRE-SELECTED', async () => {
-  // A voice nobody chose is a default voice, and a default voice is the whole
-  // complaint: she answers in one you did not pick, wearing the name you did.
-  const n = await page.locator('.v[aria-pressed="true"]').count();
-  assert.equal(n, 0, `${n} voices were selected before anybody chose one`);
+await t('POOJA is the default, and she is the ONLY one selected', async () => {
+  // The bug was never "there is a default" — it was a default nobody chose,
+  // wearing the name of the voice you actually picked. This one was listened to
+  // and selected, and it is pinned by NAME, not by grid position: "the first
+  // card" would silently become somebody else the day Sarvam reorders its list.
+  const on = await page.locator('.v[aria-pressed="true"]').all();
+  assert.equal(on.length, 1, `${on.length} voices selected, expected exactly 1`);
+  assert.equal(await on[0].getAttribute('data-voice'), 'pooja');
 });
 
 await t('a tap plays that voice, and only that voice', async () => {
@@ -206,24 +209,33 @@ await t('tapping quickly through voices does not paint the grid red', async () =
   assert.deepEqual(red, [], `cards reported failures they did not have: ${red.join(', ')}`);
 });
 
-await t('with no voice picked she stays SILENT rather than borrow one', async () => {
-  await page.reload();                        // fresh page: nothing selected
+await t('on a fresh page she answers in POOJA, with no tap at all', async () => {
+  await page.reload();
   await page.waitForSelector('.v');
   posts.length = 0; vendorCalls.length = 0;
 
   await page.locator('#saytxt').fill('హలో');
   await page.locator('#sayform button[type=submit]').click();
   await page.waitForSelector('#log .ln.her', { timeout: 8000 });
+  await page.waitForFunction(() => window.performance.getEntriesByType('resource')
+    .some((r) => r.name.includes('/api/tts')), null, { timeout: 8000 }).catch(() => {});
 
-  // The transcript still works — it never depended on audio.
-  assert.equal(posts.length, 0, 'nothing may be synthesized before a voice is chosen');
-  const why = await page.locator('#talkstate').innerText();
-  assert.ok(/వాయిస్/.test(why), `expected a "pick a voice" prompt, got "${why}"`);
+  const spoken = posts.filter((p) => p.speaker);
+  assert.ok(spoken.length >= 1, 'she must speak without needing a voice tap first');
+  assert.equal(spoken[0].speaker, 'pooja', 'the default is a NAME, not the first card');
+});
 
-  // And picking one clears the prompt.
-  await page.locator('.v').nth(2).click();
-  await page.waitForTimeout(400);
-  assert.equal(await page.locator('.v[aria-pressed="true"]').count(), 1);
+await t('a card error does not outlive the voice that caused it', async () => {
+  // The status line kept the last failure forever, so the page read as broken
+  // while a working voice was playing through it.
+  await page.evaluate(() => {
+    const s = document.getElementById('status');
+    s.className = 'err'; s.textContent = 'ఈ వాయిస్ అందుబాటులో లేదు';
+  });
+  await page.locator('.v').nth(4).click();
+  await page.waitForTimeout(1500);
+  const cls = await page.locator('#status').getAttribute('class');
+  assert.notEqual(cls, 'err', 'a successful play must clear the stale error');
 });
 
 await t('a brain outage still produces a transcript, and says why', async () => {

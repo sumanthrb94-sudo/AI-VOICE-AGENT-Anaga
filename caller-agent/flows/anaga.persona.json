@@ -12,9 +12,9 @@
   "voice": {
     "gender": "female",
     "provider": "sarvam",
-    "model": "bulbul",
-    "speaker": "anushka",
-    "_note": "Provider-abstracted (WP-4). 'speaker' is a Sarvam Bulbul FEMALE voice; verify the exact speaker id against current Sarvam docs before deploy. To swap providers, change provider/model/speaker only — never business logic. A MALE voice requires Google Cloud Text-to-Speech: it is the only configured provider with one. The Google Translate voice has a single voice per language, and every Sarvam speaker in our set is female.",
+    "model": "bulbul:v3",
+    "speaker": "pooja",
+    "_note": "Provider-abstracted (WP-4). 'speaker' is a Sarvam Bulbul v3 FEMALE voice, chosen by listening to the full catalogue on a handset — not inferred from the name. It must stay in step with SARVAM_DEFAULT_SPEAKER in api/_lib/tts.js and defaultSpeaker() in caller-agent/src/providers/speech.js, or the browser demo and the phone call are two different women. To swap providers, change provider/model/speaker only — never business logic. NOTE: 'anushka' was pinned here while this path defaulted to bulbul:v3, which does not have that speaker; v2 and v3 have entirely separate names.",
     "pitch": 0,
     "pace": 1.0,
     "languages": ["te-IN", "hi-IN", "en-IN"],

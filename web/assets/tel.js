@@ -33,6 +33,10 @@
   // Long enough to judge prosody, short enough that synthesis is quick — the
   // sample IS the latency test, so a paragraph would measure the wrong thing.
   var SAMPLE = "నమస్కారం, నేను అనగా. మీరు అడిగిన ఇంటి గురించి మాట్లాడటానికి కాల్ చేశాను.";
+  // Anaga's voice. Kept in step with SARVAM_DEFAULT_SPEAKER (api/_lib/tts.js)
+  // and defaultSpeaker() (caller-agent) — the demo and the phone call must not
+  // be two different women.
+  var DEFAULT_VOICE = "pooja";
 
   var $ = function (id) { return document.getElementById(id); };
   var statusEl = $("status"), grid = $("voices"), modelEl = $("model");
@@ -40,6 +44,7 @@
   var logEl = $("log"), talkBtn = $("talk"), talkState = $("talkstate");
   var sayForm = $("sayform"), sayInput = $("saytxt");
 
+  var baseStatus = "";           // what the line says when nothing is wrong
   function say(msg, isErr) {
     statusEl.textContent = msg;
     statusEl.className = isErr ? "err" : "";
@@ -149,6 +154,9 @@
       return a.play().then(function () {
         var ms = Math.round(performance.now() - t0);
         card.dataset.state = "playing";
+        // Clear a previous voice's error. It used to persist under a working
+        // voice, so the page read as broken while it was playing fine.
+        if (statusEl.className === "err") say(baseStatus);
         // The measured number, on their device, for this voice.
         card.querySelector("em").textContent = ms + " ms";
       });
@@ -199,12 +207,16 @@
       b.addEventListener("click", function () { play(b, v.id); });
       b.setAttribute("aria-pressed", "false");
       grid.appendChild(b);
+      // ONE named default, CHOSEN by listening to the catalogue — not the first
+      // card, not whatever the vendor happens to return first. The bug was never
+      // "there is a default"; it was that the default was nobody's decision and
+      // wore the name of the voice you actually picked. Selecting still makes no
+      // sound and no request.
+      if (v.id === DEFAULT_VOICE) select(b, v.id);
     });
-    // NOTHING IS PRE-SELECTED. A voice nobody chose is a default voice, and a
-    // default voice is the bug: it answers in a voice you did not pick and
-    // looks like the one you did.
     modelEl.textContent = model || "Bulbul";
-    say(voices.length + " voices · Telugu");
+    baseStatus = voices.length + " voices · Telugu";
+    say(baseStatus);
   }
 
   /* =====================================================================
