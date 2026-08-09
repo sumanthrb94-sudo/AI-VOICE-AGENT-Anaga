@@ -132,6 +132,37 @@ await t('TTS_PROVIDER is a chain, and ready[] lists only what can run', () => {
   clearEnv();
 });
 
+await t('REGRESSION: the keyless fallback is LAST, so a paid voice is reached', () => {
+  clearEnv();
+  const chain = tts.providerChain();
+  assert.equal(chain[chain.length - 1], 'gtranslate',
+    'gtranslate needs no credential — anywhere but last, nothing after it runs');
+  assert.ok(chain.indexOf('sarvam') < chain.indexOf('gtranslate'),
+    'Sarvam must be tried before the free fallback');
+
+  // The bug this encodes: with a Sarvam key set and gtranslate ordered first,
+  // production served the free Google Translate voice on every line while the
+  // paid key sat unused. Confirmed live before the fix.
+  process.env.SARVAM_API_KEY = 's';
+  const ready = tts.ttsStatus().ready;
+  assert.equal(ready[0], 'sarvam', `expected sarvam to be first ready, got ${ready.join(',')}`);
+  clearEnv();
+});
+
+await t('and with a Sarvam key set, sarvam actually answers', async () => {
+  clearEnv(); reset();
+  process.env.SARVAM_API_KEY = 's';
+  routes = [
+    { match: /api\.sarvam\.ai/, reply: () => json({ audios: ['U0FS'] }) },
+    { match: /translate_tts/, reply: () => bin([0xff, 0xfb, 0x00]) },
+  ];
+  const out = await tts.synth({ text: 'hello', lang: 'en-IN' });
+  assert.equal(out.provider, 'sarvam', 'the paid voice must win over the free fallback');
+  assert.equal(calls.some((c) => /translate_tts/.test(c.url)), false,
+    'gtranslate should not even be called when sarvam succeeds');
+  clearEnv();
+});
+
 await t('leading the default chain with voicestudio changes nothing until it is set', () => {
   clearEnv();
   const s = tts.ttsStatus();

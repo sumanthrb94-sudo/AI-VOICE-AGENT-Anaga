@@ -27,13 +27,16 @@
 //              set we use.
 //
 // TTS_PROVIDER is a comma-separated CHAIN, tried in order (default
-// "voicestudio,google,gtranslate,sarvam"). The chain exists because of a real
+// "voicestudio,google,sarvam,gtranslate"). The chain exists because of a real
 // incident: one provider hiccup used to drop the whole call to the robotic
 // on-device browser voice, silently, for the rest of the session. Now a failure
 // costs one hop. voicestudio leads because when it is configured it is both the
 // cheapest per call and the only one whose audio stays on our own hardware — and
 // it is inert until VOICESTUDIO_URL is set, so leading with it changes nothing
 // on a deployment that has not stood one up.
+//
+// gtranslate is LAST and must stay last: it needs no credential, so anywhere it
+// sits in the chain, nothing after it is ever reached. See DEFAULT_CHAIN.
 //
 // ⚠️ Vendor voice ids drift. Sarvam speaker names and Google voice names both
 // get renamed between releases. Google voices are therefore resolved from the
@@ -53,7 +56,18 @@ const SARVAM_SPEAKERS = ['anushka', 'manisha', 'vidya', 'arya'];
 // The Google Translate endpoint truncates long text; it is built for a phrase.
 const GTRANSLATE_CHUNK = 190;
 
-const DEFAULT_CHAIN = 'voicestudio,google,gtranslate,sarvam';
+// Ordered BEST FIRST, with the keyless fallback LAST.
+//
+// This was 'voicestudio,google,gtranslate,sarvam', which was a real regression
+// on a live site: gtranslate needs no credential, so it always succeeds, so
+// Sarvam was never reached. Production served the free Google Translate voice
+// for every line while a paid Sarvam key sat configured and unused — the same
+// voice this file's own header calls "a floor, not a promise". A fallback
+// ordered above the thing it is a fallback FOR is not a fallback.
+//
+// Verified on the deployment: POST /api/tts returned provider "gtranslate"
+// with SARVAM_API_KEY set.
+const DEFAULT_CHAIN = 'voicestudio,google,sarvam,gtranslate';
 
 const clamp = (n, lo, hi, d) => { n = Number(n); return Number.isNaN(n) ? d : Math.max(lo, Math.min(hi, n)); };
 
