@@ -201,6 +201,15 @@ export function createTTS({ provider = process.env.TTS_PROVIDER || 'sarvam' } = 
 
   if (provider !== 'sarvam') throw new Error(`unsupported TTS_PROVIDER: ${provider}`);
 
+  // NOTE ON THE ENDPOINT. api/_lib/tts.js — the browser demo — moved to
+  // /text-to-speech/stream, which is ~400ms faster to first byte. The call leg
+  // deliberately did NOT follow it: that endpoint returns MP3, and the
+  // telephony path needs raw 16-bit PCM at 8kHz, which means decoding MP3 in a
+  // repo with zero dependencies. So this stays on the batch endpoint, whose
+  // response time scales with the length of the string — which is exactly why
+  // the transport splits a line into phrases before calling this (see
+  // media/transport.js say()). If Sarvam ever exposes WAV on the stream
+  // endpoint, switch and delete this note.
   return {
     id: 'sarvam',
     async synth(text, lang) {
@@ -235,6 +244,137 @@ export function createTTS({ provider = process.env.TTS_PROVIDER || 'sarvam' } = 
         clearTimeout(timer);
       }
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Phrase splitting — the cheapest second off time-to-first-audio
+// ---------------------------------------------------------------------------
+//
+// Synthesizing a whole line before playing any of it means the prospect waits
+// for the LAST word to be rendered before hearing the FIRST. Bulbul takes about
+// a second on a two-sentence turn, and that second is silence on a live call.
+//
+// Split at phrase boundaries and the wait becomes the render time of the first
+// phrase only; everything behind it renders while the earlier audio is still
+// playing, because playback is paced in real time and there is always far more
+// play time than synth time to hide it in.
+//
+// Boundaries are language-aware in the one way that matters here: Devanagari
+// and the Indic scripts end sentences with a danda (।), not a full stop, and a
+// splitter that only knows about "." leaves an entire Hindi turn as one chunk.
+
+const SENTENCE_END = /(?<=[.!?।॥])\s+/;
+const CLAUSE_END = /(?<=[,;:—–])\s+/;
+
+/**
+ * Split text into speakable parts, shortest-first-part biased.
+ *
+ * @param {string} text
+ * @param {object} [opts]
+ * @param {number} [opts.maxChars]  above this a part is split again at clauses
+ * @param {number} [opts.minChars]  below this a part is merged into the next
+ * @returns {string[]} always at least one part
+ */
+export function splitForSpeech(text, { maxChars = 140, minChars = 24 } = {}) {
+  const whole = String(text ?? '').trim();
+  if (!whole) return [];
+  if (whole.length <= minChars) return [whole];
+
+  const parts = [];
+  for (const sentence of whole.split(SENTENCE_END)) {
+    const s = sentence.trim();
+    if (!s) continue;
+    // A long sentence still blocks first audio, so break it at clause
+    // boundaries. Falls through to the whole sentence when it has none — a
+    // hard character split would cut mid-word and Bulbul would pronounce the
+    // fragments as two separate words.
+    if (s.length <= maxChars) { parts.push(s); continue; }
+    let acc = '';
+    for (const clause of s.split(CLAUSE_END)) {
+      const c = clause.trim();
+      if (!c) continue;
+      if (acc && (acc.length + c.length + 1) > maxChars) { parts.push(acc); acc = c; }
+      else acc = acc ? `${acc} ${c}` : c;
+    }
+    if (acc) parts.push(acc);
+  }
+
+  // Merge runt fragments forward. "Yes." on its own is a whole network round
+  // trip to render two syllables, which costs more than it saves.
+  const merged = [];
+  for (const p of parts) {
+    if (merged.length && merged[merged.length - 1].length < minChars) {
+      merged[merged.length - 1] = `${merged[merged.length - 1]} ${p}`;
+    } else {
+      merged.push(p);
+    }
+  }
+  // A trailing runt has nothing to merge into; fold it backwards instead.
+  if (merged.length > 1 && merged[merged.length - 1].length < minChars) {
+    const tail = merged.pop();
+    merged[merged.length - 1] = `${merged[merged.length - 1]} ${tail}`;
+  }
+  return merged.length ? merged : [whole];
+}
+
+// ---------------------------------------------------------------------------
+// Synthesis cache
+// ---------------------------------------------------------------------------
+//
+// Several of the lines on every call are CONSTANTS: the AI disclosure that
+// opens turn one, the opt-out acknowledgement, the two silence nudges, the
+// apology when the brain is down. Paying a second of vendor latency to render
+// the same sentence on every call is pure waste, and the opt-out line is
+// exactly the one that must not be slow.
+//
+// The cache is deliberately process-wide rather than per-call: a worker handles
+// many calls, so the first call in each language pays and the rest are free.
+// Bounded, because audio is not small — the point is a handful of fixed lines,
+// not a transcript archive.
+export function withSynthCache(tts, { max = Number(process.env.TTS_CACHE_ENTRIES || 24) } = {}) {
+  if (!(max > 0)) return tts;
+  /** @type {Map<string, object>} */
+  const cache = new Map();
+  let hits = 0;
+  let misses = 0;
+
+  // The speaker is part of the key: the same words in a different voice are
+  // different audio, and serving a woman's rendering for a male preset is the
+  // kind of bug nobody notices until a prospect does.
+  const keyOf = (text, lang) => [
+    tts.id, lang || '', process.env.TTS_SPEAKER || '',
+    process.env.TELEPHONY_SAMPLE_RATE || '', String(text),
+  ].join(' ');
+
+  return {
+    ...tts,
+    async synth(text, lang) {
+      const key = keyOf(text, lang);
+      const hit = cache.get(key);
+      if (hit) {
+        hits++;
+        cache.delete(key);          // re-insert = most-recently-used
+        cache.set(key, hit);
+        return hit;
+      }
+      misses++;
+      const audio = await tts.synth(text, lang);
+      cache.set(key, audio);
+      while (cache.size > max) cache.delete(cache.keys().next().value);
+      return audio;
+    },
+    /**
+     * Render lines we already know we will say. Never rejects and never
+     * blocks the caller: a failed prewarm costs the latency it would have
+     * saved, nothing else.
+     */
+    async prewarm(texts, lang) {
+      const list = [].concat(texts || []).filter(Boolean);
+      const done = await Promise.all(list.map((t) => this.synth(t, lang).then(() => true, () => false)));
+      return done.filter(Boolean).length;
+    },
+    _cacheStats: () => ({ size: cache.size, hits, misses }),
   };
 }
 

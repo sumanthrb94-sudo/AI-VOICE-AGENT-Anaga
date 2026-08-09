@@ -21,7 +21,7 @@
 import http from 'node:http';
 import { upgrade, isUpgrade } from './ws.js';
 import { createMediaTransport } from './transport.js';
-import { createSTT, createTTS } from '../providers/speech.js';
+import { createSTT, createTTS, withSynthCache } from '../providers/speech.js';
 
 // ---------------------------------------------------------------------------
 // provider codecs — the only vendor-specific code in the media path
@@ -103,6 +103,12 @@ export function createMediaServer({
   const codec = codecs[provider] || codecs.plivo;
   const sessions = new Set();
 
+  // ONE cached TTS for the whole server, not one per call. The lines worth
+  // caching — the disclosure, the opt-out acknowledgement, the silence nudges —
+  // are identical on every call, so a per-call cache would miss on every one of
+  // them. The adapter itself is stateless, so sharing it is safe.
+  const tts = withSynthCache(ttsFactory());
+
   const server = http.createServer((req, res) => {
     if (req.url.startsWith('/health')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -142,7 +148,7 @@ export function createMediaServer({
 
         transport = createMediaTransport({
           stt: sttFactory(),
-          tts: ttsFactory(),
+          tts,
           audioOut: (chunk) => ws.send(codec.audioOut(streamId, chunk)),
           log,
         });

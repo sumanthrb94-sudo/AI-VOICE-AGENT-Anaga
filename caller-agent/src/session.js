@@ -29,6 +29,22 @@ export const MAX_TURNS = Number(process.env.CALL_MAX_TURNS || 24);
 export const MAX_SECONDS = Number(process.env.CALL_MAX_SECONDS || 300);
 export const MAX_SILENT_TURNS = Number(process.env.CALL_MAX_SILENT_TURNS || 2);
 
+export const DEFAULT_DISCLOSURE =
+  "Hi, I'm Anaga, an AI voice assistant from Vaak. Is now a good time to talk for a couple of minutes?";
+
+/**
+ * The lines the model never writes. They are constants because they are the
+ * ones we are accountable for, and being constants is also why they can be
+ * rendered before the call needs them — see the prewarm below.
+ */
+export const FIXED_LINES = {
+  nudge: 'Sorry, I did not catch that — are you still there?',
+  giveUp: 'I will let you go for now. Thank you for your time!',
+  optOut: 'I completely understand. I am adding your number to our do-not-call list now, '
+    + 'so you will not receive further calls. Apologies for the disturbance.',
+  brainDown: 'I am having a little trouble on my side. Our team will call you back shortly. Thank you!',
+};
+
 /**
  * Run one call.
  *
@@ -55,13 +71,31 @@ export async function runCall({ job, telephony, brain, persona, now = () => Date
   let optOutMatched = null;
 
   const elapsedSec = () => Math.round((now() - startedAtMs) / 1000);
-  const say = async (text) => {
-    const ok = await telephony.say(text);
+  const say = async (text, opts) => {
+    const ok = await telephony.say(text, opts);
     if (ok) history.push({ role: 'agent', text });
     return ok;
   };
 
+  // Straight from the persona file. Never model-generated: a hallucinated
+  // opening that omits "I am an AI" is a regulatory breach on every call.
+  const disclosure = persona?.disclosure?.[lang]
+    || persona?.disclosure?.['en-IN']
+    || DEFAULT_DISCLOSURE;
+
   try {
+    // ---- 0. render what we already know we will say ----------------------
+    // Every line below is a constant, and one of them is the first thing said
+    // on the call. Rendering them while the phone RINGS costs nothing —
+    // there are seconds of dead air there anyway — and turns the opt-out
+    // acknowledgement in particular from a second of vendor latency into
+    // instant, which is the one line where a delay is indefensible. Not
+    // awaited: a slow or broken TTS must never hold up the dial.
+    if (typeof telephony.prewarm === 'function') {
+      Promise.resolve(telephony.prewarm([disclosure, ...Object.values(FIXED_LINES)]))
+        .catch(() => {});
+    }
+
     // ---- 1. dial ---------------------------------------------------------
     const dial = await telephony.dial({
       to: lead.phone,
@@ -76,13 +110,11 @@ export async function runCall({ job, telephony, brain, persona, now = () => Date
     }
 
     // ---- 2. disclosure — non-skippable, first words on the call ----------
-    // Straight from the persona file. Never model-generated: a hallucinated
-    // opening that omits "I am an AI" is a regulatory breach on every call.
-    const disclosure = persona?.disclosure?.[lang]
-      || persona?.disclosure?.['en-IN']
-      || "Hi, I'm Anaga, an AI voice assistant from Vaak. Is now a good time to talk for a couple of minutes?";
-
-    if (!(await say(disclosure))) {
+    // Said ATOMICALLY. Everything else is split into phrases and streamed so
+    // the first words start sooner, but a disclosure whose second half fails to
+    // render is a call that never said "I am an AI" — worse than a slow one.
+    // It is prewarmed above, so it is fast without being splittable.
+    if (!(await say(disclosure, { atomic: true }))) {
       endReason = 'dropped_before_disclosure';
       disposition = 'busy';
       return await finish();
@@ -111,9 +143,7 @@ export async function runCall({ job, telephony, brain, persona, now = () => Date
           break;
         }
         // One nudge, then give up. Do not badger.
-        await say(silentTurns === 1
-          ? 'Sorry, I did not catch that — are you still there?'
-          : 'I will let you go for now. Thank you for your time!');
+        await say(silentTurns === 1 ? FIXED_LINES.nudge : FIXED_LINES.giveUp);
         continue;
       }
       silentTurns = 0;
@@ -127,10 +157,9 @@ export async function runCall({ job, telephony, brain, persona, now = () => Date
         disposition = 'opt-out';
         endReason = 'opt_out';
         log('opt_out_detected', { callId, matched: opt.matched });
-        await say(
-          'I completely understand. I am adding your number to our do-not-call list now, '
-          + 'so you will not receive further calls. Apologies for the disturbance.'
-        );
+        // Atomic, like the disclosure: a half-spoken promise to stop calling
+        // someone is the worst line on the call to truncate.
+        await say(FIXED_LINES.optOut, { atomic: true });
         break;
       }
 
@@ -144,7 +173,7 @@ export async function runCall({ job, telephony, brain, persona, now = () => Date
         log('brain_error', { callId, error: String(err && err.message) });
         endReason = 'brain_unavailable';
         disposition = 'callback';
-        await say('I am having a little trouble on my side. Our team will call you back shortly. Thank you!');
+        await say(FIXED_LINES.brainDown);
         break;
       }
 

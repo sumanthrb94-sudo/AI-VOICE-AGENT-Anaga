@@ -68,6 +68,28 @@ failure the whole echo effort exists to prevent. Both directions are tested
 | endpointing silence | VAD/ML turn detector | `0.9 s` (`ENDPOINT_SILENCE_MS`) | They ship a trained turn-detector model. We use a threshold tuned higher than the ~500ms Western norm because code-mixed Telugu/Hindi/English pauses longer mid-sentence. |
 | `min_interruption_words` | `0` (off) | not implemented | Noted below. |
 | `backchannel_boundary` | `(1.0, 1.0)` | not implemented | Noted below. |
+| speculative transcription | not applicable (streaming STT) | `0.4 s` (`ENDPOINT_SPECULATE_MS`) | They stream STT, so transcription is finished when the turn ends. We batch, so the 0.9 s window would otherwise be dead time. We send what we have at 0.4 s of silence and keep waiting — endpointing accuracy is untouched, and a caller who carries on invalidates the guess. Buys latency with money instead of interruptions. |
+| chunked synthesis | streaming TTS | phrase split (`TTS_CHUNK_SPEECH`) | Same goal, weaker mechanism. Sarvam's streaming endpoint returns MP3 and the telephony leg needs 8 kHz PCM, so we split the line at phrase boundaries and render one phrase ahead instead of streaming one. Time-to-first-audio becomes the render time of phrase one, not of the whole line. |
+
+Every timing in the audio leg lives in `caller-agent/src/media/timings.js`, with
+the cost of each one written next to it. **The 0.9 s endpointing window is not
+the knob to turn.** It is high on purpose, and every millisecond taken off it is
+bought by talking over people. The two rows above buy the same milliseconds by
+overlapping work.
+
+What is still serial, and what closing it would take:
+
+| Stage | Cost | Status |
+|---|---|---|
+| endpointing | 0.9 s | deliberate — see above |
+| STT | 0.3–0.8 s | overlapped with the window; ~0 on the critical path |
+| brain (`/api/anaga/turn`) | 0.5–1.5 s | **still serial.** Needs a streaming turn endpoint to overlap with synthesis. |
+| TTS, first phrase | ~0.6 s | was the whole line (~1.5 s) |
+| TTS, fixed lines | ~0 | prewarmed during the ring, cached process-wide |
+
+Reaching a ~1 s reply means streaming the brain so synthesis can start on its
+first sentence. That is an architecture change to the turn contract, not a
+threshold, and it has not been done.
 
 Their comment on `backchannel_boundary` independently confirms something we hit:
 the end-of-turn value exists to absorb *"STT transcript timestamp inaccuracy"* —

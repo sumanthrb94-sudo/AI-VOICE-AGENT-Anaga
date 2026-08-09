@@ -31,48 +31,13 @@
 // harness wires them to arrays. Same code path either way.
 
 import { createEchoGuard } from '../../../shared/echo-guard.js';
+import { splitForSpeech } from '../providers/speech.js';
+import { timings } from './timings.js';
 
 // The false-interruption resume below follows the design in livekit/agents
 // (Apache-2.0), voice/turn.py. See engineering/LIVEKIT_REFERENCE.md for what was
 // adopted, what was not, and why. No LiveKit code is vendored — it is Python and
 // WebRTC-first; this is our own implementation of their pattern.
-
-// Timing defaults come from env, but every one is overridable PER TRANSPORT.
-// They are read at construction, not at import: pacing differs by language
-// (Telugu and Hindi speakers pause longer mid-sentence than the ~500ms Western
-// default assumes), so a single process must be able to run different values
-// on different calls.
-function timings(o = {}) {
-  return {
-    silenceMs: Number(o.silenceMs ?? process.env.ENDPOINT_SILENCE_MS ?? 900),
-    maxUtteranceMs: Number(o.maxUtteranceMs ?? process.env.MAX_UTTERANCE_MS ?? 20000),
-    minSpeechMs: Number(o.minSpeechMs ?? process.env.MIN_SPEECH_MS ?? 200),
-    // How much audio one frame represents, and therefore the pacing interval
-    // for outbound playback. Must match the framing in providers/speech.js.
-    frameMs: Number(o.frameMs ?? process.env.TTS_FRAME_MS ?? 20),
-    // How long after playback ends our own audio can still arrive. Covers the
-    // provider jitter buffer plus line round-trip; 250ms is generous for
-    // domestic Indian routes and still well under a human's reply latency.
-    echoTailMs: Number(o.echoTailMs ?? process.env.ECHO_TAIL_MS ?? 250),
-    // Barge-in needs SUSTAINED speech, not one frame. A single echo burst must
-    // not cancel our own utterance; a human interrupting speaks for longer.
-    bargeInMinMs: Number(o.bargeInMinMs ?? process.env.BARGE_IN_MIN_MS ?? 240),
-    // After this many consecutive echo discards, report silence so the session
-    // can make progress instead of waiting forever.
-    maxEchoDiscards: Number(o.maxEchoDiscards ?? process.env.MAX_ECHO_DISCARDS ?? 4),
-    // FALSE-INTERRUPTION RESUME (pattern from livekit/agents, Apache-2.0 —
-    // voice/turn.py `resume_false_interruption` / `false_interruption_timeout`,
-    // default 2.0s). Barge-in used to CANCEL playback outright, so a cough, a
-    // burst of line noise, or our own echo permanently swallowed the rest of
-    // Anaga's sentence. Instead we PAUSE, and resume if the interruption turns
-    // out to be nothing.
-    falseInterruptionTimeoutMs:
-      Number(o.falseInterruptionTimeoutMs ?? process.env.FALSE_INTERRUPTION_TIMEOUT_MS ?? 2000),
-    resumeFalseInterruption:
-      (o.resumeFalseInterruption ?? process.env.RESUME_FALSE_INTERRUPTION) !== false
-      && String(process.env.RESUME_FALSE_INTERRUPTION ?? 'true') !== 'false',
-  };
-}
 
 /**
  * @param {object} deps
@@ -92,12 +57,14 @@ export function createMediaTransport({
   stt, tts, audioOut, lang = 'en-IN', now = () => Date.now(), log = () => {},
   silenceMs, maxUtteranceMs, minSpeechMs, frameMs, echoTailMs, bargeInMinMs, maxEchoDiscards,
   falseInterruptionTimeoutMs, resumeFalseInterruption,
+  speculateMs, maxSpeculations, chunkSpeech, chunkMaxChars,
   echoGuard = null,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
 } = {}) {
   const T = timings({
     silenceMs, maxUtteranceMs, minSpeechMs, frameMs, echoTailMs, bargeInMinMs, maxEchoDiscards,
     falseInterruptionTimeoutMs, resumeFalseInterruption,
+    speculateMs, maxSpeculations, chunkSpeech, chunkMaxChars,
   });
   const echo = echoGuard || createEchoGuard({ now });
   /** @type {Array<Buffer>} */
@@ -113,7 +80,10 @@ export function createMediaTransport({
   let voiceRunStartedAt = null;   // start of the current continuous voice run
   let echoDiscards = 0;
   // Remainder of an utterance cut short by a suspected interruption.
-  let pausedSpeech = null;        // { frames, index, text, at }
+  let pausedSpeech = null;        // { frames, index, pending, text, at }
+  // In-flight speculative transcription of the utterance so far.
+  let speculation = null;         // { promise, frames }
+  let speculations = 0;
 
   /** True while our own audio could still be arriving on the receive path. */
   function inEchoWindow(t) {
@@ -150,6 +120,9 @@ export function createMediaTransport({
       if (speechStartedAt == null) speechStartedAt = t;
       lastVoiceAt = t;
       buffer.push(chunk);
+      // They carried on talking, so anything we guessed at is about a
+      // half-sentence. Drop it and let the next pause guess again.
+      speculation = null;
     } else {
       voiceRunStartedAt = null;
     }
@@ -167,18 +140,52 @@ export function createMediaTransport({
     const doneTalking = silentFor >= T.silenceMs;
     const tooLong = spokeFor >= T.maxUtteranceMs;
 
+    // ---- SPECULATIVE TRANSCRIPTION ---------------------------------------
+    // The endpointing window is dead time — 900ms of it, set that high on
+    // purpose because Indian English and code-mixing pause mid-sentence and a
+    // shorter window talks over people. Rather than shorten it, spend it: at
+    // `speculateMs` of silence, send what we have to STT and keep waiting. If
+    // they really had finished, the transcript is already in hand when the
+    // window closes and STT costs nothing on the critical path. If they carry
+    // on, the guess is discarded (pushAudio clears it) and the full utterance
+    // is transcribed normally. Endpointing accuracy is untouched either way —
+    // this buys latency with money, not with interruptions.
+    if (!doneTalking && !tooLong && longEnough && buffer.length
+        && T.speculateMs > 0 && !speculation && speculations < T.maxSpeculations
+        && silentFor >= T.speculateMs) {
+      const guess = buffer.slice();
+      speculations++;
+      const promise = stt.transcribe(guess, lang);
+      promise.catch(() => {});     // abandoning it must not crash the process
+      speculation = { promise, frames: guess.length };
+      log('stt_speculated', { lang, frames: guess.length, afterSilenceMs: silentFor, attempt: speculations });
+    }
+
     if ((longEnough && doneTalking) || tooLong) {
       const chunks = buffer;
       buffer = [];
       speechStartedAt = null;
       lastVoiceAt = null;
 
+      // Usable only if not one frame arrived after we guessed — otherwise it
+      // is a transcript of a fragment of what they said.
+      const spec = speculation && speculation.frames === chunks.length ? speculation : null;
+      speculation = null;
+      speculations = 0;
+
       // Whether our own audio could have been arriving while this was captured.
       const suspect = inEchoWindow(t);
       const resolve = pendingResolve;
       pendingResolve = null;
 
-      stt.transcribe(chunks, lang)
+      if (spec) log('stt_speculation_used', { lang, frames: chunks.length });
+      // A speculation that FAILED must not cost the turn: fall back to a fresh
+      // transcription rather than reporting silence to the session.
+      const transcript = spec
+        ? spec.promise.catch(() => stt.transcribe(chunks, lang))
+        : stt.transcribe(chunks, lang);
+
+      transcript
         .then((text) => {
           if (!text) return resolve({ text: null, hangup: false, silent: true });
 
@@ -241,63 +248,111 @@ export function createMediaTransport({
     pushAudio,
     tick,
 
-    /** Speak. Resolves when playback finished OR was cancelled by barge-in. */
-    async say(text) {
+    /**
+     * Speak. Resolves when playback finished OR was cancelled by barge-in.
+     *
+     * @param {string} text
+     * @param {object} [opts]
+     * @param {boolean} [opts.atomic]  synthesize the line whole — see below
+     */
+    async say(text, { atomic = false } = {}) {
       if (closed) return false;
       const me = { cancelled: false };
       speaking = me;
       // Remember it BEFORE playback: the echo can return before say() resolves.
       echo.noteSpoken(text, now());
 
-      let audio;
-      try {
-        audio = await tts.synth(text, lang);
-      } catch (err) {
-        log('tts_error', { error: String(err && err.message) });
-        speaking = null;
-        return false;
-      }
-
-      if (me.cancelled) {
-        // Interrupted before a single frame went out — the WHOLE line is unsaid.
-        // Hold all of it, or a barge-in landing during TTS synthesis silently
-        // drops an entire utterance (including a disclosure or an opt-out
-        // acknowledgement).
-        if (T.resumeFalseInterruption && !closed) {
-          const frames = audio.frames || [audio.audio];
-          pausedSpeech = { frames, index: 0, text, at: now() };
-          log('speech_paused', { lang, remainingFrames: frames.length, beforePlayback: true });
-        }
-        speaking = null;
-        playbackEndedAt = now();
-        return true;
-      }
-
-      // PACED playback. Writing every frame in one synchronous loop looks like
-      // streaming but is not: the whole utterance lands in the provider's
-      // jitter buffer in a single tick, so (a) barge-in can never interrupt
-      // mid-sentence because the loop has already finished, and (b) the callee
-      // keeps hearing us for as long as that buffer holds — precisely when
-      // someone is talking over us to opt out.
+      // CHUNKED SYNTHESIS. Rendering the whole line before playing any of it
+      // means the prospect waits for the last word to be synthesized before
+      // hearing the first — about a second of silence on a two-sentence turn.
+      // Split at phrase boundaries and that wait becomes the render time of the
+      // first phrase; the rest renders while the earlier audio is playing.
       //
-      // Each frame represents `frameMs` of audio, so it is written at roughly
-      // that cadence. The first frame goes out immediately to keep
-      // time-to-first-audio low; the yield between frames is what gives
-      // pushAudio() a window to cancel.
-      const frames = audio.frames || [audio.audio];
-      let i = 0;
-      for (; i < frames.length; i++) {
-        if (me.cancelled || closed) break;
-        audioOut(frames[i]);
-        if (i < frames.length - 1) await sleep(T.frameMs);
-      }
+      // `atomic` opts out, and the lines that use it are the reason it exists:
+      // a chunked line whose second part fails to render is a TRUNCATED line,
+      // and a truncated AI disclosure or opt-out acknowledgement is a
+      // compliance failure. Those are said whole and prewarmed instead, so they
+      // are fast without ever being splittable.
+      const parts = (atomic || !T.chunkSpeech)
+        ? [text]
+        : splitForSpeech(text, { maxChars: T.chunkMaxChars });
+      if (!parts.length) { speaking = null; return false; }
 
-      // Interrupted part-way: keep the remainder so it can be resumed if the
-      // interruption turns out to be false. Cancelling outright meant one
-      // spurious frame of noise cost the rest of the sentence.
-      if (me.cancelled && i < frames.length && T.resumeFalseInterruption && !closed) {
-        pausedSpeech = { frames, index: i, text, at: now() };
-        log('speech_paused', { lang, remainingFrames: frames.length - i });
+      // Abandoned renders must not surface as unhandled rejections; awaiting
+      // the original still throws normally.
+      const render = (i) => {
+        if (i >= parts.length) return null;
+        const p = tts.synth(parts[i], lang);
+        p.catch(() => {});
+        return p;
+      };
+
+      let inflight = render(0);
+      let wrote = false;
+
+      for (let p = 0; p < parts.length; p++) {
+        let audio;
+        try {
+          audio = await inflight;
+        } catch (err) {
+          log('tts_error', { error: String(err && err.message), part: p, parts: parts.length });
+          speaking = null;
+          // Nothing was said at all — the caller treats that as a failed line.
+          // Part-way through, the line is truncated but the call is live, so
+          // report success and let the session carry on rather than hanging up.
+          if (!wrote) return false;
+          playbackEndedAt = now();
+          return true;
+        }
+
+        // Start the NEXT part rendering before playing this one. That overlap
+        // is the whole point; kicking it off after playback would serialise
+        // synthesis behind audio again.
+        inflight = (me.cancelled || closed) ? null : render(p + 1);
+
+        const frames = audio.frames || [audio.audio];
+        const pending = parts.slice(p + 1);
+
+        // PACED playback. Writing every frame in one synchronous loop looks
+        // like streaming but is not: the whole utterance lands in the
+        // provider's jitter buffer in a single tick, so (a) barge-in can never
+        // interrupt mid-sentence because the loop has already finished, and
+        // (b) the callee keeps hearing us for as long as that buffer holds —
+        // precisely when someone is talking over us to opt out.
+        //
+        // Each frame is `frameMs` of audio and is written at roughly that
+        // cadence. Nothing is waited on before the first frame, so
+        // time-to-first-audio stays low; the yield before every later frame is
+        // what gives pushAudio() a window to cancel.
+        let i = 0;
+        for (; i < frames.length; i++) {
+          if (wrote) await sleep(T.frameMs);
+          if (me.cancelled || closed) break;
+          audioOut(frames[i]);
+          wrote = true;
+        }
+
+        // Interrupted part-way: keep the remainder so it can be resumed if the
+        // interruption turns out to be false. Cancelling outright meant one
+        // spurious frame of noise cost the rest of the sentence. `pending`
+        // carries the parts not yet rendered — the resume re-synthesizes them,
+        // which is cheap because a false interruption is rare.
+        if (me.cancelled && T.resumeFalseInterruption && !closed
+            && (i < frames.length || pending.length)) {
+          pausedSpeech = {
+            frames, index: i, pending,
+            text: [parts[p], ...pending].join(' '),
+            at: now(),
+          };
+          log('speech_paused', {
+            lang,
+            remainingFrames: frames.length - i,
+            pendingParts: pending.length,
+            beforePlayback: i === 0,
+          });
+        }
+
+        if (me.cancelled || closed) break;
       }
 
       speaking = null;
@@ -318,16 +373,52 @@ export function createMediaTransport({
 
       const me = { cancelled: false };
       speaking = me;
-      log('speech_resumed', { lang, reason, fromFrame: resume.index });
+      const pending = resume.pending || [];
+      log('speech_resumed', { lang, reason, fromFrame: resume.index, pendingParts: pending.length });
 
-      for (let i = resume.index; i < resume.frames.length; i++) {
-        if (me.cancelled || closed) break;
-        audioOut(resume.frames[i]);
-        if (i < resume.frames.length - 1) await sleep(T.frameMs);
+      let wrote = false;
+      const play = async (frames, from) => {
+        for (let i = from; i < frames.length; i++) {
+          if (wrote) await sleep(T.frameMs);
+          if (me.cancelled || closed) return false;
+          audioOut(frames[i]);
+          wrote = true;
+        }
+        return true;
+      };
+
+      let ok = await play(resume.frames, resume.index);
+      // Parts that were still queued when the interruption landed were never
+      // rendered. Render them now — the alternative is holding synthesized
+      // audio for every part of every line on the chance it gets interrupted.
+      for (const part of pending) {
+        if (!ok) break;
+        try {
+          const audio = await tts.synth(part, lang);
+          ok = await play(audio.frames || [audio.audio], 0);
+        } catch (err) {
+          log('tts_error', { error: String(err && err.message), phase: 'resume' });
+          break;
+        }
       }
+
       speaking = null;
       playbackEndedAt = now();
       return true;
+    },
+
+    /**
+     * Render lines we already know we are going to say, before we need them.
+     * Fire-and-forget by design: it never rejects, and a prewarm that fails
+     * costs the latency it would have saved and nothing more.
+     */
+    async prewarm(texts) {
+      if (typeof tts.prewarm !== 'function') return 0;
+      try {
+        return await tts.prewarm([].concat(texts || []).filter(Boolean), lang);
+      } catch {
+        return 0;
+      }
     },
 
     /** Wait for the prospect's next utterance. */
@@ -351,11 +442,17 @@ export function createMediaTransport({
     },
 
     // test introspection
-    _pausedSpeech: () => (pausedSpeech ? { remaining: pausedSpeech.frames.length - pausedSpeech.index } : null),
+    _pausedSpeech: () => (pausedSpeech
+      ? {
+        remaining: pausedSpeech.frames.length - pausedSpeech.index,
+        pendingParts: (pausedSpeech.pending || []).length,
+      }
+      : null),
     _isSpeaking: () => Boolean(speaking && !speaking.cancelled),
     _buffered: () => buffer.length,
     _echoDiscards: () => echoDiscards,
     _inEchoWindow: () => inEchoWindow(now()),
+    _speculating: () => Boolean(speculation),
   };
 
   // tick() and the echo-discard branch both need to resume, and both run before

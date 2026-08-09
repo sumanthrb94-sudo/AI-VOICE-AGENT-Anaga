@@ -297,8 +297,9 @@ export function startMediaServer(port = Number(process.env.MEDIA_PORT || 8081)) 
       // The media transport IS the telephony adapter once a call is up.
       const telephony = {
         async dial() { return { answered: true, reason: null, callId }; },
-        say: (t) => transport.say(t),
+        say: (t, opts) => transport.say(t, opts),
         listen: () => transport.listen(),
+        prewarm: (lines) => transport.prewarm(lines),
         async hangup(reason) { transport.close(reason); return { ended: reason }; },
       };
 
