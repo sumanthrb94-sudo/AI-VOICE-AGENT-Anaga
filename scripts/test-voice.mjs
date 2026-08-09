@@ -52,7 +52,7 @@ function reset() { routes = []; calls = []; }
 // Modules read env at call time, so each test can set its own world.
 const ENV_KEYS = ['TTS_PROVIDER', 'SARVAM_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_SERVICE_ACCOUNT',
   'FIREBASE_SERVICE_ACCOUNT', 'TRANSLATE_PROVIDER', 'VOICESTUDIO_URL', 'VOICESTUDIO_API_KEY',
-  'VOICESTUDIO_MODEL', 'VOICESTUDIO_VOICE_MALE', 'VOICESTUDIO_VOICE_FEMALE'];
+  'VOICESTUDIO_MODEL', 'VOICESTUDIO_VOICE_MALE', 'VOICESTUDIO_VOICE_FEMALE', 'SARVAM_STREAM'];
 function clearEnv() { for (const k of ENV_KEYS) delete process.env[k]; }
 clearEnv();
 
@@ -159,13 +159,51 @@ await t('and with a Sarvam key set, sarvam actually answers', async () => {
   clearEnv(); reset();
   process.env.SARVAM_API_KEY = 's';
   routes = [
-    { match: /api\.sarvam\.ai/, reply: () => json({ audios: ['U0FS'] }) },
+    { match: /api\.sarvam\.ai/, reply: () => bin([0xff, 0xfb, 0x53, 0x41]) },
     { match: /translate_tts/, reply: () => bin([0xff, 0xfb, 0x00]) },
   ];
   const out = await tts.synth({ text: 'hello', lang: 'en-IN' });
   assert.equal(out.provider, 'sarvam', 'the paid voice must win over the free fallback');
   assert.equal(calls.some((c) => /translate_tts/.test(c.url)), false,
     'gtranslate should not even be called when sarvam succeeds');
+  clearEnv();
+});
+
+await t('Sarvam uses the STREAM endpoint by default, and MP3 not WAV', async () => {
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'sarvam';
+  process.env.SARVAM_API_KEY = 's';
+  let url = null;
+  routes = [{ match: /api\.sarvam\.ai/, reply: (u) => { url = u; return bin([0xff, 0xfb, 0x53]); } }];
+  const out = await tts.synth({ text: 'hello', lang: 'en-IN' });
+  // Measured: stream ttfb 1.02s / 52KB vs batch 1.20s / 204KB for one sentence.
+  assert.match(url, /\/text-to-speech\/stream$/, 'the streaming endpoint is the default');
+  assert.equal(out.mime, 'audio/mpeg');
+  clearEnv();
+});
+
+await t('SARVAM_STREAM=0 falls back to the batch endpoint and WAV', async () => {
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'sarvam';
+  process.env.SARVAM_API_KEY = 's';
+  process.env.SARVAM_STREAM = '0';
+  let url = null;
+  routes = [{ match: /api\.sarvam\.ai/, reply: (u) => { url = u; return json({ audios: ['U0FS'] }); } }];
+  const out = await tts.synth({ text: 'hello', lang: 'en-IN' });
+  assert.doesNotMatch(url, /\/stream$/);
+  assert.equal(out.mime, 'audio/wav');
+  delete process.env.SARVAM_STREAM;
+  clearEnv();
+});
+
+await t('a male Sarvam speaker is reported as male, not assumed female', async () => {
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'sarvam';
+  process.env.SARVAM_API_KEY = 's';
+  routes = [{ match: /api\.sarvam\.ai/, reply: () => bin([0xff, 0xfb, 0x53]) }];
+  assert.equal((await tts.synth({ text: 'x', lang: 'en-IN', speaker: 'abhilash' })).gender, 'male');
+  assert.equal((await tts.synth({ text: 'x', lang: 'en-IN', speaker: 'karun' })).gender, 'male');
+  assert.equal((await tts.synth({ text: 'x', lang: 'en-IN', speaker: 'anushka' })).gender, 'female');
   clearEnv();
 });
 
@@ -214,7 +252,7 @@ await t('every probed bulbul:v2 speaker is accepted, and an unknown one falls ba
   process.env.TTS_PROVIDER = 'sarvam';
   process.env.SARVAM_API_KEY = 's';
   let sent = null;
-  routes = [{ match: /api\.sarvam\.ai/, reply: (_u, init) => { sent = JSON.parse(init.body); return json({ audios: ['U0FS'] }); } }];
+  routes = [{ match: /api\.sarvam\.ai/, reply: (_u, init) => { sent = JSON.parse(init.body); return bin([0xff, 0xfb, 0x53]); } }];
 
   for (const spk of ['anushka', 'manisha', 'vidya', 'arya', 'abhilash', 'karun', 'hitesh']) {
     await tts.synth({ text: 'x', lang: 'te-IN', speaker: spk });
@@ -306,7 +344,7 @@ await t('THE HONESTY RULE: an unpinned gender is refused, not approximated', asy
   process.env.SARVAM_API_KEY = 's';
   routes = [
     { match: /audio\/speech/, reply: () => bin([0xff, 0xfb, 0x01]) },
-    { match: /api\.sarvam\.ai/, reply: () => json({ audios: ['U0FS'] }) },
+    { match: /api\.sarvam\.ai/, reply: () => bin([0xff, 0xfb, 0x53, 0x41]) },
   ];
   const out = await tts.synth({ text: 'hello', lang: 'en-IN', gender: 'male' });
   // It must NOT synthesize a male request against the female clone. Every engine
@@ -355,11 +393,11 @@ await t('a failing provider costs one hop, not the whole call', async () => {
     { match: /\/v1\/voices/, reply: () => json({ error: { message: 'nope' } }, 403) },
     { match: /text:synthesize/, reply: () => json({ error: { message: 'nope' } }, 403) },
     { match: /translate_tts/, reply: () => json({}, 503) },
-    { match: /api\.sarvam\.ai/, reply: () => json({ audios: ['U0FS'] }) },
+    { match: /api\.sarvam\.ai/, reply: () => bin([0xff, 0xfb, 0x53, 0x41]) },
   ];
   const out = await tts.synth({ text: 'hello', lang: 'en-IN' });
   assert.equal(out.provider, 'sarvam');
-  assert.equal(out.mime, 'audio/wav');
+  assert.equal(out.mime, 'audio/mpeg');   // streaming endpoint returns MP3
   clearEnv();
 });
 

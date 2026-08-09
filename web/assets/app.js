@@ -20,7 +20,13 @@ const FLEET = [
 /* ---------------- production-grade metrics (§5) ---------------- */
 const METRICS = [
   { num: "100", u: "+ calls", label: "Concurrent, no quality degradation (load-tested)" },
-  { num: "<500", u: "ms", label: "Time-to-first-audio, p50 (p95 < 900ms)" },
+  /* Was "<500 ms — Time-to-first-audio, p50 (p95 < 900ms)". Measured against
+     the live stack it is not true: Sarvam bulbul:v2 returns its first byte in
+     ~1.0s on the streaming endpoint and ~1.2s on the batch one, before any
+     STT or LLM time. A latency number on a marketing page is a claim a
+     prospect can time with a stopwatch, so it says the target until the
+     streaming pipeline in LAUNCH.md can hit it. */
+  { num: "~1.5", u: "s", label: "Time-to-first-audio today · target <500ms (streaming pipeline)" },
   { num: "3", u: "languages", label: "Code-mixed Telugu / Hindi / English, first-class" },
   { num: "90", u: "days", label: "Recording retention on Indian infra, access-controlled" },
   { num: "0", u: "secrets", label: "Zero secrets in code; SOC2-direction controls" },
