@@ -92,8 +92,19 @@ jobs:
       - name: Call record QA (audio capture, transcript, lead score, flow-driven script)
         run: node --experimental-detect-module scripts/test-call-record.mjs
 
-      - name: Real-browser voice test (male preset, translation, XSS regression)
-        run: node scripts/test-browser-voice.mjs || echo "::warning::browser test needs Chromium+Playwright on the runner"
+      - name: Real-browser Telugu sampler (home page — nothing plays until a tap)
+        run: node scripts/test-browser-telugu.mjs || echo "::warning::browser test needs Chromium+Playwright on the runner"
+
+      # KNOWN FAILING, and left visible rather than deleted. This suite tests
+      # the legacy demo page's voice picker, which moved to /demo.html and now
+      # renders from the server. Its hand-written stub predates that and asserts
+      # a world that no longer exists. It is superseded by
+      # scripts/probe-voices.mjs (real handlers, all 37 voices) and by
+      # test-browser-telugu.mjs; it needs rewriting or retiring, and pretending
+      # it passes by deleting it would hide whatever else it still covers.
+      - name: Legacy demo voice test (KNOWN FAILING — stub predates the server-driven picker)
+        continue-on-error: true
+        run: node scripts/test-browser-voice.mjs || echo "::warning::legacy suite failing — see comment above"
 
       - name: Real-browser console test (call review, transcript XSS, signed playback)
         run: node scripts/test-browser-console.mjs || echo "::warning::browser test needs Chromium+Playwright on the runner"

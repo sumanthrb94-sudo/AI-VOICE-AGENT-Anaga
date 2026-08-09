@@ -36,6 +36,19 @@ const PORT = Number(process.env.PORT || 3000);
 // ---------------------------------------------------------------------------
 // vendor stubs — record the request, return something shaped like audio
 // ---------------------------------------------------------------------------
+/** A real, decodable WAV: `seconds` of silence, 16-bit mono. */
+function silentWav(seconds, rate) {
+  const n = Math.round(seconds * rate);
+  const pcm = Buffer.alloc(n * 2);            // even length — the bug above
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0); h.writeUInt32LE(36 + pcm.length, 4); h.write('WAVE', 8);
+  h.write('fmt ', 12); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20);
+  h.writeUInt16LE(1, 22); h.writeUInt32LE(rate, 24); h.writeUInt32LE(rate * 2, 28);
+  h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34);
+  h.write('data', 36); h.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([h, pcm]);
+}
+
 export const vendorCalls = [];
 if (process.env.STUB_VENDORS === '1') {
   const realFetch = globalThis.fetch;
@@ -46,10 +59,25 @@ if (process.env.STUB_VENDORS === '1') {
     if (/sarvam\.ai|texttospeech\.googleapis|translate_tts|voicestudio|indicf5/.test(u)
         || /gpu|10\.0\.0/.test(u)) {
       vendorCalls.push({ url: u.split('?')[0], body });
-      // An MP3 frame header — enough for anything downstream to accept it.
-      return new Response(new Uint8Array([0xff, 0xfb, 0x90, 0x00]), {
-        status: 200, headers: { 'content-type': 'audio/mpeg' },
-      });
+
+      // A VALID, PLAYABLE clip — not four bytes of MP3 header. A stub whose
+      // audio a browser refuses to decode fails the page for a reason that has
+      // nothing to do with the page, which is worse than no stub at all: it
+      // reports a bug that is not there.
+      // Built rather than pasted: a hand-written 1-sample clip had an odd
+      // `data` length for 16-bit audio, so Chromium refused to decode it and
+      // the page reported "no supported source" — a stub failing the thing it
+      // was meant to exercise.
+      const wav = silentWav(0.25, 16000);
+
+      // Sarvam's BATCH endpoint answers JSON; its stream endpoint answers raw
+      // bytes. Match whichever was called, or the adapter parses the wrong shape.
+      if (/sarvam\.ai\/text-to-speech$/.test(u.split('?')[0])) {
+        return new Response(JSON.stringify({ audios: [wav.toString('base64')] }), {
+          status: 200, headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(wav, { status: 200, headers: { 'content-type': 'audio/wav' } });
     }
     return realFetch(url, init);
   };

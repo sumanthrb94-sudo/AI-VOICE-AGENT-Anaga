@@ -55,6 +55,18 @@ const server = http.createServer((req, res) => {
         chain: ['google', 'gtranslate', 'sarvam'],
         ready: world.maleCapable ? ['google', 'gtranslate'] : ['gtranslate'],
         maleCapable: world.maleCapable,
+        // The picker renders from here now. Without it the page keeps the
+        // static markup, which is the pre-v3 world this stub used to assert.
+        voices: [
+          { id: 'anushka', name: 'anushka', gender: 'female', genderVerified: true },
+          { id: 'manisha', name: 'manisha', gender: 'female', genderVerified: true },
+          { id: 'vidya', name: 'vidya', gender: 'female', genderVerified: true },
+          { id: 'arya', name: 'arya', gender: 'female', genderVerified: true },
+          { id: 'abhilash', name: 'abhilash', gender: 'male', genderVerified: true },
+          { id: 'karun', name: 'karun', gender: 'male', genderVerified: true },
+          { id: 'hitesh', name: 'hitesh', gender: 'male', genderVerified: true },
+        ],
+        model: 'bulbul:v2',
       });
     }
     let body = '';
@@ -165,7 +177,7 @@ await t('the picker offers all seven Sarvam voices, four female and three male',
 
 await t('selecting Arjun asks the server for a MALE voice', async () => {
   world.ttsRequests.length = 0;
-  await page.click('#voice-picker .voice-card[data-voice="arjun"]');
+  await page.click('#voice-picker .voice-card[data-voice="abhilash"]');
   await page.waitForTimeout(900);
   const req = world.ttsRequests.at(-1);
   assert.ok(req, 'the click should have hit /api/tts');
@@ -174,7 +186,7 @@ await t('selecting Arjun asks the server for a MALE voice', async () => {
 
 await t('a female preset still asks for a female voice', async () => {
   world.ttsRequests.length = 0;
-  await page.click('#voice-picker .voice-card[data-voice="aria"]');
+  await page.click('#voice-picker .voice-card[data-voice="anushka"]');
   await page.waitForTimeout(900);
   assert.equal(world.ttsRequests.at(-1).gender, 'female');
 });
@@ -234,7 +246,7 @@ world.maleCapable = false;
 page = await open();
 
 await t('THE HONESTY RULE: with no male-capable provider, the card says so', async () => {
-  const card = await page.$('#voice-picker .voice-card[data-voice="arjun"]');
+  const card = await page.$('#voice-picker .voice-card[data-voice="abhilash"]');
   const cls = await card.getAttribute('class');
   assert.match(cls, /is-unavailable/, 'the male card must be marked unavailable');
   const title = await card.getAttribute('title');
@@ -242,7 +254,7 @@ await t('THE HONESTY RULE: with no male-capable provider, the card says so', asy
 });
 
 await t('and the chip warns rather than presenting a woman as "Arjun"', async () => {
-  await page.click('#voice-picker .voice-card[data-voice="arjun"]');
+  await page.click('#voice-picker .voice-card[data-voice="abhilash"]');
   await page.waitForTimeout(900);
   await page.click('#start-call');
   await page.waitForSelector('#call-transcript .bubble--anaga', { timeout: 8000 });
@@ -337,7 +349,7 @@ async function instrumentAudio(p, { block = false } = {}) {
 
 await t('AUTOPLAY: audio is unlocked inside the tap, before any network call', async () => {
   world.ttsRequests.length = 0;
-  await page.goto(BASE);
+  await page.goto(BASE + '/demo.html');
   await instrumentAudio(page);
   await page.click('#hear-anaga');
   // The unlock has to be synchronous within the gesture — so a play() must have
@@ -354,7 +366,7 @@ await t('AUTOPLAY: the same element is reused, or the unlock was pointless', asy
 });
 
 await t('AUTOPLAY BLOCKED: the handset voice is NOT quietly substituted', async () => {
-  await page.goto(BASE);
+  await page.goto(BASE + '/demo.html');
   await instrumentAudio(page, { block: true });
   await page.click('#hear-anaga');
   // Generous: this is a NEGATIVE assertion, so it must outlast the whole

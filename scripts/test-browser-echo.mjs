@@ -130,7 +130,7 @@ const page = await ctx.newPage();
 const pageErrors = [];
 page.on('pageerror', (e) => pageErrors.push(String(e.message)));
 
-await page.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
+await page.goto(`${BASE}/demo.html`, { waitUntil: 'networkidle' });
 
 // ---------------------------------------------------------------------------
 // helpers against the real DOM
