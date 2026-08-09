@@ -235,6 +235,71 @@ await t('A NAMED VOICE IS NEVER SUBSTITUTED — it is refused', async () => {
   clearEnv();
 });
 
+await t('v3 IS NOT SENT pitch, loudness OR enable_preprocessing', async () => {
+  // The bug that made every single production request fail, for days, while the
+  // deployment reported Sarvam as "ready": those three fields are bulbul:v2
+  // ONLY. v3 rejects them. The provider chain then served the free Google
+  // Translate voice on every line — one voice, for all 37 names — which is
+  // exactly what "every voice sounds like the same default" was.
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'sarvam';
+  process.env.SARVAM_API_KEY = 's';
+  let sent = null;
+  routes = [{ match: /api\.sarvam\.ai/, reply: (_u, init) => { sent = JSON.parse(init.body); return bin([0xff, 0xfb, 0x53]); } }];
+
+  await tts.synth({ text: 'x', lang: 'te-IN', speaker: 'rahul', pitch: 0.3, loudness: 1.2, pace: 1.15 });
+  assert.equal(sent.model, 'bulbul:v3');
+  for (const field of ['pitch', 'loudness', 'enable_preprocessing']) {
+    assert.equal(field in sent, false, `v3 must not be sent ${field} — it 400s the request`);
+  }
+  assert.equal(sent.pace, 1.15, 'pace IS supported and must survive');
+
+  // v3's pace range is narrower than v2's: 0.5–2.0, not 0.3–3.0.
+  await tts.synth({ text: 'x', lang: 'te-IN', speaker: 'rahul', pace: 2.8 });
+  assert.equal(sent.pace, 2, 'pace must be clamped to what v3 accepts');
+
+  // v2 is the opposite: it takes all three, and dropping them would silently
+  // remove modulation from anyone pinned to the legacy model.
+  process.env.SARVAM_TTS_MODEL = 'bulbul:v2';
+  await tts.synth({ text: 'x', lang: 'te-IN', speaker: 'anushka', pitch: 0.3, loudness: 1.2 });
+  assert.equal(sent.pitch, 0.3);
+  assert.equal(sent.loudness, 1.2);
+  assert.equal(sent.enable_preprocessing, true);
+  clearEnv();
+});
+
+await t('a Sarvam error reports WHICH FIELD it rejected, not [object Object]', async () => {
+  // The reason this took days: Sarvam nests the message under error.message,
+  // and concatenating the object produced "[object Object]" in the one log line
+  // that was supposed to explain the failure.
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'sarvam';
+  process.env.SARVAM_API_KEY = 's';
+  routes = [{
+    match: /api\.sarvam\.ai/,
+    reply: () => ({ ok: false, status: 400, json: async () => ({ error: { message: 'pitch is not supported for bulbul:v3' } }) }),
+  }];
+
+  await assert.rejects(
+    () => tts.synth({ text: 'x', lang: 'te-IN', speaker: 'rahul' }),
+    (e) => {
+      assert.ok(/pitch is not supported/.test(e.detail || e.message),
+        `the vendor's own sentence must survive, got "${e.detail || e.message}"`);
+      assert.ok(!/\[object Object\]/.test(e.detail || e.message));
+      return true;
+    });
+  clearEnv();
+});
+
+await t('the status probe says which modulation the model really honours', () => {
+  clearEnv();
+  process.env.SARVAM_API_KEY = 's';
+  assert.deepEqual(tts.ttsStatus().modulation, ['pace'], 'v3 dropped pitch and loudness');
+  process.env.SARVAM_TTS_MODEL = 'bulbul:v2';
+  assert.deepEqual(tts.ttsStatus().modulation, ['pace', 'pitch', 'loudness']);
+  clearEnv();
+});
+
 await t('a named voice is not served by a DIFFERENT PROVIDER either', async () => {
   // The other half of the same bug, and the one that actually shipped: with
   // Sarvam failing, the chain walked on to Google, which happily read the line

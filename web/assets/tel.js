@@ -75,6 +75,7 @@
      at the same settings is instant, which is most of what "fast" means when
      somebody is comparing voices one after another. */
   var cache = Object.create(null);
+  var canPitch = false;          // set from the capability probe, not assumed
   function key(id, text) { return id + "|" + paceEl.value + "|" + pitchEl.value + "|" + text; }
 
   function fetchVoice(id, text) {
@@ -88,7 +89,10 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text: text, lang: LANG, speaker: id,
-        pace: Number(paceEl.value), pitch: Number(pitchEl.value)
+        pace: Number(paceEl.value),
+        // Only when the configured model honours it. bulbul:v3 REJECTS pitch,
+        // and sending it anyway is what failed every request in production.
+        pitch: canPitch ? Number(pitchEl.value) : undefined
       })
     }).then(function (r) {
       // Read the body even on a failure: the server distinguishes "this voice
@@ -478,6 +482,15 @@
         throw new Error(d.available
           ? "Sarvam is not configured on this deployment (SARVAM_API_KEY)"
           : "no voice provider is configured");
+      }
+      // A slider the model ignores is a lie about what you can change, so the
+      // page asks which modulation is real rather than assuming.
+      canPitch = !d.modulation || d.modulation.indexOf("pitch") !== -1;
+      if (!canPitch) {
+        pitchEl.disabled = true;
+        pitchEl.closest(".bar").querySelector("label[for=pitch]").hidden = true;
+        pitchEl.hidden = true;
+        pitchV.hidden = true;
       }
       render(d.voices, d.model);
     })

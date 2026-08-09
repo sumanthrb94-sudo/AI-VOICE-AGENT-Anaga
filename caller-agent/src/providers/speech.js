@@ -244,8 +244,15 @@ export function createTTS({ provider = process.env.TTS_PROVIDER || 'sarvam' } = 
         // Telephony is 8kHz. Synthesizing at 22050 and resampling wastes both
         // latency and quality; ask for the rate the phone line actually uses.
         speech_sample_rate: Number(process.env.TELEPHONY_SAMPLE_RATE || 8000),
-        enable_preprocessing: true,
       };
+      // enable_preprocessing is bulbul:v2 ONLY — v3 rejects it and preprocesses
+      // unconditionally. This path has defaulted to v3 since the upgrade, so it
+      // would have 4xx'd on every line of every real call. Nothing caught it
+      // because the phone leg is not wired yet; the browser hit the identical
+      // bug and hid it behind a fallback voice.
+      if ((process.env.SARVAM_TTS_MODEL || 'bulbul:v3') === 'bulbul:v2') {
+        body.enable_preprocessing = true;
+      }
 
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), Number(process.env.TTS_TIMEOUT_MS || 8000));

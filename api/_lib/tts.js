@@ -79,9 +79,9 @@ const SARVAM_VOICES = {
   'bulbul:v3': [
     'shubh', 'aditya', 'ritu', 'priya', 'neha', 'rahul', 'pooja', 'rohan',
     'simran', 'kavya', 'amit', 'dev', 'ishita', 'shreya', 'ratan', 'varun',
-    'manan', 'sumit', 'roopa', 'kabir', 'aayan', 'ashutosh', 'advait', 'anand',
-    'tanya', 'tarun', 'sunny', 'mani', 'gokul', 'vijay', 'shruti', 'suhani',
-    'mohit', 'kavitha', 'rehan', 'soham', 'rupali',
+    'manan', 'sumit', 'roopa', 'kabir', 'aayan', 'ashutosh', 'advait', 'amelia',
+    'sophia', 'anand', 'tanya', 'tarun', 'sunny', 'mani', 'gokul', 'vijay',
+    'shruti', 'suhani', 'mohit', 'kavitha', 'rehan', 'soham', 'rupali',
   ],
   // v2 — the seven this repo probed against the live API. Kept so pinning
   // SARVAM_TTS_MODEL=bulbul:v2 still works.
@@ -90,21 +90,24 @@ const SARVAM_VOICES = {
 
 const SARVAM_DEFAULT_SPEAKER = { 'bulbul:v3': 'shubh', 'bulbul:v2': 'anushka' };
 
-// ⚠️ GENDER BELOW IS INFERRED FROM THE NAME AND HAS NOT BEEN LISTENED TO.
+// ⚠️ NOT LISTENED TO — DOCUMENTED, WHICH IS ONE STEP BETTER THAN GUESSED.
 //
-// Sarvam's docs list the speakers but not their gender. Inferring it from a
-// name is exactly the guess that once had the "Arjun" preset answered by a
-// woman, so it is marked as an inference everywhere it is used rather than
-// presented as fact, and `scripts/probe-sarvam-voices.mjs` exists to replace it
-// with something heard. The v2 entries ARE verified — they were probed.
+// The v3 list below now matches Sarvam's own published male/female grouping
+// rather than my reading of the names. It happens to agree with the earlier
+// guess, which is luck, not method: inferring gender from a name is the guess
+// that once had the "Arjun" preset answered by a woman.
+// `scripts/probe-sarvam-voices.mjs` still exists to replace this with something
+// heard. The v2 entries ARE verified — they were probed against the live API.
 const SARVAM_MALE_SPEAKERS = [
   // verified (v2, probed against the live API)
   'abhilash', 'karun', 'hitesh',
-  // INFERRED (v3, from the name only)
+  // documented (v3, from Sarvam's speaker list — 23 male)
   'shubh', 'aditya', 'rahul', 'rohan', 'amit', 'dev', 'ratan', 'varun', 'manan',
   'sumit', 'kabir', 'aayan', 'ashutosh', 'advait', 'anand', 'tarun', 'sunny',
   'mani', 'gokul', 'vijay', 'mohit', 'rehan', 'soham',
 ];
+// 'amelia' and 'sophia' are absent from both published lists; they fall through
+// as female here, which is an assumption and is flagged as one in the UI.
 const SARVAM_VERIFIED_GENDER = new Set(['abhilash', 'karun', 'hitesh', 'anushka', 'manisha', 'vidya', 'arya']);
 
 export function sarvamModel() {
@@ -264,6 +267,10 @@ export function ttsStatus() {
     // invented names for a model with thirty-seven real ones.
     voices: providerReady('sarvam') ? sarvamCatalogue() : [],
     model: sarvamModel(),
+    // Which modulation the CONFIGURED model actually honours. v3 dropped pitch
+    // and loudness; offering a pitch slider against v3 is a control that does
+    // nothing, and (until this release) one that made every request fail.
+    modulation: sarvamModel() === 'bulbul:v2' ? ['pace', 'pitch', 'loudness'] : ['pace'],
   };
 }
 
@@ -652,21 +659,33 @@ async function viaSarvam(text, opts) {
   const sameGender = allowed.filter((n) => SARVAM_MALE_SPEAKERS.includes(n) === wantMale);
   const spk = asked || sameGender[0] || SARVAM_DEFAULT_SPEAKER[model] || allowed[0];
 
+  // ── v2 AND v3 DO NOT TAKE THE SAME BODY ──────────────────────────────────
+  //
+  // `pitch`, `loudness` and `enable_preprocessing` are bulbul:v2 ONLY. v3
+  // rejects them, so sending them made EVERY v3 request fail — which is why
+  // production served the free Google Translate voice on every single line
+  // while reporting Sarvam as "ready". The chain hid it; removing the chain's
+  // silent substitution is what finally made it visible.
+  //
+  // v3's pace range is also narrower (0.5–2.0, against v2's 0.3–3.0).
+  const v3 = model !== 'bulbul:v2';
   const body = {
     // v3 accepts 2500 per request, up from v2's 1500.
     text: text.slice(0, Number(process.env.SARVAM_MAX_CHARS || 2500)),
     target_language_code: normalizeLang(opts.lang),
     speaker: spk,
     model,
-    pitch: clamp(opts.pitch, -1, 1, 0),
-    pace: clamp(opts.pace, 0.3, 3, 1.0),
-    loudness: clamp(opts.loudness, 0.1, 3, 1.0),
+    pace: v3 ? clamp(opts.pace, 0.5, 2, 1.0) : clamp(opts.pace, 0.3, 3, 1.0),
     // 22050 was leaving quality on the table: bulbul:v2 accepts up to 48000
     // (probed). The browser plays whatever it is given, so ask for the good one.
     // The CALL leg overrides this to the telephony rate — see caller-agent.
     speech_sample_rate: Number(process.env.SARVAM_SAMPLE_RATE || 24000),
-    enable_preprocessing: true,
   };
+  if (!v3) {
+    body.pitch = clamp(opts.pitch, -1, 1, 0);
+    body.loudness = clamp(opts.loudness, 0.1, 3, 1.0);
+    body.enable_preprocessing = true;      // v3 preprocesses unconditionally
+  }
 
   const streaming = process.env.SARVAM_STREAM !== '0';
   const ctrl = new AbortController();
@@ -684,8 +703,16 @@ async function viaSarvam(text, opts) {
   }
 
   if (!res.ok) {
+    // "[object Object]" is not a diagnosis. Sarvam nests the reason under
+    // error.message, and string-concatenating the object threw away the one
+    // sentence that said which field it was rejecting — so a 400 that named
+    // the exact problem read as an unexplained failure for two days.
     let detail = 'HTTP ' + res.status;
-    try { const e = await res.json(); detail = (e && (e.message || e.error)) || detail; } catch { /* ignore */ }
+    try {
+      const e = await res.json();
+      const msg = e?.error?.message || e?.message || e?.error || e?.detail;
+      detail += ': ' + (typeof msg === 'string' ? msg : JSON.stringify(e)).slice(0, 300);
+    } catch { /* body was not JSON; the status alone stands */ }
     throw new Error('sarvam_tts_failed: ' + detail);
   }
 
