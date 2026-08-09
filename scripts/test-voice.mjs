@@ -209,22 +209,55 @@ await t('a male Sarvam speaker is reported as male, not assumed female', async (
   clearEnv();
 });
 
-await t('A VERSION BUMP MUST NOT CHANGE SOMEBODY\'S GENDER', async () => {
-  // v2's speakers are not v3's. A deployment carrying TTS_SPEAKER=anushka (a
-  // woman) through the upgrade used to get "shubh" — a man — on every line,
-  // with a 200 and nothing to say so. Same failure as serving a woman behind an
-  // "Arjun" preset, arriving through a version bump instead of a missing profile.
+await t('A NAMED VOICE IS NEVER SUBSTITUTED — it is refused', async () => {
+  // This test used to assert the opposite: that a v2 name reaching a v3
+  // deployment was quietly swapped for the nearest same-gender v3 voice. That
+  // preserved the gender, which was the bug of the day, but it kept the deeper
+  // one: you ask for a specific voice, get a 200 and real audio, and hear
+  // somebody else. Across 37 names it is indistinguishable from every voice
+  // being the same default. Refuse instead, and say which name failed.
   clearEnv(); reset();
   process.env.TTS_PROVIDER = 'sarvam';
   process.env.SARVAM_API_KEY = 's';
-  routes = [{ match: /api\.sarvam\.ai/, reply: () => bin([0xff, 0xfb, 0x53]) }];
+  let sent = null;
+  routes = [{ match: /api\.sarvam\.ai/, reply: (_u, init) => { sent = JSON.parse(init.body); return bin([0xff, 0xfb, 0x53]); } }];
 
-  const her = await tts.synth({ text: 'x', lang: 'en-IN', speaker: 'anushka' });   // v2 female
-  assert.equal(her.gender, 'female', 'a female speaker must not become a man on upgrade');
-  assert.notEqual(her.voice, 'anushka', 'and it must actually substitute, not send a name v3 rejects');
+  await assert.rejects(
+    () => tts.synth({ text: 'x', lang: 'en-IN', speaker: 'anushka' }),   // v2 name, v3 model
+    (e) => e.code === 'voice_unavailable',
+    'a name this model does not have must be refused, not swapped');
+  assert.equal(sent, null, 'and the rejected name must never reach the vendor');
 
-  const him = await tts.synth({ text: 'x', lang: 'en-IN', speaker: 'abhilash' });  // v2 male
+  // A name the configured model DOES have is passed through untouched.
+  const him = await tts.synth({ text: 'x', lang: 'en-IN', speaker: 'rahul' });     // v3 male
+  assert.equal(him.voice, 'rahul');
   assert.equal(him.gender, 'male');
+  clearEnv();
+});
+
+await t('a named voice is not served by a DIFFERENT PROVIDER either', async () => {
+  // The other half of the same bug, and the one that actually shipped: with
+  // Sarvam failing, the chain walked on to Google, which happily read the line
+  // in its own default Telugu voice — under the name you tapped. Every card
+  // sounding identical is what that looks like from a phone.
+  clearEnv(); reset();
+  process.env.TTS_PROVIDER = 'sarvam,gtranslate';
+  process.env.SARVAM_API_KEY = 's';
+  let googleCalled = false;
+  routes = [
+    { match: /api\.sarvam\.ai/, reply: () => ({ ok: false, status: 500, json: async () => ({ message: 'down' }) }) },
+    { match: /translate_tts/, reply: () => { googleCalled = true; return bin([0xff, 0xfb, 0x53]); } },
+  ];
+
+  await assert.rejects(
+    () => tts.synth({ text: 'x', lang: 'te-IN', speaker: 'rahul' }),
+    (e) => e.code === 'voice_unavailable');
+  assert.equal(googleCalled, false, 'no other provider may answer for a named Bulbul voice');
+
+  // Asking by GENDER is different: no specific voice is being betrayed, so the
+  // chain still protects the call from a Sarvam outage.
+  const out = await tts.synth({ text: 'x', lang: 'te-IN', gender: 'female' });
+  assert.equal(out.provider, 'gtranslate', 'a gender request still falls back');
   clearEnv();
 });
 
@@ -269,7 +302,7 @@ await t('the Translate voice is never male-capable; Sarvam is', () => {
   clearEnv();
 });
 
-await t('every probed bulbul:v2 speaker is accepted, and an unknown one falls back', async () => {
+await t('every probed bulbul:v2 speaker is accepted, and an unknown one is refused', async () => {
   clearEnv(); reset();
   process.env.TTS_PROVIDER = 'sarvam';
   process.env.SARVAM_API_KEY = 's';
@@ -281,9 +314,13 @@ await t('every probed bulbul:v2 speaker is accepted, and an unknown one falls ba
     await tts.synth({ text: 'x', lang: 'te-IN', speaker: spk });
     assert.equal(sent.speaker, spk, `${spk} must be passed through, not silently replaced`);
   }
-  // A name the API would reject must not reach it.
-  await tts.synth({ text: 'x', lang: 'te-IN', speaker: 'not-a-real-speaker' });
-  assert.equal(sent.speaker, 'anushka');
+  // A name the API would reject must not reach it — and must not be quietly
+  // turned into somebody else on the way.
+  sent = null;
+  await assert.rejects(
+    () => tts.synth({ text: 'x', lang: 'te-IN', speaker: 'not-a-real-speaker' }),
+    (e) => e.code === 'voice_unavailable');
+  assert.equal(sent, null, 'the vendor must not be called with a substituted name');
   clearEnv();
 });
 

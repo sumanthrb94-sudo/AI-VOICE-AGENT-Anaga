@@ -92,6 +92,19 @@ export default async function handler(req, res) {
       reason: String(err?.message || 'tts_error'),
       detail: err?.detail ? String(err.detail).slice(0, 500) : undefined,
     }));
+    // "this voice cannot be served" and "no voice can be served" need different
+    // words on screen. Collapsing them into one 503 is why a request that was
+    // being REFUSED looked the same as the whole provider being down — and why
+    // substituting silently ever seemed like the kinder option.
+    if (err?.code === 'voice_unavailable') {
+      // The speaker name is echoed back because it came from the caller and the
+      // caller is the one who needs to know which name failed. JSON, not HTML,
+      // and bounded.
+      return res.status(503).json({
+        error: 'voice_unavailable',
+        voice: speaker ? String(speaker).slice(0, 40) : undefined,
+      });
+    }
     return res.status(503).json({ error: 'tts_unavailable' });
   }
 }

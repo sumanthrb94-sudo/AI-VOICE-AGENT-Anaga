@@ -210,6 +210,19 @@ export function createTTS({ provider = process.env.TTS_PROVIDER || 'sarvam' } = 
   // the transport splits a line into phrases before calling this (see
   // media/transport.js say()). If Sarvam ever exposes WAV on the stream
   // endpoint, switch and delete this note.
+  // Anaga is a woman (caller-agent/flows/anaga.persona.json), so the default has
+  // to be a FEMALE voice of the configured model — not the model's own default,
+  // which is 'shubh', a man.
+  //
+  // ⚠️ 'ritu' is INFERRED female from the name. Sarvam's docs do not publish
+  // genders; scripts/probe-sarvam-voices.mjs exists to replace this guess with
+  // something heard. The v2 name IS verified — it was probed against the live
+  // API. Pin TTS_SPEAKER to override either.
+  function defaultSpeaker() {
+    const model = process.env.SARVAM_TTS_MODEL || 'bulbul:v3';
+    return model === 'bulbul:v2' ? 'anushka' : 'ritu';
+  }
+
   return {
     id: 'sarvam',
     async synth(text, lang) {
@@ -217,7 +230,12 @@ export function createTTS({ provider = process.env.TTS_PROVIDER || 'sarvam' } = 
         // v3 accepts 2500 per request, up from v2's 1500.
         text: String(text).slice(0, Number(process.env.SARVAM_MAX_CHARS || 2500)),
         target_language_code: lang || 'en-IN',
-        speaker: process.env.TTS_SPEAKER || 'anushka',
+        // The default MUST match the default model below. It did not: 'anushka'
+        // is a bulbul:v2 name and this path has defaulted to v3 since the
+        // upgrade, so every unconfigured deployment was sending v3 a speaker it
+        // rejects — a 4xx on every line of every real call. Nothing caught it
+        // because the phone leg is not wired yet.
+        speaker: process.env.TTS_SPEAKER || defaultSpeaker(),
         // v3 by default. Sarvam's own evaluation calls it the most preferred
         // option at 8kHz TELEPHONY, which is precisely this code path — the
         // call leg, not the browser demo — and it is trained on the code-mixed,

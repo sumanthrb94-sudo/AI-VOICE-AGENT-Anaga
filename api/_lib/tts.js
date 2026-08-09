@@ -283,8 +283,27 @@ export async function synth(opts = {}) {
   const text = String(opts.text || '').trim();
   if (!text) throw new Error('tts_text_required');
 
-  const chain = providerChain().filter(providerReady);
+  let chain = providerChain().filter(providerReady);
   if (!chain.length) throw new Error('tts_unavailable');
+
+  // A NAMED VOICE IS NEVER SUBSTITUTED — NOT EVEN BY ANOTHER PROVIDER.
+  //
+  // Speaker names ("rahul", "kavya") belong to Sarvam's catalogue; nothing else
+  // in the chain has them. Letting the loop walk past Sarvam when one was asked
+  // for is precisely how tapping any of 37 names returned the same Google
+  // default under that name — a 200, real audio, and every voice identical.
+  //
+  // Gender requests (the call leg asks for "male", not for a name) still use
+  // the whole chain: there is no specific voice to betray.
+  const named = String(opts.speaker || '').trim();
+  if (named) {
+    chain = chain.filter((p) => p === 'sarvam');
+    if (!chain.length) {
+      const e = new Error('voice_unavailable');
+      e.code = 'voice_unavailable';
+      throw e;
+    }
+  }
 
   const errors = [];
   for (const provider of chain) {
@@ -316,7 +335,8 @@ export async function synth(opts = {}) {
       errors.push(`${provider}: ${err?.message || 'failed'}`);
     }
   }
-  const e = new Error('tts_all_providers_failed');
+  const e = new Error(named ? 'voice_unavailable' : 'tts_all_providers_failed');
+  if (named) e.code = 'voice_unavailable';
   e.detail = errors.join(' | ');
   throw e;
 }
@@ -611,24 +631,26 @@ async function viaSarvam(text, opts) {
   const allowed = sarvamSpeakers(model);
   const asked = String(opts.speaker || '').toLowerCase();
 
-  // A NAME THIS MODEL DOES NOT HAVE FALLS BACK WITHIN THE REQUESTED GENDER.
+  // A NAME THIS MODEL DOES NOT HAVE IS AN ERROR, NOT A SUBSTITUTION.
   //
-  // Falling back to the model's own default is what a first version of this did
-  // and it is wrong in a way that is hard to notice: v2's speakers are not v3's,
-  // so a deployment carrying TTS_SPEAKER=anushka (a woman) through the upgrade
-  // silently got "shubh" — a man — on every line, with a 200 and no warning.
-  // That is the same failure as serving a woman behind an "Arjun" preset, only
-  // arriving through a version bump instead of a missing profile.
-  //
-  // So the gender of what was ASKED FOR is what survives, and the specific voice
-  // is what gets substituted.
-  const wantMale = asked
-    ? SARVAM_MALE_SPEAKERS.includes(asked)
-    : String(opts.gender || 'female').toLowerCase() === 'male';
+  // Earlier versions substituted — first the model's own default, then the
+  // nearest same-gender name. Both are wrong for the same reason: to the person
+  // listening, "you asked for rahul and got someone else" is indistinguishable
+  // from "rahul is broken", and it arrives as a 200 with real audio in it. Every
+  // selection sounding like the same default is exactly what that looks like
+  // from a phone. Refuse, and let the UI name the voice that could not be served.
+  if (asked && !allowed.includes(asked)) {
+    const e = new Error(`sarvam_unknown_speaker: ${asked} is not in ${model}`);
+    e.code = 'voice_unavailable';
+    throw e;
+  }
+
+  // With no name asked for — the call leg requests a GENDER, not a voice — the
+  // model's own first speaker of that gender is used. There is no named voice
+  // being betrayed here, and v2's names are not v3's, so it must be per-model.
+  const wantMale = String(opts.gender || 'female').toLowerCase() === 'male';
   const sameGender = allowed.filter((n) => SARVAM_MALE_SPEAKERS.includes(n) === wantMale);
-  const spk = allowed.includes(asked)
-    ? asked
-    : (sameGender[0] || SARVAM_DEFAULT_SPEAKER[model] || allowed[0]);
+  const spk = asked || sameGender[0] || SARVAM_DEFAULT_SPEAKER[model] || allowed[0];
 
   const body = {
     // v3 accepts 2500 per request, up from v2's 1500.

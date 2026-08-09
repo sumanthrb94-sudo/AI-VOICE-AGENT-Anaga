@@ -71,6 +71,13 @@ await t('NOTHING PLAYS UNTIL A TAP', async () => {
   assert.equal(vendorCalls.length, 0, 'the vendor was called with nobody asking');
 });
 
+await t('NO VOICE IS PRE-SELECTED', async () => {
+  // A voice nobody chose is a default voice, and a default voice is the whole
+  // complaint: she answers in one you did not pick, wearing the name you did.
+  const n = await page.locator('.v[aria-pressed="true"]').count();
+  assert.equal(n, 0, `${n} voices were selected before anybody chose one`);
+});
+
 await t('a tap plays that voice, and only that voice', async () => {
   posts.length = 0; vendorCalls.length = 0;
   const card = page.locator('.v').nth(3);
@@ -197,6 +204,26 @@ await t('tapping quickly through voices does not paint the grid red', async () =
     [...document.querySelectorAll('.v em')].map((e) => e.textContent)
       .filter((s) => /error|failed/i.test(s)));
   assert.deepEqual(red, [], `cards reported failures they did not have: ${red.join(', ')}`);
+});
+
+await t('with no voice picked she stays SILENT rather than borrow one', async () => {
+  await page.reload();                        // fresh page: nothing selected
+  await page.waitForSelector('.v');
+  posts.length = 0; vendorCalls.length = 0;
+
+  await page.locator('#saytxt').fill('హలో');
+  await page.locator('#sayform button[type=submit]').click();
+  await page.waitForSelector('#log .ln.her', { timeout: 8000 });
+
+  // The transcript still works — it never depended on audio.
+  assert.equal(posts.length, 0, 'nothing may be synthesized before a voice is chosen');
+  const why = await page.locator('#talkstate').innerText();
+  assert.ok(/వాయిస్/.test(why), `expected a "pick a voice" prompt, got "${why}"`);
+
+  // And picking one clears the prompt.
+  await page.locator('.v').nth(2).click();
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator('.v[aria-pressed="true"]').count(), 1);
 });
 
 await t('a brain outage still produces a transcript, and says why', async () => {

@@ -91,8 +91,16 @@
         pace: Number(paceEl.value), pitch: Number(pitchEl.value)
       })
     }).then(function (r) {
-      if (!r.ok) throw new Error("http_" + r.status);
-      return r.json();
+      // Read the body even on a failure: the server distinguishes "this voice
+      // cannot be served" from "no voice can be served", and throwing on the
+      // status code alone discards exactly the half that matters.
+      return r.json().catch(function () { return null; }).then(function (d) {
+        if (r.ok) return d;
+        var why = d && d.error === "voice_unavailable"
+          ? "ఈ వాయిస్ అందుబాటులో లేదు"
+          : "http_" + r.status;
+        throw new Error(why);
+      });
     }).then(function (d) {
       if (!d || !d.audio) throw new Error(d && d.error ? d.error : "no_audio");
       cache[k] = "data:" + (d.mime || "audio/mpeg") + ";base64," + d.audio;
@@ -109,7 +117,9 @@
     if (selected && selected.card !== card) selected.card.setAttribute("aria-pressed", "false");
     card.setAttribute("aria-pressed", "true");
     selected = { card: card, id: id };
+    if (needsVoice) { needsVoice = false; notes.voice = ""; state(""); }
   }
+  var needsVoice = false;    // she was asked to speak before a voice was picked
 
   /* ---------------- play ---------------- */
   function play(card, id) {
@@ -185,10 +195,10 @@
       b.addEventListener("click", function () { play(b, v.id); });
       b.setAttribute("aria-pressed", "false");
       grid.appendChild(b);
-      // First card is Anaga's voice until you pick another. Selecting is not
-      // playing: this makes no sound and no request.
-      if (!selected) select(b, v.id);
     });
+    // NOTHING IS PRE-SELECTED. A voice nobody chose is a default voice, and a
+    // default voice is the bug: it answers in a voice you did not pick and
+    // looks like the one you did.
     modelEl.textContent = model || "Bulbul";
     say(voices.length + " voices · Telugu");
   }
@@ -211,13 +221,19 @@
   var thinking = false;   // a turn is in flight
   var speaking = false;   // Anaga has the floor
   var ended = false;      // booked / opted out — the conversation is over
-  // A sticky note that survives the transient "thinking…"/"listening…" states.
-  // Without it the reason a turn fell back was overwritten the moment Anaga
-  // finished speaking, and a brain that is down looked exactly like one that
-  // is merely scripted — the same confusion that cost two days on the server.
-  var note = "";
-
-  function state(msg) { talkState.textContent = msg || note; }
+  // Sticky notes that survive the transient "thinking…"/"listening…" states.
+  // Without them the reason a turn fell back was overwritten the moment Anaga
+  // finished speaking, and a brain that is down looked exactly like one that is
+  // merely scripted — the same confusion that cost two days on the server.
+  //
+  // Two of them, not one, because they are independent facts and BOTH can be
+  // true at once. A single slot meant the second reason erased the first, so a
+  // page with no voice picked AND a dead brain reported only the voice.
+  var notes = { brain: "", voice: "" };
+  function note() {
+    return [notes.brain, notes.voice].filter(Boolean).join(" · ");
+  }
+  function state(msg) { talkState.textContent = msg || note(); }
 
   function bubble(role, text, isDraft) {
     var d = document.createElement("div");
@@ -298,7 +314,7 @@
       body: JSON.stringify({ history: history })
     }).then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
-        if (d && d.say) { note = ""; return reply(d.say, d.end === true); }
+        if (d && d.say) { notes.brain = ""; return reply(d.say, d.end === true); }
         degraded();
       })
       .catch(degraded);
@@ -307,8 +323,8 @@
   // Say WHY, out loud. A brain that is 503-ing on every call and a brain that
   // is merely scripted look identical from the outside otherwise.
   function degraded() {
-    note = "బ్రెయిన్ అందుబాటులో లేదు";
-    state(note);
+    notes.brain = "బ్రెయిన్ అందుబాటులో లేదు";
+    state("");
     reply(fallbackLine(), false);
   }
 
@@ -328,7 +344,14 @@
   /* Speak through the SAME unlocked element the samples use — a fresh Audio()
      built after an await is not unlocked, and is rejected silently. */
   function speak(text) {
-    if (!selected) return Promise.resolve();
+    // She stays silent rather than borrowing somebody's voice. The line is
+    // already written above — the transcript does not depend on audio.
+    if (!selected) {
+      needsVoice = true;
+      notes.voice = "వాయిస్ ఎంచుకోండి — అప్పుడు మాట్లాడుతుంది";
+      state("");
+      return Promise.resolve();
+    }
     var a = element(), card = selected.card;
     pauseListening();
     if (playing && playing !== card) reset(playing);
