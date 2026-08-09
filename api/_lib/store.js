@@ -48,6 +48,7 @@ const COL = {
   leads: process.env.FIRESTORE_COL_LEADS || 'leads',
   events: process.env.FIRESTORE_COL_EVENTS || 'events',
   calls: process.env.FIRESTORE_COL_CALLS || 'calls',
+  users: process.env.FIRESTORE_COL_USERS || 'users',
 };
 
 /** Firestore document ids may not contain '/'. E.164 never does, but be safe. */
@@ -195,4 +196,56 @@ export async function getCall(callId) {
 export async function recentCalls(limit = 50) {
   if (!firestoreConfigured()) return { ok: true, docs: [] };
   return safely(() => query(COL.calls, { orderBy: 'at', desc: true, limit }), { ok: false, docs: [] });
+}
+
+// ---------------------------------------------------------------------------
+// users — human accounts (see _lib/auth.js)
+// ---------------------------------------------------------------------------
+//
+// The document id IS the normalized email. That makes "find the account for
+// this address" a point read instead of a query, so sign-in needs no index and
+// cannot race: two people cannot create the same account, because the second
+// create collides on the id.
+
+export async function getUserByEmail(email) {
+  if (!firestoreConfigured()) return { ok: false, found: false, data: null };
+  const id = docId(String(email || '').trim().toLowerCase());
+  if (!id) return { ok: true, found: false, data: null };
+  const r = await safely(() => getDoc(COL.users, id), { ok: false, found: false, data: null });
+  return r.found ? { ...r, id, data: { ...r.data, id } } : r;
+}
+
+/** Same lookup — a user id and their email are the same string by construction. */
+export async function getUser(id) {
+  return getUserByEmail(id);
+}
+
+/** Create only if absent, so a duplicate signup loses rather than overwrites. */
+export async function createUser(email, data) {
+  if (!firestoreConfigured()) return { ok: false, created: false, error: 'store_not_configured' };
+  const id = docId(String(email || '').trim().toLowerCase());
+  return safely(async () => {
+    const res = await createDocIfAbsent(COL.users, id, { ...data, email: id, at: new Date().toISOString() });
+    return { ok: res.ok, created: res.created, error: res.error || null, id };
+  }, { ok: false, created: false });
+}
+
+export async function updateUser(email, data) {
+  if (!firestoreConfigured()) return { ok: false, error: 'store_not_configured' };
+  const id = docId(String(email || '').trim().toLowerCase());
+  const cur = await getUserByEmail(id);
+  if (!cur.ok || !cur.found) return { ok: false, error: 'no_such_user' };
+  const { id: _drop, ...existing } = cur.data;
+  return safely(() => setDoc(COL.users, id, { ...existing, ...data }), { ok: false });
+}
+
+export async function listUsers(limit = 50) {
+  if (!firestoreConfigured()) return { ok: true, docs: [] };
+  return safely(() => query(COL.users, { orderBy: 'at', desc: true, limit }), { ok: false, docs: [] });
+}
+
+/** Is there any account at all? Decides whether bootstrap is still open. */
+export async function anyUserExists() {
+  const r = await listUsers(1);
+  return { ok: r.ok, any: (r.docs || []).length > 0 };
 }

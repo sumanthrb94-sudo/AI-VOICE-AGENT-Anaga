@@ -34,6 +34,9 @@ jobs:
       - name: Unit + integration tests
         run: node --experimental-detect-module scripts/test-integrations.mjs
 
+      - name: Auth QA (forged sessions, bootstrap window, password storage)
+        run: node --experimental-detect-module scripts/test-auth.mjs
+
       - name: Firestore durability QA (offline half — no credentials in CI)
         # The live half is skipped without FIREBASE_SERVICE_ACCOUNT_LIVE. The
         # offline half still runs the assertion that matters most: an
