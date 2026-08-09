@@ -372,6 +372,71 @@ await t('a VoiceStudio box that is down costs one hop', async () => {
   clearEnv();
 });
 
+await t('A SILENT FALLBACK IS AN INCIDENT: the failure is carried out, not swallowed', async () => {
+  // The bug this exists for: when the premium provider failed, the loop moved
+  // on and returned 200 with the free voice. The errors were collected into an
+  // array and then thrown away, so a deployment serving the fallback voice to
+  // every real prospect looked identical to a healthy one — 200s in the log,
+  // nothing in the error stream, and the readiness probe still calling the
+  // premium provider "ready" because readiness only means "the key is set".
+  // The only symptom that reached a human was "the voice sounds terrible".
+  clearEnv(); reset();
+  process.env.SARVAM_API_KEY = 'expired-key';
+  process.env.TTS_PROVIDER = 'sarvam,gtranslate';
+  routes = [
+    { match: /api\.sarvam\.ai/, reply: () => json({ error: 'invalid api key' }, 403) },
+    { match: /translate_tts/, reply: () => bin([0xff, 0xfb, 0x00]) },
+  ];
+  const out = await tts.synth({ text: 'hello', lang: 'en-IN' });
+  assert.equal(out.provider, 'gtranslate', 'the fallback still has to produce audio');
+  assert.ok(Array.isArray(out.fellBackFrom) && out.fellBackFrom.length,
+    'the request succeeded, but the premium voice failed and that must not vanish');
+  assert.ok(/sarvam/.test(out.fellBackFrom.join(' ')), 'it must name the provider that dropped out');
+  clearEnv();
+});
+
+await t('a clean success carries no fallback marker', async () => {
+  clearEnv(); reset();
+  process.env.SARVAM_API_KEY = 's';
+  process.env.TTS_PROVIDER = 'sarvam,gtranslate';
+  routes = [{ match: /api\.sarvam\.ai/, reply: () => bin([0xff, 0xfb, 0x53]) }];
+  const out = await tts.synth({ text: 'hello', lang: 'en-IN' });
+  assert.equal(out.provider, 'sarvam');
+  assert.equal(out.fellBackFrom, undefined, 'a healthy request must not look like a degraded one');
+  clearEnv();
+});
+
+await t('the endpoint logs the fallback and does NOT leak it to the caller', async () => {
+  clearEnv(); reset();
+  process.env.SARVAM_API_KEY = 'expired-key';
+  process.env.TTS_PROVIDER = 'sarvam,gtranslate';
+  routes = [
+    { match: /api\.sarvam\.ai/, reply: () => json({ error: 'invalid api key' }, 403) },
+    { match: /translate_tts/, reply: () => bin([0xff, 0xfb, 0x00]) },
+  ];
+  const handler = (await import('../api/tts.js?fallback=1')).default;
+  const logged = [];
+  const realError = console.error;
+  console.error = (line) => logged.push(String(line));
+  const res = { statusCode: 0, body: null,
+    status(c) { this.statusCode = c; return this; },
+    json(b) { this.body = b; return this; }, setHeader() {} };
+  try {
+    await handler({ method: 'POST', headers: {}, body: { text: 'hello', lang: 'en-IN' } }, res);
+  } finally {
+    console.error = realError;
+  }
+
+  assert.equal(res.statusCode, 200, 'the caller still gets audio');
+  const event = logged.map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .find((e) => e && e.event === 'tts_fell_back');
+  assert.ok(event, `no tts_fell_back logged; got: ${logged.join(' | ')}`);
+  assert.equal(event.served, 'gtranslate');
+  assert.equal(event.severity, 'high', 'serving the fallback voice to prospects is an incident');
+  assert.ok(!('fellBackFrom' in res.body), 'internal provider errors must not reach the client');
+  clearEnv();
+});
+
 await t('THE HONESTY RULE: the Translate voice never claims to be male', async () => {
   clearEnv(); reset();
   process.env.TTS_PROVIDER = 'gtranslate';

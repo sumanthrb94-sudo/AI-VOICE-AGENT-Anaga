@@ -61,7 +61,26 @@ export default async function handler(req, res) {
 
   try {
     const out = await synth({ text, lang, speaker, gender, voice, pitch, pace, loudness });
-    return res.status(200).json(out);
+
+    // A silent fallback is the failure mode that costs the most time: the
+    // caller gets a 200 and audio, so nothing looks wrong, and the only symptom
+    // is that the voice sounds worse than it should. Log it at ERROR, because
+    // serving the free fallback voice to real prospects IS an incident even
+    // though the request succeeded.
+    const { fellBackFrom, ...body } = out;
+    if (fellBackFrom?.length) {
+      console.error(JSON.stringify({
+        event: 'tts_fell_back',
+        served: out.provider,
+        // Provider messages, never their payloads — an upstream error body can
+        // echo a key fragment.
+        failed: fellBackFrom.map((e) => String(e).slice(0, 120)),
+        lang,
+        severity: 'high',
+        detail: `"${out.provider}" answered because earlier providers failed; the premium voice is NOT being used`,
+      }));
+    }
+    return res.status(200).json(body);
   } catch (err) {
     // The reason goes to the log, never to the client — provider errors can
     // carry key fragments. But it MUST reach the log: a silent 503 here is what

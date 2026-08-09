@@ -195,10 +195,28 @@ export async function synth(opts = {}) {
   const errors = [];
   for (const provider of chain) {
     try {
-      if (provider === 'voicestudio') return await viaVoiceStudio(text, opts);
-      if (provider === 'google') return await viaGoogle(text, opts);
-      if (provider === 'gtranslate') return await viaGoogleTranslate(text, opts);
-      if (provider === 'sarvam') return await viaSarvam(text, opts);
+      let out;
+      if (provider === 'voicestudio') out = await viaVoiceStudio(text, opts);
+      else if (provider === 'google') out = await viaGoogle(text, opts);
+      else if (provider === 'gtranslate') out = await viaGoogleTranslate(text, opts);
+      else if (provider === 'sarvam') out = await viaSarvam(text, opts);
+      else continue;
+
+      // A FALLBACK IS NOT A SUCCESS, even though the response is a 200.
+      //
+      // This loop used to swallow `errors` whenever any later provider worked.
+      // So a deployment whose premium voice was failing on every single request
+      // — expired key, revoked key, quota exhausted — served the free fallback
+      // voice to every caller while looking perfectly healthy: 200s in the log,
+      // nothing in the error stream, and the readiness probe still reporting
+      // the premium provider as "ready", because readiness is only "is the
+      // environment variable set".
+      //
+      // The symptom reaching a human is "the voice sounds terrible", which is
+      // a sentence with no stack trace attached. Carry the failures out so the
+      // handler can say WHICH provider dropped out and why.
+      if (errors.length) out.fellBackFrom = errors;
+      return out;
     } catch (err) {
       errors.push(`${provider}: ${err?.message || 'failed'}`);
     }
