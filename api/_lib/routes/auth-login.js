@@ -7,10 +7,10 @@
 // work even for an unknown address so the two do not differ in timing either.
 // Otherwise this endpoint is a free tool for discovering who has an account.
 
-import { requireMethod, readRawBody, parseJson } from '../_lib/integrations/http.js';
-import { limited, log, requestId } from '../_lib/guard.js';
-import { authenticate, issueToken, sessionCookie, authConfigured, normalizeEmail } from '../_lib/auth.js';
-import { updateUser } from '../_lib/store.js';
+import { requireMethod, readRawBody, parseJson } from '../integrations/http.js';
+import { limited, log, requestId } from '../guard.js';
+import { authenticate, issueToken, sessionCookie, authConfigured, normalizeEmail } from '../auth.js';
+import { updateUser } from '../store.js';
 
 export default async function handler(req, res) {
   if (!requireMethod(req, res, 'POST')) return;

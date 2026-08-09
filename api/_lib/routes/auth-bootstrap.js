@@ -16,12 +16,12 @@
 // The alternative — seeding a default admin password — is how products ship
 // with admin/admin in production for years.
 
-import { requireMethod, readRawBody, parseJson } from '../_lib/integrations/http.js';
-import { limited, log, requestId } from '../_lib/guard.js';
+import { requireMethod, readRawBody, parseJson } from '../integrations/http.js';
+import { limited, log, requestId } from '../guard.js';
 import {
   hashPassword, passwordProblem, normalizeEmail, issueToken, sessionCookie, authConfigured,
-} from '../_lib/auth.js';
-import { anyUserExists, createUser, storeBackend } from '../_lib/store.js';
+} from '../auth.js';
+import { anyUserExists, createUser, storeBackend } from '../store.js';
 
 function safeEqual(a, b) {
   const x = String(a || ''), y = String(b || '');

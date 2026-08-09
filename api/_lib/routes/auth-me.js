@@ -7,9 +7,9 @@
 // "nobody is signed in" is a normal answer to this question, and a 401 here
 // would put a scary error in the console on every first visit.
 
-import { requireMethod } from '../_lib/integrations/http.js';
-import { currentUser, authConfigured } from '../_lib/auth.js';
-import { anyUserExists, storeBackend } from '../_lib/store.js';
+import { requireMethod } from '../integrations/http.js';
+import { currentUser, authConfigured } from '../auth.js';
+import { anyUserExists, storeBackend } from '../store.js';
 
 export default async function handler(req, res) {
   if (!requireMethod(req, res, 'GET')) return;

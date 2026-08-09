@@ -67,10 +67,10 @@ globalThis.fetch = async (url, opts = {}) => {
 };
 
 const auth = await import(`${ROOT}/api/_lib/auth.js`);
-const bootstrapH = (await import(`${ROOT}/api/auth/bootstrap.js`)).default;
-const loginH = (await import(`${ROOT}/api/auth/login.js`)).default;
-const meH = (await import(`${ROOT}/api/auth/me.js`)).default;
-const logoutH = (await import(`${ROOT}/api/auth/logout.js`)).default;
+const bootstrapH = (await import(`${ROOT}/api/_lib/routes/auth-bootstrap.js`)).default;
+const loginH = (await import(`${ROOT}/api/_lib/routes/auth-login.js`)).default;
+const meH = (await import(`${ROOT}/api/_lib/routes/auth-me.js`)).default;
+const logoutH = (await import(`${ROOT}/api/_lib/routes/auth-logout.js`)).default;
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -229,6 +229,36 @@ await t('no session reads as anonymous, not as an error', async () => {
 await t('logout clears the cookie', async () => {
   const res = await call(logoutH, { method: 'POST', headers: {}, query: {} });
   assert.ok(/Max-Age=0/.test(String(res.headers['set-cookie'])));
+});
+
+section('the one-function dispatcher (Vercel Hobby function cap)');
+
+const authDispatch = (await import(`${ROOT}/api/auth.js`)).default;
+
+await t('each URL still reaches its own handler', async () => {
+  // Four URLs, one function. The contract must not change because of a
+  // platform quota.
+  const me = await call(authDispatch, { method: 'GET', headers: {}, query: { action: 'me' }, url: '/api/auth/me' });
+  assert.equal(me.statusCode, 200);
+  assert.ok('user' in me.body, 'me should answer with a user field');
+
+  const out = await call(authDispatch, { method: 'POST', headers: {}, query: { action: 'logout' }, url: '/api/auth/logout' });
+  assert.equal(out.statusCode, 200);
+  assert.ok(/Max-Age=0/.test(String(out.headers['set-cookie'])));
+});
+
+await t('it falls back to the PATH when the rewrite does not supply action', async () => {
+  // A missing or mis-ordered rewrite must not take auth down.
+  const me = await call(authDispatch, { method: 'GET', headers: {}, query: {}, url: '/api/auth/me' });
+  assert.equal(me.statusCode, 200);
+  assert.ok('user' in me.body);
+});
+
+await t('an unknown action is a 404, never a default into something privileged', async () => {
+  for (const bad of ['', 'admin', 'bootstrap2', '../bootstrap']) {
+    const r = await call(authDispatch, { method: 'POST', headers: {}, query: { action: bad }, url: `/api/auth/${bad}` });
+    assert.equal(r.statusCode, 404, `"${bad}" must not route anywhere`);
+  }
 });
 
 section('roles');

@@ -219,6 +219,23 @@ jobs:
           fi
           echo "no committed secrets"
 
+      - name: Serverless function budget (Vercel Hobby allows 12)
+        # This failed at DEPLOY, not in CI: adding four auth routes took the
+        # repo to 15 functions and the build was rejected outright. A packaging
+        # quota that only shows up after a push is a quota that blocks a demo.
+        # Collapse routes behind a rewrite (see api/auth.js) when this trips.
+        run: |
+          n=$(find api -name '*.js' -not -path 'api/_lib/*' | wc -l)
+          echo "serverless functions: $n / 12"
+          find api -name '*.js' -not -path 'api/_lib/*' | sort | sed 's/^/  /'
+          if [ "$n" -gt 12 ]; then
+            echo "::error::$n serverless functions — Vercel Hobby allows 12. The deploy WILL fail."
+            exit 1
+          fi
+          if [ "$n" -eq 12 ]; then
+            echo "::warning::at the 12-function cap — the next new route breaks the deploy."
+          fi
+
       - name: Static site builds
         run: bash scripts/build-static.sh
 

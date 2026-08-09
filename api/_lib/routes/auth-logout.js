@@ -5,8 +5,8 @@
 // POST, not GET: a GET logout can be fired by any <img> on any page, which is
 // a nuisance attack that logs people out mid-call.
 
-import { requireMethod } from '../_lib/integrations/http.js';
-import { clearCookie } from '../_lib/auth.js';
+import { requireMethod } from '../integrations/http.js';
+import { clearCookie } from '../auth.js';
 
 export default async function handler(req, res) {
   if (!requireMethod(req, res, 'POST')) return;

@@ -4,7 +4,9 @@
   "outputDirectory": "public",
   "installCommand": "echo 'no install step (static site)'",
   "functions": {
-    "api/**/*.js": { "maxDuration": 30 }
+    "api/**/*.js": {
+      "maxDuration": 30
+    }
   },
   "cleanUrls": true,
   "trailingSlash": false,
@@ -12,14 +14,26 @@
     {
       "source": "/assets/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, must-revalidate"
+        }
       ]
     },
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, must-revalidate"
+        }
       ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/auth/:action",
+      "destination": "/api/auth?action=:action"
     }
   ]
 }
