@@ -356,16 +356,75 @@ const CloudTTS = (function () {
   let onStateChange = function () {};
   function setStateListener(fn) { onStateChange = fn || function () {}; }
   function isOn() { return available === true; }
-  function stop() { if (audio) { try { audio.pause(); } catch (e) {} audio.onended = audio.onerror = null; audio = null; } }
+
+  /* ── MOBILE AUTOPLAY ──────────────────────────────────────────────────────
+     THE bug that made the premium voice unreachable on every phone.
+
+     A browser only lets audio start from inside a user gesture. Every line here
+     is played from a .then() AFTER the /api/tts fetch, by which time the
+     gesture window has closed — so audio.play() rejected, the catch ran the
+     fallback, and the caller heard their handset's built-in TTS. The page
+     meanwhile said "Cloud voices" in green, because the readiness probe is a
+     GET that has nothing to do with whether audio can actually play.
+
+     The fix is the standard one and it has two halves, both required:
+       1. play a silent clip on ONE element inside the tap, and
+       2. reuse THAT SAME element for every line afterwards.
+     A fresh `new Audio()` per line is not unlocked, which is what this used to
+     do — so priming alone would have fixed nothing. */
+  let el = null;
+  let unlocked = false;
+  // 44-byte WAV header + one silent sample. Never fetched, never fails.
+  const SILENT = 'data:audio/wav;base64,UklGRiUAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQEAAAAA';
+
+  function element() {
+    if (!el) {
+      el = new Audio();
+      el.preload = 'auto';
+    }
+    return el;
+  }
+
+  /** Call this INSIDE a click/tap handler, before anything async. */
+  function unlock() {
+    const a = element();
+    if (unlocked) return;
+    try {
+      a.muted = true;
+      a.src = SILENT;
+      const p = a.play();
+      if (p && p.then) {
+        p.then(() => { try { a.pause(); a.currentTime = 0; } catch (e) {} a.muted = false; unlocked = true; })
+         .catch(() => { a.muted = false; });
+      } else {
+        a.muted = false; unlocked = true;
+      }
+    } catch (e) { /* nothing to do — play() below will report it properly */ }
+  }
+
+  function stop() {
+    if (!el) return;
+    try { el.pause(); } catch (e) {}
+    el.onended = el.onerror = el.onplay = null;
+  }
+
   function play(src, opts, fallback) {
     stop();
-    audio = new Audio(src);
+    const a = element();
     let done = false;
     const finish = () => { if (done) return; done = true; opts.onend && opts.onend(); };
-    if (opts.onstart) audio.onplay = opts.onstart;
-    audio.onended = finish;
-    audio.onerror = () => { if (!done) { done = true; fallback(); } };
-    audio.play().catch(() => { if (!done) { done = true; fallback(); } });
+    a.onplay = opts.onstart || null;
+    a.onended = finish;
+    a.onerror = () => { if (!done) { done = true; fallback('audio_error'); } };
+    a.src = src;
+    a.play().catch((err) => {
+      if (done) return;
+      done = true;
+      // NotAllowedError is the autoplay block specifically, and it is worth
+      // naming: it is not a broken voice, it is a browser policy, and the fix
+      // is a tap — not a retry and not a different provider.
+      fallback(err && err.name === 'NotAllowedError' ? 'autoplay_blocked' : 'play_failed');
+    });
   }
   function speak(text, lang, preset, opts, fallback) {
     const key = cacheKey(text, lang, preset);
@@ -394,7 +453,7 @@ const CloudTTS = (function () {
           onStateChange(false);
           scheduleReprobe();       // and keep trying to get it back
         }
-        fallback();
+        fallback('tts_request_failed');
       });
   }
   /* fetch raw audio (used by the Voice Lab so it can analyse real frequencies) */
@@ -413,7 +472,7 @@ const CloudTTS = (function () {
       .then(d => { if (d && d.audio) cache[key] = "data:" + (d.mime || "audio/wav") + ";base64," + d.audio; })
       .catch(() => {});
   }
-  return { probe, isOn, speak, stop, fetchAudio, prefetch, setStateListener, scheduleReprobe,
+  return { probe, isOn, speak, stop, unlock, fetchAudio, prefetch, setStateListener, scheduleReprobe,
            served: () => served, canSpeakMale: () => maleCapable,
            status: () => ({ available, fails, served, maleCapable }) };
 })();
@@ -452,15 +511,53 @@ function browserSpeak(text, lang, preset, opts) {
 
 /* speakText(text, lang, { onstart, onend, voice }) — Sarvam cloud voice when
    available, else the browser voice. Returns the resolved preset/voice. */
+/* The handset's own TTS is NOT an acceptable substitute for the cloud voice.
+   It used to be the silent fallback for any failed line, which meant a phone
+   that could not autoplay heard Android's built-in voice for the entire call
+   while the page said "Cloud voices" in green. Nobody could tell where the bad
+   voice was coming from, because nothing ever said.
+
+   So it is off by default. It is still reachable for anyone who genuinely wants
+   an offline demo, and turning it on is a deliberate act with a name:
+     localStorage.setItem("vaak_allow_device_voice", "1") */
+function deviceVoiceAllowed() {
+  try { return localStorage.getItem("vaak_allow_device_voice") === "1"; } catch (e) { return false; }
+}
+
 function speakText(text, lang, opts = {}) {
   const preset = opts.voice || currentVoice();
   if (synth) synth.cancel();
   CloudTTS.stop();
+
   if (CloudTTS.isOn()) {
-    CloudTTS.speak(text, lang, preset, opts, () => browserSpeak(text, lang, preset, opts));
+    CloudTTS.speak(text, lang, preset, opts, (reason) => lineFailed(reason, text, lang, preset, opts));
     return preset;
   }
-  return browserSpeak(text, lang, preset, opts);
+  lineFailed('cloud_unavailable', text, lang, preset, opts);
+  return preset;
+}
+
+/* A line the cloud could not speak. Say what happened, out loud, on screen —
+   and never quietly swap in a different voice. */
+function lineFailed(reason, text, lang, preset, opts) {
+  reportVoiceProblem(reason);
+  if (deviceVoiceAllowed()) { browserSpeak(text, lang, preset, opts); return; }
+  // Nothing will speak, so release the conversation ourselves — otherwise the
+  // demo waits forever for an `onend` that is never coming.
+  if (opts && opts.onend) setTimeout(opts.onend, 60);
+}
+
+/** One place that turns a playback failure into words a human can act on. */
+function reportVoiceProblem(reason) {
+  const notice = document.getElementById("call-notice");
+  const msg = reason === 'autoplay_blocked'
+    ? "🔇 Your browser blocked audio. Tap anywhere on the page, then press the mic again."
+    : reason === 'cloud_unavailable'
+      ? "🔇 The voice service is unreachable right now. Reconnecting…"
+      : "🔇 That line could not be spoken (" + reason + "). Retrying on the next turn.";
+  if (notice) { notice.textContent = msg; notice.hidden = false; }
+  const vn = document.getElementById("voice-note");
+  if (vn) vn.textContent = msg;
 }
 /* Detect cloud voices on load, and keep trying. A single failed probe used to
    mean the robotic browser voice for the entire session, silently. */
@@ -548,11 +645,25 @@ if (demoEl) {
     const want = currentVoice().gender || "female";
     const v = speakText(anagaLine(hl, want), hl, { onend: () => setSpeaking(false) });
     setSpeaking(true);
-    if (v) voiceNote.textContent = `Voice: ${v.name}${new RegExp(want, "i").test(v.name) ? "" : ` (best ${want} match on your system)`}.`;
-    else   voiceNote.textContent = "No regional voice installed — using your default voice.";
+    // Say what is ACTUALLY going to speak. The old line appended "(best <gender>
+    // match on your system)" whenever the voice name did not literally contain
+    // the word "female"/"male" — which a preset name never does. So a Sarvam
+    // voice was labelled as a device voice on every single play, and that label
+    // is why nobody could tell these two cases apart.
+    if (!v) return;
+    if (CloudTTS.isOn()) {
+      const served = CloudTTS.served && CloudTTS.served();
+      voiceNote.textContent = served
+        ? `Voice: ${v.name} — ${providerLabel(served.provider)}${served.voice ? ` (${served.voice})` : ""}.`
+        : `Voice: ${v.name} — cloud.`;
+    } else {
+      voiceNote.textContent = `Voice service unreachable — ${v.name} can't be played yet. Reconnecting…`;
+    }
   };
   hearBtn.addEventListener("click", () => {
-    if (speaking) { synth.cancel(); setSpeaking(false); return; }
+    if (speaking) { synth.cancel(); CloudTTS.stop(); setSpeaking(false); return; }
+    // Must happen inside the tap, before any fetch. See CloudTTS.unlock().
+    CloudTTS.unlock();
     play();
   });
   window.addEventListener("beforeunload", () => synth.cancel());
@@ -618,7 +729,11 @@ if (demoEl) {
   cards.forEach(card => card.addEventListener("click", () => {
     setSelectedVoice(card.dataset.voice);
     refresh();
-    if (synth) speakText("Hi, I'm Anaga, your AI voice agent. How can I help you today?", "en-IN", { voice: currentVoice() });
+    // Unlock inside the tap. Also note the old guard: previews only played when
+    // `synth` existed — i.e. the CLOUD preview was gated on the DEVICE speech
+    // engine being present, which is backwards and silent when it fails.
+    CloudTTS.unlock();
+    speakText("Hi, I'm Anaga, your AI voice agent. How can I help you today?", "en-IN", { voice: currentVoice() });
   }));
 })();
 
@@ -1431,9 +1546,17 @@ if (demoEl) {
     return true;
   }
 
-  /* Mobile browsers only allow speech to start from a user gesture. Speaking a
-     near-silent utterance inside the tap "unlocks" TTS for the rest of the call. */
+  /* Mobile browsers only allow audio to start from a user gesture, and the two
+     engines have to be unlocked SEPARATELY.
+
+     This used to prime `speechSynthesis` only — the one engine the call does
+     not normally use. The cloud voice plays through an HTMLAudioElement, which
+     was never unlocked and never could be, because it was constructed fresh
+     inside a .then() after the fetch. So on every phone the premium voice was
+     blocked, the failure fell back to the handset's built-in voice, and the
+     page kept saying "Cloud voices". */
   function primeAudio() {
+    CloudTTS.unlock();
     if (!synth) return;
     try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; synth.cancel(); synth.speak(u); } catch (e) {}
   }
@@ -1496,28 +1619,38 @@ if (demoEl) {
       /* non-English: prepare translation for the two passes around the brain.
          On-device (Chrome 138+) when present, otherwise Google server-side —
          so this no longer dead-ends on Safari, Firefox, or an older Chrome. */
+      /* TRANSLATION IS AN OPTIMISATION, NOT A PREREQUISITE.
+         This used to reset callLang, callBase AND recog.lang to en-IN whenever
+         translation was unreachable. On a phone that means: you pick తెలుగు,
+         you speak Telugu, and an ENGLISH recogniser transcribes it. The result
+         is not "weaker recognition", it is the wrong language model producing
+         nonsense — behind a one-line toast that scrolls away.
+
+         The brain reads code-mixed Indian speech directly, so an unreachable
+         translator costs us the English round-trip, not the language. The
+         recogniser and the voice stay in the language the caller chose. */
       const reqLabel = langLabel(callBase);
-      if (!window.TranslateKit || !TranslateKit.available()) {
-        callLang = "en-IN"; callBase = "en"; if (recog) recog.lang = "en-IN";
-        showNotice("🌐 Translation is unavailable right now — running this call in English. You can still type.");
+      const withoutTranslation = (why) => {
+        translateOn = false;
+        showNotice("🌐 " + why + " — continuing in " + reqLabel
+          + ". Anaga understands you directly; replies may be less polished.");
         setTimeout(begin, 350);
-        return;
+      };
+
+      if (!window.TranslateKit || !TranslateKit.available()) {
+        return withoutTranslation("Translation is unavailable in this browser");
       }
       setStatus("Preparing " + reqLabel + "…", null);
       TranslateKit.prep(callBase).then(ok => {
         if (!active) return;
         translateOn = ok;
-        if (ok) {
-          const via = TranslateKit.mode && TranslateKit.mode() === "on-device"
-            ? "translated on your device, no API"
-            : "translated by Google";
-          addBubble("anaga", "🌐 We'll talk in " + reqLabel + " — " + via + ".");
-        } else {
-          callLang = "en-IN"; callBase = "en"; if (recog) recog.lang = "en-IN";
-          showNotice("🌐 " + reqLabel + " translation isn't reachable right now — running in English. You can still type.");
-        }
+        if (!ok) return withoutTranslation(reqLabel + " translation isn't reachable");
+        const via = TranslateKit.mode && TranslateKit.mode() === "on-device"
+          ? "translated on your device, no API"
+          : "translated by Google";
+        addBubble("anaga", "🌐 We'll talk in " + reqLabel + " — " + via + ".");
         setTimeout(begin, 350);
-      }).catch(() => { translateOn = false; callBase = "en"; callLang = "en-IN"; if (recog) recog.lang = "en-IN"; setTimeout(begin, 350); });
+      }).catch(() => withoutTranslation("Translation failed to start"));
     });
   }
 

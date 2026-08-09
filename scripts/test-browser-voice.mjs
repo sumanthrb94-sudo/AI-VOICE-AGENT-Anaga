@@ -300,6 +300,80 @@ await t('XSS: a hostile LLM reply cannot execute in the transcript', async () =>
   assert.equal(result.showsRaw, true, 'and the text should still be displayed, as text');
 });
 
+// ---------------------------------------------------------------------------
+// MOBILE AUTOPLAY — the bug that made the cloud voice unreachable on a phone.
+//
+// A browser only lets audio start from inside a user gesture. Every line was
+// played from a .then() AFTER the /api/tts fetch, on a FRESH Audio element, so
+// play() was rejected on every phone, the catch ran the device-voice fallback,
+// and the page went on saying "Cloud voices" because the readiness probe is a
+// GET that has nothing to do with whether audio can play.
+// ---------------------------------------------------------------------------
+
+/** Instrument HTMLMediaElement.play so a test can see the unlock and block it. */
+async function instrumentAudio(p, { block = false } = {}) {
+  await p.evaluate((shouldBlock) => {
+    window.__audio = { plays: [], elements: [], spoke: 0 };
+    const realPlay = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () {
+      if (!window.__audio.elements.includes(this)) window.__audio.elements.push(this);
+      window.__audio.plays.push({ src: String(this.src).slice(0, 32), muted: this.muted, at: Date.now() });
+      if (shouldBlock) {
+        const e = new Error('blocked'); e.name = 'NotAllowedError';
+        return Promise.reject(e);
+      }
+      return realPlay.apply(this, arguments);
+    };
+    if (window.speechSynthesis) {
+      const realSpeak = window.speechSynthesis.speak.bind(window.speechSynthesis);
+      window.speechSynthesis.speak = function (u) {
+        // The silent primer is not a device voice; only count real speech.
+        if (u && u.text && u.text.trim()) window.__audio.spoke++;
+        return realSpeak(u);
+      };
+    }
+  }, block);
+}
+
+await t('AUTOPLAY: audio is unlocked inside the tap, before any network call', async () => {
+  world.ttsRequests.length = 0;
+  await page.goto(BASE);
+  await instrumentAudio(page);
+  await page.click('#hear-anaga');
+  // The unlock has to be synchronous within the gesture — so a play() must have
+  // happened before the /api/tts response could possibly have come back.
+  const first = await page.evaluate(() => window.__audio.plays[0] || null);
+  assert.ok(first, 'nothing was played inside the tap — the element is never unlocked');
+  assert.equal(first.muted, true, 'the unlock should play a MUTED silent clip, not the line');
+});
+
+await t('AUTOPLAY: the same element is reused, or the unlock was pointless', async () => {
+  await page.waitForFunction(() => window.__audio.plays.length >= 2, null, { timeout: 8000 });
+  const n = await page.evaluate(() => window.__audio.elements.length);
+  assert.equal(n, 1, `a fresh Audio() per line is not unlocked; used ${n} elements`);
+});
+
+await t('AUTOPLAY BLOCKED: the handset voice is NOT quietly substituted', async () => {
+  await page.goto(BASE);
+  await instrumentAudio(page, { block: true });
+  await page.click('#hear-anaga');
+  // Generous: this is a NEGATIVE assertion, so it must outlast the whole
+  // fetch -> blocked play -> fallback chain rather than beat it.
+  await page.waitForTimeout(3000);
+  const spoke = await page.evaluate(() => window.__audio.spoke);
+  assert.equal(spoke, 0,
+    'the device voice spoke — that is the "shitty voice from nowhere" this whole fix exists to stop');
+});
+
+await t('AUTOPLAY BLOCKED: the page SAYS the browser blocked it', async () => {
+  const note = await page.locator('#voice-note').innerText();
+  assert.ok(/blocked|Tap/i.test(note), `a blocked line must explain itself, got: "${note}"`);
+});
+
+// NOT COVERED: the vaak_allow_device_voice escape hatch. Verified by hand (the
+// opt-in does still reach browserSpeak), but asserting it here depends on the
+// shared `world` stub left by earlier tests in this file, and a test that fails
+// for reasons unrelated to what it claims to check is worse than an honest gap.
 await t('no uncaught page errors across either world', () => {
   assert.equal(pageErrors.length, 0, `page errors: ${pageErrors.join(' | ')}`);
 });

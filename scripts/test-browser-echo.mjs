@@ -87,6 +87,13 @@ const INIT = `
     for (const i of instances) if (i.onresult) i.onresult(ev);
   };
 
+  // --- device voice: opt IN, because this suite OBSERVES what Anaga says ---
+  // The cloud voice is the default and it plays through an <audio> element,
+  // which yields no text to inspect. This suite is about the ECHO GUARD, not
+  // about which vendor speaks, so it uses the documented escape hatch to route
+  // speech through speechSynthesis where the utterance text is readable.
+  try { localStorage.setItem('vaak_allow_device_voice', '1'); } catch (e) {}
+
   // --- speechSynthesis: resolve immediately so the app advances ------------
   window.SpeechSynthesisUtterance = function (text) {
     this.text = text; this.lang=''; this.rate=1; this.pitch=1; this.volume=1;
