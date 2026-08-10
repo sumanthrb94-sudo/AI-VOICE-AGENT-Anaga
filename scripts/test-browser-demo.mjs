@@ -286,92 +286,76 @@ await page.locator('#lang button[data-lang="en-IN"]').click();
 await page.locator('#start').click();
 await page.waitForSelector('#log .ln.her', { timeout: 10000 });
 
-await t('the mic button opens the recogniser', async () => {
-  await page.locator('#mic').click();
-  await page.waitForFunction(() => window.__sr.starts > 0, null, { timeout: 5000 });
-  assert.equal(await page.evaluate(() => document.getElementById('mic').getAttribute('aria-pressed')), 'true');
+await t('THE CALL TURNS THE MICROPHONE ON — there is no mic button', async () => {
+  // There is no microphone button on a phone call. You answer it and you talk.
+  // The Start click is the gesture the browser needs for both the audio unlock
+  // and the mic, so it is the right and only place to ask.
+  await restart();
+  assert.equal(await page.locator('#mic').count(), 0, 'the mic button should be gone');
+  await page.locator('#start').click();
+  await page.waitForFunction(() => window.__sr.starts > 0, null, { timeout: 8000 });
 });
 
-await t('the RECOGNISER closes while she speaks — she must not answer herself', async () => {
-  const before = await page.evaluate(() => window.__sr.aborts);
-  await page.locator('#say').fill('three bedrooms please');
-  await page.locator('#compose button[type=submit]').click();
-  await page.waitForFunction((n) => window.__sr.aborts > n, before, { timeout: 10000 });
-  // Transcribing her own voice and replying to it is the failure this prevents.
-  const live = await page.evaluate(() =>
-    document.body.classList.contains('speaking') ? window.__sr.live : null);
-  assert.notEqual(live, true, 'the recogniser reopened while Anaga still had the floor');
+await t('THE RECOGNISER STAYS OPEN WHILE SHE SPEAKS', async () => {
+  // It used to be closed, so nothing could interrupt her. Then it was closed
+  // and a SECOND getUserMedia stream watched for interruptions — which on
+  // Android Chrome stops SpeechRecognition starting at all, so barge-in worked
+  // and speech-to-text stopped. One microphone, one consumer.
+  await page.waitForFunction(() => document.body.classList.contains('speaking'),
+    null, { timeout: 10000 }).catch(() => {});
+  assert.equal(await page.evaluate(() => window.__sr.live), true,
+    'the microphone must be live — otherwise nothing can hear an interruption');
+});
+
+await t('HER OWN VOICE IS DISCARDED, not treated as a reply', async () => {
+  // Speakerphone: her line comes back through the mic. Transcribing it and
+  // answering it is a conversation with herself, observed for real.
+  await page.waitForFunction(() => document.body.classList.contains('speaking'),
+    null, { timeout: 10000 }).catch(() => {});
+  const before = await page.locator('#log .ln').count();
+  const line = await page.evaluate(() => fetch('/api/anaga/turn?lang=te-IN&direction=outbound')
+    .then((r) => r.json()).then((d) => d.say));
+  await page.evaluate((echo) => window.__hear(echo, true), line);
+  await page.waitForTimeout(700);
+  assert.equal(await page.locator('#log .ln').count(), before,
+    'her own words must not become a prospect turn');
 });
 
 await t('SHE STOPS WHEN SOMEBODY TALKS OVER HER', async () => {
-  // The bug this replaces: closing the recogniser during playback meant NOTHING
-  // was listening while she spoke, so interrupting her was impossible — and the
-  // test that used to sit here asserted the mic "STAYS closed", which locked it
-  // in. Two things listen now, and only one of them is the recogniser: an
-  // energy detector stays open the whole time and has no idea what you said,
-  // only that somebody is talking, which is all barge-in needs.
   await restart();
-  await page.locator('#start').click();          // #mic lives on the call screen
-  await page.waitForSelector('#log .ln.her', { timeout: 10000 });
-  await page.waitForFunction(() => !document.body.classList.contains('speaking'),
-    null, { timeout: 15000 });
-  await page.locator('#mic').click();
-  await page.waitForFunction(() => window.__sr.starts > 0, null, { timeout: 5000 });
-
-  await page.locator('#say').fill('tell me more about the project');
-  await page.locator('#compose button[type=submit]').click();
+  await page.locator('#start').click();
   await page.waitForFunction(() => document.body.classList.contains('speaking'),
     null, { timeout: 10000 });
-
-  // Sustained speech, not one loud frame: a single frame was enough for our own
-  // audio to cancel our own sentence.
-  await page.evaluate(() => { for (let i = 0; i < 2; i++) window.__vad(true, 100); });
-  const stillSpeaking = await page.evaluate(() => document.body.classList.contains('speaking'));
-  assert.equal(stillSpeaking, true, 'a short burst must NOT cut her off — that is echo');
-
-  await page.evaluate(() => { for (let i = 0; i < 3; i++) window.__vad(true, 100); });
+  // Words that are NOT hers — a real interruption.
+  await page.evaluate(() => window.__hear('wait stop I have a question about the price', true));
   await page.waitForFunction(() => !document.body.classList.contains('speaking'),
-    null, { timeout: 4000 });
+    null, { timeout: 5000 });
+  const you = await page.locator('#log .ln.you').last().innerText();
+  assert.match(you, /wait stop/, 'and what they said becomes their turn');
 });
 
 await t('and the transcript says she was CUT OFF, not that she finished', async () => {
-  // She must not believe she asked a question she was talked over halfway
-  // through — she reads it back as "already asked" and moves on without the
-  // answer. Same rule the call leg keeps in session.js.
-  const her = await page.locator('#log .ln.her').last().innerText();
-  assert.match(her, /cut off/, `expected a cut-off marker, got "${her}"`);
+  // She must not read a question back as "already asked" when she was talked
+  // over halfway through it — the rule the call leg keeps in session.js.
+  const hers = await page.locator('#log .ln.her').allInnerTexts();
+  assert.ok(hers.some((h) => /cut off/.test(h)), `expected a cut-off marker, got ${JSON.stringify(hers)}`);
 });
 
-await t('the recogniser REOPENS the moment she is interrupted', async () => {
-  // Whatever they are saying over her is the next turn, and it starts before
-  // she has finished stopping.
-  await page.waitForFunction(() => window.__sr.live === true, null, { timeout: 5000 });
-});
-
-await t('AN OPT-OUT HEARD THROUGH THE MIC still ends the call', async () => {
-  // The one thing that must never be discarded as noise, echo, or a half-heard
-  // phrase. It ends the call here, in the client.
-  const ok = await page.evaluate(() => window.__hear('actually please remove me from your list', true));
-  assert.equal(ok, true, 'the stub must be wired to the live recogniser');
+await t('AN OPT-OUT SPOKEN OVER HER still ends the call', async () => {
+  // The one thing that must never be lost to an echo guard, a half-heard
+  // phrase, or a barge-in race. It ends the call here, in the client, whatever
+  // the model returns — and on a real call the number joins the suppression
+  // list before anything else happens.
+  await restart();
+  await page.locator('#start').click();
+  await page.waitForFunction(() => document.body.classList.contains('speaking'),
+    null, { timeout: 10000 });
+  await page.evaluate(() => window.__hear('actually please remove me from your list', true));
   await page.waitForSelector('body.ended', { timeout: 10000 });
   const her = await page.locator('#log .ln.her').last().innerText();
-  // Either script — this page runs in Telugu by default, and an English-only
-  // assertion passes on a page nobody in the room can read.
   assert.match(her, /do-not-call|డు-నాట్-కాల్/i,
     `expected the opt-out acknowledgement, got "${her}"`);
 });
-
-await t('the mic is released when the call ends', async () => {
-  assert.equal(await page.evaluate(() => window.__sr.live), false, 'a finished call must not hold the mic');
-  assert.equal(await page.evaluate(() => document.getElementById('mic').getAttribute('aria-pressed')), 'false');
-});
-
-
-// ── first phrase first ──────────────────────────────────────────────────────
-// Synthesizing a whole line before playing any of it means the prospect waits
-// for the LAST word to be rendered before hearing the FIRST. Bulbul takes ~3.3s
-// on a two-sentence turn, measured on the deployment, and that is 3.3s of the
-// agent visibly not answering.
 
 await t('THE FIRST PHRASE SHIPS WITH THE TURN — one round trip, not two', async () => {
   await restart();

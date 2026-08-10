@@ -88,7 +88,7 @@
   /* ── outcome ───────────────────────────────────────────────────── */
   .outcome{display:none;padding:16px}
   body.ended .outcome{display:block}
-  body.ended .compose,body.ended .controls .mic{display:none}
+  body.ended .compose{display:none}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
   .score{display:flex;align-items:baseline;gap:10px}
   .score b{font-size:34px;line-height:1}
@@ -109,8 +109,9 @@
   <section class="setup">
     <h1>Anaga · live call</h1>
     <p>
-      A real call, not a recording. Anaga discloses that she is an AI, qualifies the
-      lead against the versioned flow, and books a site visit — or takes the opt-out
+      A real call, not a recording. Starting it turns on your microphone — just talk,
+      and interrupt her whenever you like. Anaga discloses that she is an AI, qualifies
+      the lead against the versioned flow, and books a site visit, or takes the opt-out
       and stops. Every line you see is generated and spoken live.
     </p>
 
@@ -167,7 +168,6 @@
     </form>
 
     <div class="controls">
-      <button class="ctl mic" id="mic" type="button" aria-pressed="false" aria-label="Speak">🎙</button>
       <button class="ctl end" id="end" type="button" aria-label="End call">✕</button>
     </div>
   </section>
