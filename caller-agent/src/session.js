@@ -73,7 +73,16 @@ export async function runCall({ job, telephony, brain, persona, now = () => Date
   const elapsedSec = () => Math.round((now() - startedAtMs) / 1000);
   const say = async (text, opts) => {
     const ok = await telephony.say(text, opts);
-    if (ok) history.push({ role: 'agent', text });
+    // RECORD WHAT SHE SAID, NOT WHAT SHE WAS GIVEN. say() reports success even
+    // when the line was cut off part-way — the call is still live, so it is not
+    // a failure — and pushing the generated text here meant the transcript
+    // claimed a question she never finished asking. She then reads it back as
+    // "already asked" and moves on without the answer; the scorer scores it;
+    // and a compliance reviewer reads it as the record of the call.
+    if (ok) {
+      const said = typeof telephony.spokenText === 'function' ? telephony.spokenText() : '';
+      history.push({ role: 'agent', text: said || text });
+    }
     return ok;
   };
 

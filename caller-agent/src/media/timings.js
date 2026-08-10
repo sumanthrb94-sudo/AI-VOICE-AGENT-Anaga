@@ -36,6 +36,26 @@ export function timings(o = {}) {
     // transcription is already done when the window closes. See maybeEndpoint().
     // Set to 0 to disable and pay for STT serially instead.
     speculateMs: Number(o.speculateMs ?? process.env.ENDPOINT_SPECULATE_MS ?? 400),
+
+    // ── SEMANTIC ENDPOINTING (media/turn-detect.js) ────────────────────────
+    // The speculative transcript above is not only a latency trick: it is the
+    // evidence for whether they FINISHED or merely PAUSED. These two knobs are
+    // the window that replaces silenceMs when there is an opinion — and only
+    // then. Both stay inside maxUtteranceMs, and silenceMs remains the fallback
+    // for every utterance we have no opinion about, which is most of them.
+    //
+    // semanticCloseMs is short on purpose: it applies only after a transcript
+    // that reads as a finished answer ("no", "three BHK"), where the remaining
+    // wait is the agent visibly not listening.
+    semanticCloseMs: Number(o.semanticCloseMs ?? process.env.ENDPOINT_SEMANTIC_CLOSE_MS ?? 350),
+    // And the other direction: a dangling "and…" or a bare number buys MORE
+    // patience, because interrupting a prospect mid-sentence is the rudest
+    // thing this agent can do and the one a shorter fixed threshold causes.
+    hesitationFactor: Number(o.hesitationFactor ?? process.env.ENDPOINT_HESITATION_FACTOR ?? 1.6),
+    // Explicit false wins; otherwise ENDPOINT_SEMANTIC=0 turns it off; otherwise on.
+    semanticEndpointing: o.semanticEndpointing === false
+      ? false
+      : process.env.ENDPOINT_SEMANTIC !== '0',
     // Each speculation is a billed STT call that may be thrown away, so a
     // rambling caller with many pauses is capped rather than unbounded.
     maxSpeculations: Number(o.maxSpeculations ?? process.env.ENDPOINT_MAX_SPECULATIONS ?? 2),

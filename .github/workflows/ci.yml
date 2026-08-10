@@ -49,6 +49,9 @@ jobs:
       - name: Echo simulation (must report no loop on any line condition)
         run: node --experimental-detect-module scripts/simulate-echo.mjs
 
+      - name: Semantic turn detection (a pause is not a full stop)
+        run: node --experimental-detect-module scripts/test-turn-detect.mjs
+
       - name: Media leg QA (endpointing, barge-in, framing)
         run: node --experimental-detect-module scripts/test-media.mjs
 

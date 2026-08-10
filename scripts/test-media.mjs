@@ -568,5 +568,116 @@ await t('a session against a transport with no prewarm still runs', async () => 
   assert.equal(res.reported, true);
 });
 
+// ===========================================================================
+section('§ what she SAID, versus what she was given');
+// ===========================================================================
+//
+// These diverge the moment somebody talks over her, and the difference is not
+// cosmetic. The transcript is what the brain reads back as "what I already
+// asked", what the scorer scores, and what a compliance reviewer reads as the
+// record of the call. say() reports success even when the line was cut off
+// part-way — the call is still live, so it is not a failure — and the session
+// used to record the GENERATED text on the strength of that boolean.
+
+/** A transport whose clock and sleep are injected, so a barge-in lands at an
+ *  exact frame instead of at whatever the event loop felt like. */
+function spoken({ perFrame = 'part' } = {}) {
+  let clock = 0;
+  const out = [];
+  const tr = createMediaTransport({
+    stt: { async transcribe(c) { return c.map((x) => x.toString('utf8')).join(' ').trim(); } },
+    tts: {
+      async synth(text) {
+        return perFrame === 'char'
+          ? { frames: String(text).split('').map((ch) => Buffer.from(ch)) }
+          : { frames: [Buffer.from(text)] };
+      },
+    },
+    audioOut: (f) => out.push(f.toString('utf8')),
+    now: () => clock,
+    bargeInMinMs: 100, frameMs: 50, falseInterruptionTimeoutMs: 5000,
+    sleep: async (ms) => { clock += ms; },
+  });
+  return {
+    tr, out,
+    // Synchronous: lands before a single frame has left, which is the common
+    // case — somebody talking as she starts.
+    interrupt(n = 4) { for (let i = 0; i < n; i++) { clock += 40; tr.pushAudio(Buffer.from('noise'), { hasVoice: true }); } },
+    // Lands MID-PHRASE. Each frame is emitted after one `await sleep(...)`, so
+    // one microtask yield lets roughly one frame out — that is what makes the
+    // cut land inside a phrase rather than before it.
+    async interruptAfter(frames, n = 4) {
+      for (let k = 0; k < frames; k++) await Promise.resolve();
+      for (let i = 0; i < n; i++) {
+        clock += 40;
+        tr.pushAudio(Buffer.from('noise'), { hasVoice: true });
+        await Promise.resolve();
+      }
+    },
+  };
+}
+
+await t('an uninterrupted line is recorded verbatim', async () => {
+  const h = spoken();
+  const line = 'Are you looking to live in it, or to invest?';
+  await h.tr.say(line);
+  assert.equal(h.tr.spokenText(), line);
+});
+
+await t('SHE DOES NOT CLAIM THE HALF SHE NEVER SAID', async () => {
+  const h = spoken();
+  const line = 'Hello, this is Anaga from Vaak. I have a three BHK in Gachibowli. Would you like the details?';
+  const speaking = h.tr.say(line);
+  h.interrupt();
+  await speaking;
+
+  const said = h.tr.spokenText();
+  assert.ok(!said.includes('Would you like the details'),
+    `a phrase that never left the speaker must not be in the record, got "${said}"`);
+  assert.ok(said.length < line.length, 'the record must be shorter than the script');
+  // And it matches what actually went out on the wire.
+  assert.equal(said.replace(/\s*…\[cut off\]/, ''), h.out.join(' '),
+    'the record and the audio must agree');
+});
+
+await t('a line cut MID-PHRASE is MARKED, not silently trimmed', async () => {
+  // We know which frames went out; we do not know which WORD the cut landed
+  // on. Trimming to a guessed word boundary would be the same lie in a smaller
+  // font, so the phrase is kept with a marker instead.
+  const h = spoken({ perFrame: 'char' });
+  const speaking = h.tr.say('Just so you know, I am an AI voice agent from Vaak.');
+  await h.interruptAfter(6);
+  await speaking;
+  assert.match(h.tr.spokenText(), /\[cut off\]/,
+    'a half-spoken phrase must say that it was half-spoken');
+});
+
+await t('THE SESSION RECORDS THE SPOKEN TEXT, not the generated text', async () => {
+  // The bug, end to end: history.push({ text }) on the strength of say()
+  // returning true. She then reads that back as "already asked" and moves on
+  // without the answer.
+  const h = spoken();
+  const line = 'Hello, this is Anaga from Vaak. I have a three BHK in Gachibowli. Would you like the details?';
+  const telephony = {
+    async dial() { return { answered: true }; },
+    async say(text) { const p = h.tr.say(text); h.interrupt(); return p; },
+    spokenText: () => h.tr.spokenText(),
+    async listen() { return { text: null, hangup: true, silent: false }; },
+    async hangup() { return { ended: true }; },
+  };
+  const brain = {
+    async nextTurn() { return { say: line, end: true }; },
+    async reportOutcome() { return { ok: true }; },
+  };
+  const res = await runCall({
+    job: { callId: 'spoken-1', lead: { phone: '+919000000000' } },
+    telephony, brain, persona: {},
+  });
+  const agentLines = (res.history || []).filter((x) => x.role === 'agent').map((x) => x.text);
+  assert.ok(agentLines.length, 'she must have said something');
+  assert.ok(!agentLines.join(' ').includes('Would you like the details'),
+    `the transcript claims a phrase she never spoke: ${JSON.stringify(agentLines)}`);
+});
+
 console.log(`\n═══ ${pass} passed, ${fail} failed ═══\n`);
 if (fail) { failures.forEach((f) => console.log('  FAIL ' + f)); process.exit(1); }

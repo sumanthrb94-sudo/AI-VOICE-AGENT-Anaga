@@ -533,5 +533,25 @@ await t('the recording reference is returned, never a playable URL', async () =>
 
 globalThis.fetch = realFetch;
 
+await t('the ruleset is written for the EAR', () => {
+  // Everything the model emits is read aloud by a speech engine. A bullet list
+  // or a bare "8500000" does not fail — it is spoken, badly, to a stranger.
+  const rules = sylRules();
+  assert.match(rules, /NO markdown/i, 'markdown read aloud is the giveaway');
+  assert.match(rules, /85,00,000/, 'the number rule needs the example, not the principle');
+  assert.match(rules, /contractions/i);
+  assert.match(rules, /ONE or TWO sentences/i, 'a monologue breaks the illusion first');
+});
+
+await t('"no As an AI" does NOT cancel the disclosure', () => {
+  // These two rules point in opposite directions and the compliance one wins:
+  // the reviewed disclosure sentence must still be quoted in full.
+  const rules = sylRules();
+  assert.ok(rules.includes(loadPersona().disclosure['en-IN']),
+    'the reviewed disclosure must survive the style rules');
+  assert.match(rules, /You DO disclose that you are an AI/,
+    'the style rule must say out loud that it is not an exemption');
+});
+
 console.log(`\n═══ ${pass} passed, ${fail} failed ═══\n`);
 if (fail) { failures.forEach((f) => console.log('  FAIL ' + f)); process.exit(1); }

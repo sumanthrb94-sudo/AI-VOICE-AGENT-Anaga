@@ -33,6 +33,7 @@
 import { createEchoGuard } from '../../../shared/echo-guard.js';
 import { splitForSpeech } from '../providers/speech.js';
 import { timings } from './timings.js';
+import { endOfTurn, windowFor } from './turn-detect.js';
 import { createCallRecorder } from './recorder.js';
 
 // The false-interruption resume below follows the design in livekit/agents
@@ -67,11 +68,16 @@ export function createMediaTransport({
     ? null
     : createCallRecorder({ now }),
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  // Semantic endpointing. Undefined here means "use the env/default" — these
+  // must be destructured or they never reach timings(), which is exactly how
+  // speculateMs silently did nothing the first time it was added.
+  semanticEndpointing, semanticCloseMs, hesitationFactor,
 } = {}) {
   const T = timings({
     silenceMs, maxUtteranceMs, minSpeechMs, frameMs, echoTailMs, bargeInMinMs, maxEchoDiscards,
     falseInterruptionTimeoutMs, resumeFalseInterruption,
     speculateMs, maxSpeculations, chunkSpeech, chunkMaxChars,
+    semanticEndpointing, semanticCloseMs, hesitationFactor,
   });
   const echo = echoGuard || createEchoGuard({ now });
 
@@ -95,6 +101,8 @@ export function createMediaTransport({
   let echoDiscards = 0;
   // Remainder of an utterance cut short by a suspected interruption.
   let pausedSpeech = null;        // { frames, index, pending, text, at }
+  let spokenParts = [];           // what actually left the speaker, per say()
+  let lastVerdictLogged = null;   // so one decision logs once, not every tick
   // In-flight speculative transcription of the utterance so far.
   let speculation = null;         // { promise, frames }
   let speculations = 0;
@@ -158,8 +166,22 @@ export function createMediaTransport({
     const silentFor = t - (lastVoiceAt ?? t);
 
     const longEnough = spokeFor >= T.minSpeechMs;
-    const doneTalking = silentFor >= T.silenceMs;
     const tooLong = spokeFor >= T.maxUtteranceMs;
+
+    // SEMANTIC ENDPOINTING. The silence window is the fallback, never removed:
+    // this only moves the decision earlier or later WITHIN it, and only when
+    // the speculative transcript has an opinion. No transcript, no opinion, or
+    // a classifier that throws — all fall through to plain silenceMs.
+    let verdict = null;
+    if (T.semanticEndpointing && speculation && speculation.text) {
+      try { verdict = endOfTurn(speculation.text); } catch { verdict = null; }
+    }
+    const window = verdict ? windowFor(verdict, T) : T.silenceMs;
+    const doneTalking = silentFor >= window;
+    if (verdict && doneTalking && lastVerdictLogged !== verdict) {
+      lastVerdictLogged = verdict;
+      log('endpoint_semantic', { lang, verdict, windowMs: window, silenceMs: T.silenceMs });
+    }
 
     // ---- SPECULATIVE TRANSCRIPTION ---------------------------------------
     // The endpointing window is dead time — 900ms of it, set that high on
@@ -178,7 +200,11 @@ export function createMediaTransport({
       speculations++;
       const promise = stt.transcribe(guess, lang);
       promise.catch(() => {});     // abandoning it must not crash the process
-      speculation = { promise, frames: guess.length };
+      speculation = { promise, frames: guess.length, text: null };
+      // Keep the TEXT, not just the promise. It is the evidence for whether
+      // they finished or merely paused — see media/turn-detect.js.
+      const mine = speculation;
+      promise.then((t) => { if (mine === speculation) mine.text = t; }, () => {});
       log('stt_speculated', { lang, frames: guess.length, afterSilenceMs: silentFor, attempt: speculations });
     }
 
@@ -193,6 +219,7 @@ export function createMediaTransport({
       const spec = speculation && speculation.frames === chunks.length ? speculation : null;
       speculation = null;
       speculations = 0;
+      lastVerdictLogged = null;
 
       // Whether our own audio could have been arriving while this was captured.
       const suspect = inEchoWindow(t);
@@ -310,6 +337,13 @@ export function createMediaTransport({
 
       let inflight = render(0);
       let wrote = false;
+      // WHAT WAS ACTUALLY SAID OUT LOUD, as opposed to what was generated.
+      // These diverge the moment somebody talks over her, and the difference is
+      // not cosmetic: the transcript is what the brain reads back as "what I
+      // already asked", what the scorer scores, and what a compliance reviewer
+      // reads as the record of the call. An agent that believes it asked a
+      // question it was cut off halfway through moves on without the answer.
+      spokenParts = [];
 
       for (let p = 0; p < parts.length; p++) {
         let audio;
@@ -358,6 +392,13 @@ export function createMediaTransport({
         // spurious frame of noise cost the rest of the sentence. `pending`
         // carries the parts not yet rendered — the resume re-synthesizes them,
         // which is cheap because a false interruption is rare.
+        // Fully emitted, or cut mid-part. A part cut part-way is recorded with
+        // a marker rather than verbatim: we know which frames went out, but not
+        // which WORD the cut landed on, and inventing a word boundary would be
+        // the same lie in a smaller font.
+        if (i >= frames.length) spokenParts.push(parts[p]);
+        else if (i > 0) spokenParts.push(parts[p] + ' …[cut off]');
+
         if (me.cancelled && T.resumeFalseInterruption && !closed
             && (i < frames.length || pending.length)) {
           pausedSpeech = {
@@ -409,6 +450,10 @@ export function createMediaTransport({
       };
 
       let ok = await play(resume.frames, resume.index);
+      // The resumed remainder was spoken too. It is appended rather than
+      // replacing the '…[cut off]' marker, because both are true: she was cut
+      // off, and she then finished.
+      if (ok) spokenParts.push('…' + String(resume.text || '').trim());
       // Parts that were still queued when the interruption landed were never
       // rendered. Render them now — the alternative is holding synthesized
       // audio for every part of every line on the chance it gets interrupted.
@@ -426,6 +471,19 @@ export function createMediaTransport({
       speaking = null;
       playbackEndedAt = now();
       return true;
+    },
+
+    /**
+     * What she actually said out loud on the last say(), which is NOT the text
+     * she was given whenever she was interrupted.
+     *
+     * It can UNDER-report: a false interruption that later resumes appends
+     * here, but the caller has usually recorded the turn by then. Under-
+     * reporting is the safe direction — she never believes she said something
+     * she did not.
+     */
+    spokenText() {
+      return spokenParts.join(' ').trim();
     },
 
     /**
