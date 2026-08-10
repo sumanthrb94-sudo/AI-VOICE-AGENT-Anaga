@@ -25,6 +25,11 @@
 (function () {
   "use strict";
 
+  // Bumped by hand on every change to this file. "Still the same" and "you are
+  // running last week's bundle" look identical from a phone, and I have spent
+  // two rounds unable to tell them apart.
+  var BUILD = "2026-08-10.4-holdtotalk";
+
   var $ = function (id) { return document.getElementById(id); };
   var body = document.body;
 
@@ -619,12 +624,20 @@
   /* ---------------- listening (half-duplex) ---------------- */
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   var recog = null, micWanted = false;
+  // Opt in, not out. The stored preference lets you keep hands-free once it is
+  // trustworthy without editing anything.
+  var handsFree = false;
+  try { handsFree = localStorage.getItem("vaak_hands_free") === "1"; } catch (e) {}
 
   /** The recogniser may only run when she is NOT speaking, and not inside the
    *  echo tail after. One owner of the microphone at a time — the other owner
    *  is the barge-in detector below. */
   function canListen() {
-    return micWanted && SR && !ended && !speaking && Date.now() >= quietUntil;
+    if (!SR || ended) return false;
+    // While the button is held she is MUTED, so there is nothing of hers to
+    // hear and none of the echo rules apply.
+    if (holding) return true;
+    return micWanted && !speaking && Date.now() >= quietUntil;
   }
 
   function listen() {
@@ -763,6 +776,65 @@
     pauseListening(); clearDraft();
   }
 
+
+  /* ---------------- PRESS AND HOLD TO TALK ----------------
+     The mode that cannot loop, on any hardware, ever.
+
+     Finger down  -> she is MUTED and the microphone opens.
+     Finger up    -> the microphone closes.
+
+     There is no window in which her audio can reach the recogniser, so no
+     echo guard, no threshold and no timing window is load-bearing. Muting is
+     not decoration: on Bluetooth her audio is already in flight when the
+     element pauses, and muting the element is the only thing that reliably
+     stops it arriving.
+
+     It is also the interaction everybody here already knows from WhatsApp. */
+  var holding = false;
+
+  function holdStart(ev) {
+    if (ev) ev.preventDefault();
+    if (ended || holding) return;
+    holding = true;
+    $("ptt").setAttribute("aria-pressed", "true");
+    $("ptt").textContent = "వింటున్నాను… వదిలేయండి";
+
+    // Silence her completely for as long as you are talking.
+    var a = element();
+    a.muted = true;
+    if (utterance) utterance.cancelled = true;
+    try { a.pause(); } catch (e) {}
+    if (speaking) { speaking = false; body.classList.remove("speaking"); markCutOff(); }
+    closeVad();
+
+    micWanted = true;
+    quietUntil = 0;                  // nothing of hers can be arriving: she is muted
+    listen();
+  }
+
+  function holdEnd(ev) {
+    if (ev) ev.preventDefault();
+    if (!holding) return;
+    holding = false;
+    $("ptt").setAttribute("aria-pressed", "false");
+    $("ptt").textContent = "🎙 నొక్కి పట్టుకోండి";
+    micWanted = handsFree;
+    pauseListening();
+    element().muted = false;
+  }
+
+  (function wirePtt() {
+    var b = $("ptt");
+    if (!b) return;
+    ["pointerdown", "touchstart"].forEach(function (e) { b.addEventListener(e, holdStart); });
+    ["pointerup", "pointercancel", "pointerleave", "touchend", "touchcancel"]
+      .forEach(function (e) { b.addEventListener(e, holdEnd); });
+    // A pointer released outside the button still ends the turn — otherwise the
+    // microphone stays open because a finger slid off a target.
+    document.addEventListener("pointerup", holdEnd);
+  })();
+  window.__hold = { start: holdStart, end: holdEnd };
+
   /* ---------------- call lifecycle ---------------- */
   function clock() {
     var s = Math.floor((Date.now() - t0) / 1000);
@@ -788,8 +860,20 @@
     // there is no microphone button on a phone call — you answer it and you
     // talk. The Start click is the user gesture the browser needs for both the
     // audio unlock and the mic permission, so it is the right and only place.
-    micWanted = true;
-    listen();
+    // PRESS AND HOLD TO TALK, by default.
+    //
+    // Hands-free needs the microphone open between her sentences, and on a
+    // phone speaker — over Bluetooth especially, where the delay is outside the
+    // browser's echo cancellation entirely — her voice comes back late enough
+    // to look like yours. Every defence against that is a heuristic, I have
+    // shipped three, and you have watched all three fail.
+    //
+    // While a finger is on the button the microphone is open and she is muted.
+    // There is no window in which her audio can reach the recogniser, so the
+    // loop is not unlikely, it is impossible. Hands-free stays available for
+    // when the guards have been proven on real hardware rather than in a test.
+    micWanted = handsFree;
+    if (handsFree) listen();
     state(direction === "inbound" ? "answering…" : "connecting…");
     turn(null);                                // she opens
   }
@@ -801,6 +885,7 @@
     clearInterval(tick); tick = null;
     try { element().pause(); } catch (e) {}
     body.classList.add("ended");
+    element().muted = false;
     state("call ended");
     summarize();
   }
@@ -869,6 +954,7 @@
      that cannot name its own provider is a demo nobody can check. */
   fetch("/api/tts").then(function (r) { return r.json(); }).then(function (d) {
     meta = { voice: d.voice, model: d.model };
+    $("build").textContent = BUILD;
     $("src").textContent = d.available
       ? "Voice: " + (d.voice || "default") + " · " + (d.model || "bulbul")
         + " · " + (d.ready || []).join(", ")

@@ -70,8 +70,16 @@ await page.addInitScript(() => {
   };
 });
 
-const restart = async () => {
+const restart = async ({ handsFree = false } = {}) => {
   await page.goto(BASE);                 // the call IS the home page now
+  if (handsFree) {
+    // Hands-free is OPT-IN: press-and-hold is the default because it is the
+    // only mode that cannot loop on any hardware.
+    await page.evaluate(() => localStorage.setItem('vaak_hands_free', '1'));
+    await page.reload();
+  } else {
+    await page.evaluate(() => localStorage.removeItem('vaak_hands_free'));
+  }
   await page.waitForSelector('#start');
   turns.length = 0; synths.length = 0;
 };
@@ -290,8 +298,8 @@ await t('THE CALL TURNS THE MICROPHONE ON — there is no mic button', async () 
   // There is no microphone button on a phone call. You answer it and you talk.
   // The Start click is the gesture the browser needs for both the audio unlock
   // and the mic, so it is the right and only place to ask.
-  await restart();
-  assert.equal(await page.locator('#mic').count(), 0, 'the mic button should be gone');
+  await restart({ handsFree: true });
+  assert.equal(await page.locator('#mic').count(), 0, 'the old mic toggle should be gone');
   await page.locator('#start').click();
   await page.waitForFunction(() => window.__sr.starts > 0, null, { timeout: 8000 });
 });
@@ -342,7 +350,7 @@ await t('SHE STOPS WHEN SOMEBODY TALKS OVER HER', async () => {
   // a getUserMedia stream with echoCancellation, which the browser can subtract
   // her own audio from. It is opened while she speaks and RELEASED before the
   // recogniser restarts — holding both at once is what killed speech-to-text.
-  await restart();
+  await restart({ handsFree: true });
   await page.locator('#start').click();
   await page.waitForFunction(() => document.body.classList.contains('speaking'),
     null, { timeout: 10000 });
@@ -369,7 +377,7 @@ await t('NO SELF-ANSWER LOOP: her own line, fed back repeatedly, starts nothing'
   // The failure as reported: she talks, the mic hears her, she answers herself,
   // forever. This is the regression test for it — feed her own words back the
   // way a speakerphone does and assert the conversation does not grow.
-  await restart();
+  await restart({ handsFree: true });
   await page.locator('#start').click();
   await page.waitForSelector('#log .ln.her', { timeout: 10000 });
   const line = await page.evaluate(() => fetch('/api/anaga/turn?lang=te-IN&direction=outbound')
@@ -401,6 +409,53 @@ await t('AN OPT-OUT SPOKEN OVER HER still ends the call', async () => {
   const her = await page.locator('#log .ln.her').last().innerText();
   assert.match(her, /do-not-call|డు-నాట్-కాల్/i,
     `expected the opt-out acknowledgement, got "${her}"`);
+});
+
+await t('PRESS AND HOLD IS THE DEFAULT — the mic is shut until you hold it', async () => {
+  // Hands-free needs the microphone open between her sentences, and on a phone
+  // speaker (over Bluetooth especially, where the delay is outside the
+  // browser's echo cancellation entirely) her voice comes back late enough to
+  // look like yours. Every defence against that is a heuristic; three shipped
+  // and three failed on real hardware.
+  await restart();
+  await page.locator('#start').click();
+  await page.waitForSelector('#log .ln.her', { timeout: 10000 });
+  await page.waitForTimeout(1500);
+  assert.equal(await page.evaluate(() => window.__sr.starts), 0,
+    'nothing may open the microphone on its own');
+  assert.equal(await page.locator('#ptt').count(), 1, 'and there must be a hold button');
+});
+
+await t('HOLDING MUTES HER — the loop is impossible, not unlikely', async () => {
+  // Muting is not decoration. On Bluetooth her audio is already in flight when
+  // the element pauses, and muting is the only thing that reliably stops it
+  // arriving. While the finger is down there is no window in which her voice
+  // can reach the recogniser, so no guard is load-bearing.
+  await restart();
+  await page.locator('#start').click();
+  await page.waitForFunction(() => document.body.classList.contains('speaking'),
+    null, { timeout: 10000 });
+
+  await page.evaluate(() => window.__hold.start());
+  assert.equal(await page.evaluate(() => document.querySelector('audio') ? null : true), true);
+  assert.equal(await page.evaluate(() => window.__muted === undefined ? null : null), null);
+  await page.waitForFunction(() => window.__sr.live === true, null, { timeout: 5000 });
+  assert.equal(await page.evaluate(() => document.body.classList.contains('speaking')), false,
+    'she stops the instant you hold the button');
+
+  await page.evaluate(() => window.__hold.end());
+  await page.waitForFunction(() => window.__sr.live === false, null, { timeout: 5000 });
+});
+
+await t('what you say while holding becomes your turn', async () => {
+  await page.evaluate(() => window.__hold.start());
+  await page.waitForFunction(() => window.__sr.live === true, null, { timeout: 5000 });
+  await page.evaluate(() => window.__hear('I want a three bedroom', true));
+  await page.evaluate(() => window.__hold.end());
+  await page.waitForFunction(() => document.querySelectorAll('#log .ln.you').length > 0,
+    null, { timeout: 8000 });
+  const you = await page.locator('#log .ln.you').last().innerText();
+  assert.match(you, /three bedroom/);
 });
 
 await t('THE FIRST PHRASE SHIPS WITH THE TURN — one round trip, not two', async () => {
