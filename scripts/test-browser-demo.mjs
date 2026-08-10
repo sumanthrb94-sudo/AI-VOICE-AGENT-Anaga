@@ -296,42 +296,66 @@ await t('THE CALL TURNS THE MICROPHONE ON — there is no mic button', async () 
   await page.waitForFunction(() => window.__sr.starts > 0, null, { timeout: 8000 });
 });
 
-await t('THE RECOGNISER STAYS OPEN WHILE SHE SPEAKS', async () => {
-  // It used to be closed, so nothing could interrupt her. Then it was closed
-  // and a SECOND getUserMedia stream watched for interruptions — which on
-  // Android Chrome stops SpeechRecognition starting at all, so barge-in worked
-  // and speech-to-text stopped. One microphone, one consumer.
+await t('THE RECOGNISER IS CLOSED WHILE SHE SPEAKS — this is the loop', async () => {
+  // The self-answer loop, which shipped: her voice reaches the microphone, is
+  // transcribed as a prospect turn, gets answered, and she talks to herself
+  // forever. Leaving the recogniser open and relying on a CONTENT check is not
+  // enough — once one fragment slips through, `speaking` is already false and
+  // every fragment after it is accepted.
   await page.waitForFunction(() => document.body.classList.contains('speaking'),
     null, { timeout: 10000 }).catch(() => {});
-  assert.equal(await page.evaluate(() => window.__sr.live), true,
-    'the microphone must be live — otherwise nothing can hear an interruption');
+  assert.notEqual(await page.evaluate(() => window.__sr.live), true,
+    'an open recogniser during playback is how she answers herself');
 });
 
-await t('HER OWN VOICE IS DISCARDED, not treated as a reply', async () => {
-  // Speakerphone: her line comes back through the mic. Transcribing it and
-  // answering it is a conversation with herself, observed for real.
-  await page.waitForFunction(() => document.body.classList.contains('speaking'),
-    null, { timeout: 10000 }).catch(() => {});
-  const before = await page.locator('#log .ln').count();
+await t('AND FOR AN ECHO TAIL AFTER — the loop lived in that gap', async () => {
+  // Her audio does not stop reaching the microphone the instant the element
+  // does: speaker decay, the room, the handset's buffer. Reopening the moment
+  // she finishes puts the last second of HER sentence at the start of YOURS.
+  await page.waitForFunction(() => !document.body.classList.contains('speaking'),
+    null, { timeout: 15000 });
+  assert.notEqual(await page.evaluate(() => window.__sr.live), true,
+    'the recogniser must not reopen inside the echo tail');
+  await page.waitForFunction(() => window.__sr.live === true, null, { timeout: 5000 });
+});
+
+await t('AN ECHO OF A LINE SHE HAS ALREADY MOVED ON FROM is still hers', async () => {
+  // Exactly the screenshot: the mic returns her OPENING sentence a moment after
+  // she has started the next one. A guard that only knows the current line
+  // matches nothing, and her own words become a "Prospect" turn — the loop.
   const line = await page.evaluate(() => fetch('/api/anaga/turn?lang=te-IN&direction=outbound')
     .then((r) => r.json()).then((d) => d.say));
+  await page.locator('#say').fill('tell me more');
+  await page.locator('#compose button[type=submit]').click();
+  await page.waitForFunction(() => document.body.classList.contains('speaking'),
+    null, { timeout: 10000 });
+  const before = await page.locator('#log .ln').count();
+  // Her OPENING line, fed back while she is saying a DIFFERENT one.
   await page.evaluate((echo) => window.__hear(echo, true), line);
   await page.waitForTimeout(700);
   assert.equal(await page.locator('#log .ln').count(), before,
-    'her own words must not become a prospect turn');
+    'a previous line of hers must not become a prospect turn');
 });
 
 await t('SHE STOPS WHEN SOMEBODY TALKS OVER HER', async () => {
+  // With the recogniser closed during playback, something else has to notice:
+  // a getUserMedia stream with echoCancellation, which the browser can subtract
+  // her own audio from. It is opened while she speaks and RELEASED before the
+  // recogniser restarts — holding both at once is what killed speech-to-text.
   await restart();
   await page.locator('#start').click();
   await page.waitForFunction(() => document.body.classList.contains('speaking'),
     null, { timeout: 10000 });
-  // Words that are NOT hers — a real interruption.
-  await page.evaluate(() => window.__hear('wait stop I have a question about the price', true));
+
+  // Sustained speech, not one burst: a single frame was enough for her own
+  // audio to cancel her own sentence.
+  await page.evaluate(() => window.__vad(true, 120));
+  assert.equal(await page.evaluate(() => document.body.classList.contains('speaking')), true,
+    'a short burst must NOT cut her off — that is echo, or a cough');
+
+  await page.evaluate(() => { for (let i = 0; i < 3; i++) window.__vad(true, 120); });
   await page.waitForFunction(() => !document.body.classList.contains('speaking'),
     null, { timeout: 5000 });
-  const you = await page.locator('#log .ln.you').last().innerText();
-  assert.match(you, /wait stop/, 'and what they said becomes their turn');
 });
 
 await t('and the transcript says she was CUT OFF, not that she finished', async () => {
@@ -339,6 +363,28 @@ await t('and the transcript says she was CUT OFF, not that she finished', async 
   // over halfway through it — the rule the call leg keeps in session.js.
   const hers = await page.locator('#log .ln.her').allInnerTexts();
   assert.ok(hers.some((h) => /cut off/.test(h)), `expected a cut-off marker, got ${JSON.stringify(hers)}`);
+});
+
+await t('NO SELF-ANSWER LOOP: her own line, fed back repeatedly, starts nothing', async () => {
+  // The failure as reported: she talks, the mic hears her, she answers herself,
+  // forever. This is the regression test for it — feed her own words back the
+  // way a speakerphone does and assert the conversation does not grow.
+  await restart();
+  await page.locator('#start').click();
+  await page.waitForSelector('#log .ln.her', { timeout: 10000 });
+  const line = await page.evaluate(() => fetch('/api/anaga/turn?lang=te-IN&direction=outbound')
+    .then((r) => r.json()).then((d) => d.say));
+
+  const before = await page.locator('#log .ln').count();
+  const brainCalls = turns.length;
+  for (let i = 0; i < 5; i++) {
+    await page.evaluate((echo) => { if (window.__hear) window.__hear(echo, true); }, line);
+    await page.waitForTimeout(250);
+  }
+  assert.equal(await page.locator('#log .ln').count(), before,
+    'echo must not add turns');
+  assert.equal(turns.length, brainCalls,
+    'and it must never reach the brain — every loop iteration is a billed call');
 });
 
 await t('AN OPT-OUT SPOKEN OVER HER still ends the call', async () => {
