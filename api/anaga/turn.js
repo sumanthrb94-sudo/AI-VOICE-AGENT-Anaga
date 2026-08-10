@@ -24,11 +24,37 @@
 import { generate } from '../_lib/llm.js';
 import { limited } from '../_lib/guard.js';
 import { turnPrompt, TURN_DISPOSITIONS } from '../_lib/prompts.js';
-import { LANGS } from '../_lib/flow.js';
+import { LANGS, loadFlow, loadDirection, fillTemplate, normalizeFlowLang } from '../_lib/flow.js';
 
 export default async function handler(req, res) {
+  // GET -> the APPROVED OPENING for this direction and language.
+  //
+  // It is reviewed, versioned wording in caller-agent/flows — it was never a
+  // thing to generate. Asking the model for it cost an LLM round trip at the
+  // most latency-sensitive moment of the call, spent money on a sentence we
+  // already had, and let a paraphrase of the reviewed disclosure reach a real
+  // prospect. Serving it from the flow is faster, cheaper and more compliant,
+  // and it lets a caller pre-synthesize the line before the call starts.
+  //
+  // No LLM, so no metering: this is a static read of a JSON file.
+  if (req.method === 'GET') {
+    const lang = normalizeFlowLang(req.query?.lang);
+    const flow = loadFlow();
+    const dir = loadDirection(req.query?.direction, flow);
+    const greet = dir.greet?.[lang] || dir.greet?.['en-IN'] || '';
+    return res.status(200).json({
+      say: fillTemplate(greet, flow),
+      end: false,
+      disposition: 'qualifying',
+      lang,
+      direction: dir.id,
+      source: 'flow',                 // NOT a generation — say so
+      flow: { id: flow.id, version: flow.version },
+    });
+  }
+
   if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
+    res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'method_not_allowed' });
   }
 

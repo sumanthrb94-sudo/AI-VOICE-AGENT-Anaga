@@ -92,20 +92,46 @@ await t('the call screen replaces the setup screen', async () => {
   assert.equal(await page.locator('.setup').isVisible(), false);
 });
 
-await t('ANAGA OPENS — the prospect does not have to speak first', async () => {
+await t('ANAGA OPENS — and the opening is DATA, not a generation', async () => {
+  // Her first line is reviewed, versioned wording in caller-agent/flows. Asking
+  // the model for a sentence that is already written cost an LLM round trip at
+  // the most latency-sensitive moment of the call, and risked a paraphrase of
+  // the reviewed disclosure reaching a real prospect.
+  // NOT /Anaga/ — every bubble carries "Anaga" as its speaker label, so that
+  // pattern matches even when she said something else entirely. It did, and
+  // hid the fact that the opening was still coming from the model.
   const her = await page.locator('#log .ln.her').first().innerText();
-  assert.ok(her.includes(STUB_SAY), `expected her opening line, got "${her}"`);
-  assert.equal(turns[0].history.length, 0, 'the first turn is requested with an empty history');
+  assert.match(her, /AI voice assistant/i, 'the AI disclosure is the first thing said');
+  assert.equal(turns.length, 0, 'the opening must not cost a brain call');
+
+  const approved = await page.evaluate(() => fetch('/api/anaga/turn?lang=te-IN&direction=outbound')
+    .then((r) => r.json()));
+  assert.equal(approved.source, 'flow', 'the endpoint must say it is not a generation');
+  assert.ok(her.includes(approved.say), 'she must say the approved line verbatim');
 });
 
-await t('the LANGUAGE picked reaches BOTH the brain and the voice', async () => {
-  assert.equal(turns[0].lang, 'te-IN', 'Telugu is the default on this screen');
+await t('the LANGUAGE picked reaches the voice', async () => {
   assert.ok(synths.length >= 1, 'the opening line must be spoken');
   assert.equal(synths[0].lang, 'te-IN', 'the voice must be asked for the same language');
 });
 
-await t('the DIRECTION reaches the brain', async () => {
-  assert.equal(turns[0].direction, 'outbound');
+await t('THE OPENING IS PRE-SYNTHESIZED, before the call starts', async () => {
+  // The two slowest things on the call — a brain round trip and a synthesis —
+  // both happen while you are still choosing a language.
+  const armed = await page.evaluate(() => !!(window.__openingReady));
+  assert.ok(armed, 'the opening audio should already be in hand');
+});
+
+await t('…but a call started INSTANTLY still opens with the approved line', async () => {
+  // Someone who lands and hits Start before the prewarm lands must get the same
+  // words, just a little later. Prewarming removes the WAIT; it is not what
+  // makes the line correct.
+  await restart();
+  await page.locator('#start').click({ force: true });
+  await page.waitForSelector('#log .ln.her', { timeout: 10000 });
+  const her = await page.locator('#log .ln.her').first().innerText();
+  assert.match(her, /AI voice assistant/i, `expected the approved line, got "${her}"`);
+  assert.equal(turns.length, 0, 'still no brain call for the opening');
 });
 
 await t('the timer runs', async () => {
@@ -122,6 +148,10 @@ await t('a typed reply appears as the PROSPECT and gets an answer', async () => 
   const you = await page.locator('#log .ln.you').last().innerText();
   assert.ok(you.includes('I am looking to invest'));
   assert.ok(you.includes('Prospect'), 'every line must say who said it');
+  // Only turns AFTER the opening go to the brain, and they carry the setting.
+  assert.ok(turns.length >= 1, 'a real reply does need the brain');
+  assert.equal(turns[0].lang, 'te-IN');
+  assert.equal(turns[0].direction, 'outbound');
 });
 
 await t('THE OPT-OUT ENDS THE CALL, whatever the model returns', async () => {
@@ -169,11 +199,19 @@ for (const [lang, label] of [['hi-IN', 'Hindi'], ['en-IN', 'English']]) {
     await restart();
     await page.locator(`#lang button[data-lang="${lang}"]`).click();
     await page.locator('#dir button[data-dir="inbound"]').click();
+    // The opening for the DEFAULT combo is prewarmed on load, so synths[0] is
+    // a Telugu request that happened before this switch. Only what is asked
+    // for after the choice says anything about the choice.
+    synths.length = 0;
     await page.locator('#start').click();
     await page.waitForSelector('#log .ln.her', { timeout: 10000 });
-    assert.equal(turns[0].lang, lang);
-    assert.equal(turns[0].direction, 'inbound');
+    await page.waitForFunction(() => window.__ttsPosts.length > 0, null, { timeout: 8000 }).catch(() => {});
+    assert.ok(synths.length, 'the opening must be spoken');
     assert.equal(synths[0].lang, lang, 'the voice follows the language too');
+    const her = await page.locator('#log .ln.her').first().innerText();
+    const approved = await page.evaluate((l) => fetch('/api/anaga/turn?lang=' + l + '&direction=inbound')
+      .then((r) => r.json()), lang);
+    assert.ok(her.includes(approved.say), `${lang} must open with its own approved line`);
     const sub = await page.locator('#sub').innerText();
     assert.ok(sub.includes('Incoming'), `an inbound call must say so, got "${sub}"`);
   });
@@ -190,7 +228,7 @@ await t('THE TRANSCRIPT SURVIVES A VOICE OUTAGE', async () => {
   await page.locator('#start').click();
   await page.waitForSelector('#log .ln.her', { timeout: 10000 });
   const her = await page.locator('#log .ln.her').first().innerText();
-  assert.ok(her.includes(STUB_SAY), 'the words must appear even with no voice');
+  assert.match(her, /AI voice assistant/i, 'the words must appear even with no voice');
   const st = await page.locator('#state').innerText();
   assert.match(st, /voice unavailable/i, `and it must say why, got "${st}"`);
   await page.unroute('**/api/tts');
@@ -296,11 +334,23 @@ await t('a long line is SPLIT, and the first request is the short one', async ()
   await page.locator('#lang button[data-lang="en-IN"]').click();
   await page.locator('#start').click();
   await page.waitForSelector('#log .ln.her', { timeout: 10000 });
-  // Wait for the WHOLE line to have been requested, not just the first two
-  // phrases — otherwise the reassembly assertion below races the third request
-  // and fails for a reason that has nothing to do with the splitter.
-  await page.waitForFunction(() => window.__ttsPosts && window.__ttsPosts.length >= 3,
-    null, { timeout: 15000 }).catch(() => {});
+  // Her opening is the flow line; the SPLIT under test is her reply to this.
+  // Let the opening finish before measuring the reply — its own phrases would
+  // otherwise be counted as the split under test.
+  await page.waitForTimeout(600);
+  synths.length = 0;
+  await page.locator('#say').fill('tell me about it');
+  await page.locator('#compose button[type=submit]').click();
+  await page.waitForFunction(() => document.querySelectorAll('#log .ln.her').length >= 2,
+    null, { timeout: 10000 });
+  // Poll the TEST's own list, not the page's counter: the page counts every
+  // synth since load, including the opening's, so it was already past three
+  // before the reply's phrases had been requested at all.
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline
+    && synths.map((p) => p.text).join(' ').replace(/\s+/g, ' ').trim() !== line.replace(/\s+/g, ' ').trim()) {
+    await page.waitForTimeout(150);
+  }
 
   const asked = synths.map((p) => p.text);
   assert.ok(asked.length >= 2, `the line should be split, got ${asked.length} request(s)`);

@@ -328,9 +328,58 @@ export function ttsStatus({ all = false, lang } = {}) {
  * actually served. They differ when the male-capable provider is unavailable,
  * and the caller is expected to surface that rather than paper over it.
  */
+// ── IDENTICAL TEXT IS SYNTHESIZED ONCE ────────────────────────────────────
+//
+// Anaga opens every call with the same reviewed sentence. Paying Sarvam ~3.3s
+// and a per-character fee to render it again for each caller is money and
+// latency spent on a byte-for-byte identical result.
+//
+// In-process and bounded: Vercel gives each warm instance its own memory and
+// reclaims it, so this is a warm-instance win, not a distributed cache. That is
+// the honest scope — it makes the second and later calls on an instance fast,
+// and does nothing for a cold one.
+//
+// Keyed on EVERYTHING that changes the audio. A cache keyed on text alone would
+// serve one voice's audio under another's name, which is the same bug as the
+// silent speaker substitution, arriving through a different door.
+const SYNTH_CACHE = new Map();
+const SYNTH_CACHE_MAX = Number(process.env.TTS_CACHE_ENTRIES || 40);
+const SYNTH_CACHE_TTL_MS = Number(process.env.TTS_CACHE_TTL_MS || 30 * 60 * 1000);
+
+function cacheKey(text, opts) {
+  return JSON.stringify([
+    text, normalizeLang(opts.lang), opts.speaker || '', opts.gender || '',
+    opts.voice || '', opts.pace ?? '', opts.pitch ?? '', opts.loudness ?? '',
+    sarvamModel(), providerChain().join(','),
+    // The stream and batch endpoints return DIFFERENT FORMATS — MP3 and WAV.
+    // Leaving this out of the key meant flipping the env served stale MP3
+    // bytes under mime "audio/wav", which a browser refuses to decode and a
+    // telephony leg would play as noise. Caught by an existing test that
+    // suddenly saw no vendor call at all.
+    process.env.SARVAM_STREAM === '0' ? 'batch' : 'stream',
+    process.env.SARVAM_SAMPLE_RATE || '',
+  ]);
+}
+
+export function synthCacheStats() {
+  return { entries: SYNTH_CACHE.size, max: SYNTH_CACHE_MAX };
+}
+export function clearSynthCache() { SYNTH_CACHE.clear(); }
+
 export async function synth(opts = {}) {
   const text = String(opts.text || '').trim();
   if (!text) throw new Error('tts_text_required');
+
+  const ck = process.env.TTS_CACHE === '0' ? null : cacheKey(text, opts);
+  if (ck) {
+    const hit = SYNTH_CACHE.get(ck);
+    if (hit && hit.until > Date.now()) {
+      // Re-inserted so the map stays in least-recently-used order.
+      SYNTH_CACHE.delete(ck); SYNTH_CACHE.set(ck, hit);
+      return { ...hit.out, cached: true };
+    }
+    if (hit) SYNTH_CACHE.delete(ck);
+  }
 
   let chain = providerChain().filter(providerReady);
   if (!chain.length) throw new Error('tts_unavailable');
@@ -379,6 +428,16 @@ export async function synth(opts = {}) {
       // a sentence with no stack trace attached. Carry the failures out so the
       // handler can say WHICH provider dropped out and why.
       if (errors.length) out.fellBackFrom = errors;
+      // A FALLBACK IS NEVER CACHED. Storing it would pin the free Google voice
+      // in memory for half an hour after a one-second Sarvam hiccup, and every
+      // caller on that instance would hear it — the exact "why does everyone
+      // sound the same" failure, with a longer tail.
+      if (ck && !errors.length) {
+        SYNTH_CACHE.set(ck, { out, until: Date.now() + SYNTH_CACHE_TTL_MS });
+        while (SYNTH_CACHE.size > SYNTH_CACHE_MAX) {
+          SYNTH_CACHE.delete(SYNTH_CACHE.keys().next().value);
+        }
+      }
       return out;
     } catch (err) {
       errors.push(`${provider}: ${err?.message || 'failed'}`);

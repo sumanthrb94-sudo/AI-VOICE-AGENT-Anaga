@@ -131,6 +131,76 @@
     "en-IN": "Understood. I'll add your number to our do-not-call list right away. Sorry to disturb you."
   };
 
+  /* ---------------- pre-synthesizing the opening ----------------
+     Her first line is the same every time: reviewed, versioned wording from
+     caller-agent/flows, served by GET /api/anaga/turn. So the two slowest
+     things on the call — an LLM round trip and a synthesis — can both happen
+     while you are still choosing a language.
+
+     It is not a preview and nothing plays: the audio is fetched and held. The
+     "nothing plays until a tap" rule is about SOUND, and this makes none.
+
+     Cost is why it waits for a sign of a human. Prewarming on page load would
+     bill a synthesis for every crawler that finds the URL. */
+  var opening = null;     // { key, text, src, textReady } for the armed combo
+  var audioWanted = false;
+
+  function openingKey() { return lang + "|" + direction; }
+
+  /* The TEXT is free — a static read of a JSON file, no model, no vendor — so
+     it is fetched on load and on every change of language or direction.
+     The AUDIO costs a synthesis, so it waits for a sign of a human. Prewarming
+     audio on page load would bill Sarvam for every crawler that finds the URL. */
+  function armOpening() {
+    var want = openingKey();
+    if (opening && opening.key === want) return maybePrewarmAudio(opening);
+
+    var mine = { key: want, text: null, src: null };
+    opening = mine;
+    mine.textReady = fetch("/api/anaga/turn?lang=" + encodeURIComponent(lang)
+        + "&direction=" + encodeURIComponent(direction))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.say || opening !== mine) return null;
+        mine.text = d.say;
+        maybePrewarmAudio(mine);
+        return d.say;
+      })
+      .catch(function () { return null; });   // the brain path still covers us
+    return mine.textReady;
+  }
+
+  function maybePrewarmAudio(mine) {
+    if (!audioWanted || !mine.text || mine.src || mine.rendering) return;
+    mine.rendering = true;
+    // Only the FIRST phrase. The rest renders while that one plays, exactly as
+    // it does mid-call — prewarming the whole line would spend more and save
+    // nothing after the first word.
+    var first = splitForSpeech(mine.text)[0];
+    fetch("/api/tts", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: first, lang: lang })
+    }).then(function (r) { return r.ok ? r.json() : null; }).then(function (a) {
+      if (!a || !a.audio || opening !== mine) return;
+      mine.src = "data:" + (a.mime || "audio/mpeg") + ";base64," + a.audio;
+      window.__openingReady = true;      // test introspection
+    }).catch(function () { /* a prewarm that fails costs the latency it saved */ });
+  }
+
+  // A pointer or a key is the cheapest evidence of a person. Crawlers do not
+  // touch the screen, and this fires once.
+  ["pointerdown", "keydown", "touchstart"].forEach(function (ev) {
+    document.addEventListener(ev, function armOnce() {
+      audioWanted = true;
+      if (opening) maybePrewarmAudio(opening);
+      ["pointerdown", "keydown", "touchstart"].forEach(function (e2) {
+        document.removeEventListener(e2, armOnce);
+      });
+    });
+  });
+
+  armOpening();     // the text, on load — it is free
+
   /* ---------------- the conversation ---------------- */
   function turn(text) {
     if (ended) return;
@@ -141,9 +211,32 @@
       if (isOptOut(text)) return reply(BYE[lang] || BYE["en-IN"], true, "opt-out");
     }
 
+    // THE OPENING IS DATA, NOT A GENERATION — always, whether or not the
+    // prewarm finished. Asking the model for a sentence that is already
+    // written cost a round trip at the most latency-sensitive moment of the
+    // call and risked a paraphrase of the reviewed disclosure reaching a real
+    // prospect. Prewarming only removes the WAIT; it is not what makes the
+    // line correct, so somebody who lands and hits Start immediately gets the
+    // same words, just a little later.
+    if (!text) {
+      var mine = (opening && opening.key === openingKey()) ? opening : null;
+      var ready = mine ? (mine.text ? Promise.resolve(mine.text) : mine.textReady) : armOpening();
+      thinking = true;
+      state("connecting…");
+      return Promise.resolve(ready).then(function (line) {
+        thinking = false;
+        if (line) return reply(line, false, "qualifying", mine && mine.src);
+        return askBrain();          // the flow is unreadable; the brain still answers
+      });
+    }
+
+    return askBrain();
+  }
+
+  function askBrain() {
     thinking = true;
     state("thinking…");
-    fetch("/api/anaga/turn", {
+    return fetch("/api/anaga/turn", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ history: history, lang: lang, direction: direction })
     }).then(function (r) { return r.ok ? r.json() : null; })
@@ -172,14 +265,14 @@
   }
 
   var disposition = "qualifying";
-  function reply(text, isEnd, disp) {
+  function reply(text, isEnd, disp, prerendered) {
     thinking = false;
     disposition = disp || disposition;
     history.push({ role: "agent", text: text });
     bubble("agent", text);                  // written first, spoken second
     if (!t0) { t0 = Date.now(); clock(); tick = setInterval(clock, 1000); }
     if (isEnd) ended = true;
-    speak(text).then(function () {
+    speak(text, prerendered).then(function () {
       speaking = false; body.classList.remove("speaking");
       if (ended) return hangup();
       state("");
@@ -277,7 +370,7 @@
 
   var utterance = null;                  // the line currently being spoken
 
-  function speak(text) {
+  function speak(text, prerendered) {
     var a = element();
     // ORDER MATTERS: raise the flag BEFORE closing the mic. aborting the
     // recogniser fires onend synchronously, and onend reopens it unless it can
@@ -328,8 +421,9 @@
       });
     }
 
-    // Render part 0, then keep exactly one phrase in flight ahead of playback.
-    var inflight = synth(parts[0]);
+    // Render part 0 — unless it was rendered before the call even started, in
+    // which case the first word costs a decode and nothing else.
+    var inflight = prerendered ? Promise.resolve(prerendered) : synth(parts[0]);
     inflight.catch(function () {});
 
     function step(i, pending) {
@@ -469,8 +563,8 @@
       set(b.dataset[attr]);
     });
   }
-  seg("dir", "dir", function (v) { direction = v; });
-  seg("lang", "lang", function (v) { lang = v; });
+  seg("dir", "dir", function (v) { direction = v; armOpening(); });
+  seg("lang", "lang", function (v) { lang = v; armOpening(); });
 
   $("start").addEventListener("click", begin);
   $("again").addEventListener("click", function () {

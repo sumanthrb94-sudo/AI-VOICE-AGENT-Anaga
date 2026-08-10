@@ -47,7 +47,10 @@ const bin = (bytes, status = 200) => ({
   json: async () => ({}), text: async () => '',
   arrayBuffer: async () => new Uint8Array(bytes).buffer, headers: new Map(),
 });
-function reset() { routes = []; calls = []; }
+// The synth cache is process-wide by design, so a test that expects the vendor
+// to be called has to start from an empty one. Leaving it warm made one test
+// silently assert against another test's audio.
+function reset() { routes = []; calls = []; if (tts) tts.clearSynthCache(); }
 
 // Modules read env at call time, so each test can set its own world.
 const ENV_KEYS = ['TTS_PROVIDER', 'SARVAM_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_SERVICE_ACCOUNT',
@@ -57,7 +60,8 @@ const ENV_KEYS = ['TTS_PROVIDER', 'SARVAM_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_SE
 function clearEnv() { for (const k of ENV_KEYS) delete process.env[k]; }
 clearEnv();
 
-const tts = await import('../api/_lib/tts.js');
+// eslint-disable-next-line prefer-const
+let tts = await import('../api/_lib/tts.js');
 const tr = await import('../api/_lib/translate.js');
 
 // ===========================================================================
@@ -736,6 +740,75 @@ await t('empty text is refused before any provider is called', async () => {
   clearEnv(); reset();
   await assert.rejects(() => tts.synth({ text: '   ', lang: 'en-IN' }), /tts_text_required/);
   assert.equal(calls.length, 0, 'no network call should have been made');
+});
+
+// ===========================================================================
+section('§3b identical text is synthesized once');
+// ===========================================================================
+
+await t('THE SAME LINE IS NOT RE-RENDERED FOR EVERY CALLER', async () => {
+  // Anaga opens every call with the same reviewed sentence. Paying ~3.3s and a
+  // per-character fee to render it again for each caller is money and latency
+  // spent on a byte-for-byte identical result.
+  clearEnv(); reset(); tts.clearSynthCache();
+  process.env.TTS_PROVIDER = 'sarvam';
+  process.env.SARVAM_API_KEY = 's';
+  let calls = 0;
+  routes = [{ match: /api\.sarvam\.ai/, reply: () => { calls++; return bin([0xff, 0xfb, 0x53]); } }];
+
+  const line = 'Namaskaram, nenu Anaga — Vaak nunchi oka AI voice assistant.';
+  const a = await tts.synth({ text: line, lang: 'te-IN', speaker: 'kavya' });
+  const b = await tts.synth({ text: line, lang: 'te-IN', speaker: 'kavya' });
+  assert.equal(calls, 1, 'the second caller must not pay for the same sentence');
+  assert.equal(b.audio, a.audio);
+  assert.equal(b.cached, true, 'and it must say it came from cache');
+  tts.clearSynthCache(); clearEnv();
+});
+
+await t('the cache is keyed on the VOICE, not just the words', async () => {
+  // Keying on text alone would serve one voice's audio under another's name —
+  // the same bug as the silent speaker substitution, through a different door.
+  clearEnv(); reset(); tts.clearSynthCache();
+  process.env.TTS_PROVIDER = 'sarvam';
+  process.env.SARVAM_API_KEY = 's';
+  const seen = [];
+  routes = [{ match: /api\.sarvam\.ai/, reply: (_u, init) => { seen.push(JSON.parse(init.body).speaker); return bin([0xff, 0xfb, 0x53]); } }];
+
+  await tts.synth({ text: 'same words', lang: 'te-IN', speaker: 'kavya' });
+  await tts.synth({ text: 'same words', lang: 'te-IN', speaker: 'shreya' });
+  assert.deepEqual(seen, ['kavya', 'shreya'], 'a different voice is a different render');
+
+  // Pace changes the audio too.
+  await tts.synth({ text: 'same words', lang: 'te-IN', speaker: 'kavya', pace: 1.4 });
+  assert.equal(seen.length, 3, 'a different pace is a different render');
+  tts.clearSynthCache(); clearEnv();
+});
+
+await t('A FALLBACK IS NEVER CACHED', async () => {
+  // Caching one would pin the free Google voice in memory for half an hour
+  // after a one-second Sarvam hiccup, and every caller on that instance would
+  // hear it — "why does everyone sound the same", with a longer tail.
+  clearEnv(); reset(); tts.clearSynthCache();
+  process.env.TTS_PROVIDER = 'sarvam,gtranslate';
+  process.env.SARVAM_API_KEY = 's';
+  let sarvamUp = false;
+  routes = [
+    { match: /api\.sarvam\.ai/, reply: () => (sarvamUp ? bin([0xff, 0xfb, 0x53]) : ({ ok: false, status: 500, json: async () => ({ message: 'down' }) })) },
+    { match: /translate_tts/, reply: () => bin([0xff, 0xfb, 0x53]) },
+  ];
+
+  const first = await tts.synth({ text: 'hello', lang: 'te-IN', gender: 'female' });
+  assert.equal(first.provider, 'gtranslate', 'the chain covered the outage');
+  assert.equal(tts.synthCacheStats().entries, 0, 'a fallback must not be remembered');
+
+  sarvamUp = true;
+  const second = await tts.synth({ text: 'hello', lang: 'te-IN', gender: 'female' });
+  assert.equal(second.provider, 'sarvam', 'recovery must be immediate, not in 30 minutes');
+  tts.clearSynthCache(); clearEnv();
+});
+
+await t('the cache is BOUNDED — a long call cannot eat the instance', () => {
+  assert.ok(tts.synthCacheStats().max <= 100, 'an unbounded audio cache is a memory leak');
 });
 
 // ===========================================================================
