@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vaak · which woman's voice is fastest</title>
+<style>
+  :root{--bg:#08090c;--card:#12141a;--line:#232733;--txt:#e8eaf0;
+        --dim:#8b93a7;--accent:#ff8a3d;--ok:#35d07f;--warn:#ffb020}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--txt);
+    font:15px/1.45 ui-sans-serif,system-ui,"Noto Sans Telugu",sans-serif}
+  header{padding:18px 16px 6px}
+  h1{margin:0;font-size:18px}
+  p{color:var(--dim);font-size:12px;margin:6px 0 0;line-height:1.6}
+  .bar{padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  button{background:var(--accent);color:#0b0b0b;border:0;border-radius:999px;
+    padding:11px 20px;font:600 14px/1 inherit;cursor:pointer}
+  button:disabled{opacity:.5;cursor:default}
+  #note{color:var(--dim);font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--dim);font-weight:500;font-size:11px;text-transform:uppercase;
+     letter-spacing:.04em}
+  tbody tr:first-child td{color:var(--ok);font-weight:600}
+  td.n{font-variant-numeric:tabular-nums}
+  .wrap{padding:0 8px 40px}
+  .verdict{margin:14px 16px;padding:12px 14px;border:1px solid var(--line);
+    border-radius:12px;background:var(--card);font-size:13px;line-height:1.6}
+  .verdict b{color:var(--ok)}
+  .verdict.warn b{color:var(--warn)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Which woman's voice is fastest?</h1>
+  <p>
+    Every female Bulbul voice, same Telugu sentence, several rounds each, run
+    one at a time so they do not compete with each other. The first round is
+    thrown away — it pays for the cold start and would otherwise be scored
+    against whichever voice happened to go first.<br>
+    Server time is measured too, and that is the number that matters: it is the
+    only part that differs between one speaker and another. Your network and
+    your phone's decoding are identical for all of them.
+  </p>
+</header>
+
+<div class="bar">
+  <button id="go" type="button">Measure</button>
+  <span id="note">loading voices…</span>
+</div>
+
+<div id="verdict"></div>
+<div class="wrap"><table id="out"></table></div>
+
+<script>
+(function () {
+  "use strict";
+  var LANG = "te-IN";
+  var SAMPLE = "నమస్కారం, నేను అనగా. మీరు అడిగిన ఇంటి గురించి మాట్లాడటానికి కాల్ చేశాను.";
+  var ROUNDS = Math.max(2, Number(new URLSearchParams(location.search).get("rounds") || 4));
+
+  var go = document.getElementById("go");
+  var note = document.getElementById("note");
+  var out = document.getElementById("out");
+  var verdict = document.getElementById("verdict");
+  var women = [];
+
+  function median(a) {
+    var s = a.slice().sort(function (x, y) { return x - y; });
+    var m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+  }
+
+  fetch("/api/tts").then(function (r) { return r.json(); }).then(function (d) {
+    women = (d.voices || []).filter(function (v) { return v.gender === "female"; });
+    note.textContent = women.length + " female voices · " + ROUNDS + " rounds each · "
+      + (women.length * ROUNDS) + " requests";
+    if (!women.length) { note.textContent = "no voices — is SARVAM_API_KEY set?"; go.disabled = true; }
+  }).catch(function () { note.textContent = "could not load the catalogue"; go.disabled = true; });
+
+  function one(id) {
+    var t0 = performance.now();
+    return fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // No pitch: bulbul:v3 rejects it. Pace left at the vendor default so the
+      // measurement is of the voice, not of a setting.
+      body: JSON.stringify({ text: SAMPLE, lang: LANG, speaker: id })
+    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.d || !res.d.audio) throw new Error((res.d && res.d.error) || "failed");
+        // `|| null` here dropped every ms of 0 — the fastest results were the
+        // ones that vanished from the column, which is the worst possible
+        // direction for a benchmark to be wrong in.
+        var ms = typeof res.d.ms === "number" ? res.d.ms : null;
+        return { total: Math.round(performance.now() - t0), server: ms };
+      });
+  }
+
+  function render(rows, done) {
+    rows = rows.slice().sort(function (a, b) {
+      if (a.server == null || b.server == null) return a.total - b.total;
+      return a.server - b.server;
+    });
+    out.innerHTML = "<thead><tr><th>voice</th><th>server ms</th><th>total ms</th>"
+      + "<th>best</th><th>spread</th></tr></thead>";
+    var tb = document.createElement("tbody");
+    rows.forEach(function (r) {
+      var tr = document.createElement("tr");
+      [r.id, r.server == null ? "—" : r.server, r.total, r.min, "±" + r.spread]
+        .forEach(function (cell, i) {
+          var td = document.createElement("td");
+          if (i) td.className = "n";
+          td.textContent = cell;
+          tr.appendChild(td);
+        });
+      tb.appendChild(tr);
+    });
+    out.appendChild(tb);
+    if (done) judge(rows);
+  }
+
+  // The honest part. If the fastest voice's spread overlaps the runner-up's,
+  // the ranking is measuring the network, not the voice — and picking a winner
+  // off it is picking noise and calling it a decision.
+  function judge(rows) {
+    if (rows.length < 2) return;
+    var a = rows[0], b = rows[1];
+    var key = a.server == null ? "total" : "server";
+    var overlap = (a[key] + a.spread) >= (b[key] - b.spread);
+    verdict.className = "verdict" + (overlap ? " warn" : "");
+    verdict.textContent = overlap
+      ? "Too close to call: " + a.id + " (" + a[key] + "ms ±" + a.spread + ") and "
+        + b.id + " (" + b[key] + "ms ±" + b.spread + ") overlap. The difference is "
+        + "run-to-run noise, not the voice. Pick on how she SOUNDS — the latency "
+        + "to fix is in the pipeline, not in the catalogue."
+      : "";
+    if (!overlap) {
+      verdict.innerHTML = "Fastest by a real margin: <b>" + a.id + "</b> at " + a[key]
+        + "ms, against " + b.id + " at " + b[key] + "ms.";
+    }
+  }
+
+  go.addEventListener("click", function () {
+    go.disabled = true;
+    var runs = {};
+    women.forEach(function (v) { runs[v.id] = []; });
+
+    var seq = Promise.resolve();
+    for (var r = 0; r < ROUNDS; r++) {
+      (function (round) {
+        women.forEach(function (v) {
+          seq = seq.then(function () {
+            note.textContent = "round " + (round + 1) + "/" + ROUNDS + " · " + v.id;
+            return one(v.id).then(function (m) {
+              // Round 0 is the warm-up and is discarded, not averaged in.
+              if (round > 0) runs[v.id].push(m);
+            }, function () { /* a failure is not a fast voice; just skip it */ });
+          });
+        });
+      })(r);
+    }
+
+    seq.then(function () {
+      var rows = women.map(function (v) {
+        var got = runs[v.id];
+        if (!got.length) return null;
+        var totals = got.map(function (m) { return m.total; });
+        var servers = got.map(function (m) { return m.server; }).filter(function (x) { return x != null; });
+        return {
+          id: v.id,
+          total: median(totals),
+          server: servers.length ? median(servers) : null,
+          min: Math.min.apply(null, totals),
+          spread: Math.round((Math.max.apply(null, totals) - Math.min.apply(null, totals)) / 2),
+        };
+      }).filter(Boolean);
+      note.textContent = "done · " + rows.length + " voices";
+      render(rows, true);
+      go.disabled = false;
+    });
+  });
+})();
+</script>
+</body>
+</html>

@@ -61,15 +61,32 @@ export default async function handler(req, res) {
 
   if (!ttsAvailable()) return res.status(503).json({ error: 'tts_unavailable' });
 
+  const t0 = Date.now();
   try {
     const out = await synth({ text, lang, speaker, gender, voice, pitch, pace, loudness });
+    const ms = Date.now() - t0;
+
+    // TIME EVERY SUCCESS, BY SPEAKER. "Which voice is fastest" was unanswerable
+    // because nothing recorded it: the only numbers anywhere were single samples
+    // rendered on a phone, where cold start and signal swamp the difference
+    // between two voices. One line per synth makes the question arithmetic.
+    console.log(JSON.stringify({
+      event: 'tts_ok',
+      provider: out.provider,
+      speaker: out.voice,
+      gender: out.gender,
+      chars: text.length,
+      ms,
+    }));
 
     // A silent fallback is the failure mode that costs the most time: the
     // caller gets a 200 and audio, so nothing looks wrong, and the only symptom
     // is that the voice sounds worse than it should. Log it at ERROR, because
     // serving the free fallback voice to real prospects IS an incident even
     // though the request succeeded.
-    const { fellBackFrom, ...body } = out;
+    // `ms` is the SERVER's own time — network and decode excluded — which is the
+    // only part that differs between one speaker and another.
+    const { fellBackFrom, ...body } = { ...out, ms };
     if (fellBackFrom?.length) {
       console.error(JSON.stringify({
         event: 'tts_fell_back',
