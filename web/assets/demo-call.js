@@ -158,12 +158,20 @@
     var mine = { key: want, text: null, src: null };
     opening = mine;
     mine.textReady = fetch("/api/anaga/turn?lang=" + encodeURIComponent(lang)
-        + "&direction=" + encodeURIComponent(direction))
+        + "&direction=" + encodeURIComponent(direction)
+        + (audioWanted ? "&voice=1" : ""))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         if (!d || !d.say || opening !== mine) return null;
         mine.text = d.say;
-        maybePrewarmAudio(mine);
+        // Rendered server-side alongside the text when we asked for it — one
+        // request instead of two, before the call has even started.
+        if (d.speak && d.speak.audio) {
+          mine.src = "data:" + (d.speak.mime || "audio/mpeg") + ";base64," + d.speak.audio;
+          window.__openingReady = true;
+        } else {
+          maybePrewarmAudio(mine);
+        }
         return d.say;
       })
       .catch(function () { return null; });   // the brain path still covers us
@@ -236,19 +244,42 @@
   function askBrain() {
     thinking = true;
     state("thinking…");
-    return fetch("/api/anaga/turn", {
+    // ?voice=1 — the reply comes back WITH its first phrase already rendered.
+    // Asking for the audio separately meant a second handset-to-server round
+    // trip on a mobile network, after the slowest part of the turn was already
+    // done.
+    return fetch("/api/anaga/turn?voice=1", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ history: history, lang: lang, direction: direction })
-    }).then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) {
-        if (d && d.say) { note = ""; return reply(d.say, d.end === true, d.disposition); }
-        note = "brain unavailable"; state("");
-        reply(fallback(), false, "qualifying");
+    }).then(function (r) {
+      return r.json().catch(function () { return null; })
+        .then(function (d) { return { ok: r.ok, d: d }; });
+    })
+      .then(function (res) {
+        var d = res.d;
+        if (res.ok && d && d.say) {
+          note = "";
+          var pre = d.speak && d.speak.audio
+            ? "data:" + (d.speak.mime || "audio/mpeg") + ";base64," + d.speak.audio
+            : null;
+          return reply(d.say, d.end === true, d.disposition, pre);
+        }
+        degraded(d);
       })
-      .catch(function () {
-        note = "brain unavailable"; state("");
-        reply(fallback(), false, "qualifying");
-      });
+      .catch(function () { degraded(null); });
+  }
+
+  // SAY WHICH FAILURE IT IS. "brain unavailable" in small warn text was true
+  // and useless: the brain was returning 429 on every single turn for hours —
+  // the free Gemini quota was exhausted — and the screen just quietly read out
+  // four canned questions instead. A quota is a billing problem, not a broken
+  // agent, and only one of those is fixed by waiting.
+  function degraded(d) {
+    note = d && d.reason === "quota_exceeded"
+      ? "LLM quota exhausted — she is reading a fallback script, not thinking"
+      : "brain unavailable — she is reading a fallback script";
+    state("");
+    reply(fallback(), false, "qualifying");
   }
 
   // Only when the brain is down. Deliberately dumb — not a second agent to keep

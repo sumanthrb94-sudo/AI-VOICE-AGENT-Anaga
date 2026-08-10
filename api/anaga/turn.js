@@ -25,6 +25,8 @@ import { generate } from '../_lib/llm.js';
 import { limited } from '../_lib/guard.js';
 import { turnPrompt, TURN_DISPOSITIONS } from '../_lib/prompts.js';
 import { LANGS, loadFlow, loadDirection, fillTemplate, normalizeFlowLang } from '../_lib/flow.js';
+import { synth, ttsAvailable } from '../_lib/tts.js';
+import { splitForSpeech } from '../../shared/speech-split.js';
 
 export default async function handler(req, res) {
   // GET -> the APPROVED OPENING for this direction and language.
@@ -42,8 +44,10 @@ export default async function handler(req, res) {
     const flow = loadFlow();
     const dir = loadDirection(req.query?.direction, flow);
     const greet = dir.greet?.[lang] || dir.greet?.['en-IN'] || '';
+    const say = fillTemplate(greet, flow);
     return res.status(200).json({
-      say: fillTemplate(greet, flow),
+      say,
+      ...(String(req.query?.voice || '') === '1' ? { speak: await firstPhrase(say, lang) } : {}),
       end: false,
       disposition: 'qualifying',
       lang,
@@ -141,7 +145,35 @@ export default async function handler(req, res) {
     ? out.disposition
     : 'qualifying';
 
-  // Echoed so the caller can render the transcript, and synthesize the reply,
-  // in the language it was actually generated in.
-  return res.status(200).json({ say, end, disposition, lang, direction });
+  // ONE ROUND TRIP, NOT TWO. The browser used to answer the turn, then make a
+  // second request from the phone to synthesize it — a whole extra
+  // handset-to-server hop on a mobile network, after the slowest part of the
+  // call had already finished. Rendering the first phrase here starts it the
+  // instant the model answers, and ships it in the reply that was going out
+  // anyway. ?voice=1 so a caller that does its own audio is unaffected.
+  const speak = String(req.query?.voice || '') === '1'
+    ? await firstPhrase(say, lang)
+    : null;
+
+  return res.status(200).json({ say, end, disposition, lang, direction, ...(speak ? { speak } : {}) });
+}
+
+/**
+ * Render just the FIRST phrase. The rest is synthesized by the caller while
+ * this one plays — prerendering the whole line here would hold the response
+ * open for the slowest part of it and save nothing after the first word.
+ *
+ * Never throws: audio is an optimisation, and a turn that arrives without it
+ * is a turn the caller can still speak and still show.
+ */
+async function firstPhrase(text, lang) {
+  if (!ttsAvailable()) return null;
+  try {
+    const first = splitForSpeech(text)[0];
+    if (!first) return null;
+    const out = await synth({ text: first, lang });
+    return { text: first, audio: out.audio, mime: out.mime, voice: out.voice, ms: out.ms };
+  } catch {
+    return null;
+  }
 }

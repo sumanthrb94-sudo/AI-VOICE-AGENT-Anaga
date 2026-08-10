@@ -34,19 +34,124 @@ export async function generate({ system, user, json = false } = {}) {
     throw new Error('generate(): "user" must be a non-empty string');
   }
 
-  const provider = (process.env.LLM_PROVIDER || 'gemini').toLowerCase();
+  // A CHAIN, like TTS_PROVIDER, and for the same reason. Gemini's free tier
+  // returned 429 on every single turn for hours; the browser fell back to a
+  // four-line canned script and the call stopped being a conversation. One
+  // vendor's quota should not be able to do that.
+  //
+  // Sarvam is first: this product already pays for a Sarvam key for STT and
+  // TTS, sarvam-105b-conversations is built for real-time voice agents, and it
+  // is trained on the Indic and code-mixed text these calls are made of. It is
+  // also Indian data residency for the conversation content, not only the audio
+  // — see docs/COMPLIANCE.md.
+  //
+  // Every provider is inert without its own key, so the order changes nothing
+  // on a deployment that has configured only one.
+  const chain = String(process.env.LLM_PROVIDER || 'sarvam,gemini')
+    .split(',').map((p) => p.trim().toLowerCase()).filter(Boolean)
+    .filter(llmReady);
+  if (!chain.length) throw new Error('no LLM provider is configured');
 
-  switch (provider) {
-    case 'gemini':
-      return generateGemini({ system, user, json });
-    // Future providers slot in here behind the same interface, e.g.:
-    //   case 'anthropic': return generateAnthropic({ system, user, json });
-    //   case 'openai':    return generateOpenAI({ system, user, json });
-    //   case 'ollama':    return generateOllama({ system, user, json });   // self-hosted
-    //   case 'vllm':      return generateVllm({ system, user, json });      // self-hosted
-    default:
-      throw new Error(`Unsupported LLM_PROVIDER: ${provider}`);
+  const errors = [];
+  for (const provider of chain) {
+    try {
+      const out = provider === 'sarvam'
+        ? await generateSarvam({ system, user, json })
+        : await generateGemini({ system, user, json });
+      // A FALLBACK IS NOT A SUCCESS. Which brain answered changes how she
+      // sounds, and a silent switch is how "the premium voice is off" became a
+      // week of guessing on the TTS side.
+      if (errors.length) {
+        console.error(JSON.stringify({
+          event: 'llm_fell_back', served: provider, severity: 'high',
+          failed: errors.map((e) => String(e).slice(0, 160)),
+        }));
+      }
+      return out;
+    } catch (err) {
+      errors.push(`${provider}: ${err?.message || 'failed'}`);
+      // Quota is not transient within a request; neither is a bad key. Both
+      // are worth trying the next provider for, which is the whole point.
+    }
   }
+  const e = new Error('llm_unavailable');
+  e.detail = errors.join(' | ');
+  if (/\b429\b|quota/i.test(e.detail)) e.code = 'quota_exceeded';
+  throw e;
+}
+
+/** True when a provider has the credential it needs. */
+export function llmReady(provider) {
+  if (provider === 'sarvam') return Boolean(process.env.SARVAM_API_KEY);
+  if (provider === 'gemini') return Boolean(process.env.GEMINI_API_KEY);
+  return false;
+}
+
+/** Which brains this deployment could actually use. */
+export function llmStatus() {
+  const chain = String(process.env.LLM_PROVIDER || 'sarvam,gemini')
+    .split(',').map((p) => p.trim().toLowerCase()).filter(Boolean);
+  return { chain, ready: chain.filter(llmReady) };
+}
+
+// ---------------------------------------------------------------------------
+// Sarvam adapter — OpenAI-compatible chat completions.
+// ---------------------------------------------------------------------------
+//
+// sarvam-105b-conversations is the documented choice for "real-time
+// conversational and voice-agent workloads"; sarvam-105b is the bigger
+// reasoning model and is slower per turn, which on a phone call is the wrong
+// trade. SARVAM_LLM_MODEL pins either.
+const SARVAM_CHAT_URL = 'https://api.sarvam.ai/v1/chat/completions';
+
+async function generateSarvam({ system, user, json }) {
+  const key = process.env.SARVAM_API_KEY;
+  if (!key) throw new Error('SARVAM_API_KEY is not configured');
+
+  const messages = [];
+  if (typeof system === 'string' && system.length) messages.push({ role: 'system', content: system });
+  messages.push({ role: 'user', content: user });
+
+  const body = {
+    model: process.env.SARVAM_LLM_MODEL || 'sarvam-105b-conversations',
+    messages,
+    // Their default is 0.2, which on a sales call reads as a form being read
+    // out. This is a conversation, not an extraction.
+    temperature: Number(process.env.SARVAM_LLM_TEMPERATURE || 0.6),
+    max_tokens: Number(process.env.SARVAM_LLM_MAX_TOKENS || 400),
+  };
+  // Reasoning is off by default: a phone call cannot afford a thinking pass,
+  // and one short qualifying question does not need one.
+  if (process.env.SARVAM_LLM_REASONING) body.reasoning_effort = process.env.SARVAM_LLM_REASONING;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  let resp;
+  try {
+    resp = await fetch(SARVAM_CHAT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-subscription-key': key },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    throw new Error(`LLM request failed: ${err && err.name === 'AbortError' ? 'timeout' : 'network error'}`);
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!resp || !resp.ok) {
+    let detail = '';
+    try { detail = (await resp.text()).slice(0, 200); } catch { /* ignore */ }
+    throw new Error(`LLM upstream returned ${resp ? resp.status : 'no response'} for sarvam${detail ? `: ${detail}` : ''}`);
+  }
+
+  let data;
+  try { data = await resp.json(); } catch { throw new Error('LLM upstream returned malformed JSON'); }
+
+  const text = String(data?.choices?.[0]?.message?.content || '').trim();
+  if (!text) throw new Error('LLM upstream returned an empty completion');
+  return json ? parseJsonLoose(text) : text;
 }
 
 // ---------------------------------------------------------------------------

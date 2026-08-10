@@ -97,17 +97,18 @@ await t('ANAGA OPENS — and the opening is DATA, not a generation', async () =>
   // the model for a sentence that is already written cost an LLM round trip at
   // the most latency-sensitive moment of the call, and risked a paraphrase of
   // the reviewed disclosure reaching a real prospect.
-  // NOT /Anaga/ — every bubble carries "Anaga" as its speaker label, so that
-  // pattern matches even when she said something else entirely. It did, and
-  // hid the fact that the opening was still coming from the model.
+  // Compared against the API's own line, not an English phrase. The Telugu and
+  // Hindi openings are in NATIVE SCRIPT now — /AI voice assistant/ passed only
+  // while they were Roman transliteration, which is the thing that made her
+  // sound synthetic in the first place.
   const her = await page.locator('#log .ln.her').first().innerText();
-  assert.match(her, /AI voice assistant/i, 'the AI disclosure is the first thing said');
   assert.equal(turns.length, 0, 'the opening must not cost a brain call');
 
   const approved = await page.evaluate(() => fetch('/api/anaga/turn?lang=te-IN&direction=outbound')
     .then((r) => r.json()));
   assert.equal(approved.source, 'flow', 'the endpoint must say it is not a generation');
   assert.ok(her.includes(approved.say), 'she must say the approved line verbatim');
+  assert.match(approved.say, /[\u0C00-\u0C7F]/, 'the Telugu opening must be in Telugu script');
 });
 
 await t('the LANGUAGE picked reaches the voice', async () => {
@@ -130,7 +131,9 @@ await t('…but a call started INSTANTLY still opens with the approved line', as
   await page.locator('#start').click({ force: true });
   await page.waitForSelector('#log .ln.her', { timeout: 10000 });
   const her = await page.locator('#log .ln.her').first().innerText();
-  assert.match(her, /AI voice assistant/i, `expected the approved line, got "${her}"`);
+  const line = await page.evaluate(() => fetch('/api/anaga/turn?lang=te-IN&direction=outbound')
+    .then((r) => r.json()).then((d) => d.say));
+  assert.ok(her.includes(line), `expected the approved line, got "${her}"`);
   assert.equal(turns.length, 0, 'still no brain call for the opening');
 });
 
@@ -212,6 +215,9 @@ for (const [lang, label] of [['hi-IN', 'Hindi'], ['en-IN', 'English']]) {
     const approved = await page.evaluate((l) => fetch('/api/anaga/turn?lang=' + l + '&direction=inbound')
       .then((r) => r.json()), lang);
     assert.ok(her.includes(approved.say), `${lang} must open with its own approved line`);
+    if (lang === 'hi-IN') {
+      assert.match(approved.say, /[\u0900-\u097F]/, 'the Hindi opening must be in Devanagari');
+    }
     const sub = await page.locator('#sub').innerText();
     assert.ok(sub.includes('Incoming'), `an inbound call must say so, got "${sub}"`);
   });
@@ -228,7 +234,9 @@ await t('THE TRANSCRIPT SURVIVES A VOICE OUTAGE', async () => {
   await page.locator('#start').click();
   await page.waitForSelector('#log .ln.her', { timeout: 10000 });
   const her = await page.locator('#log .ln.her').first().innerText();
-  assert.match(her, /AI voice assistant/i, 'the words must appear even with no voice');
+  const line = await page.evaluate(() => fetch('/api/anaga/turn?lang=te-IN&direction=outbound')
+    .then((r) => r.json()).then((d) => d.say));
+  assert.ok(her.includes(line), 'the words must appear even with no voice');
   const st = await page.locator('#state').innerText();
   assert.match(st, /voice unavailable/i, `and it must say why, got "${st}"`);
   await page.unroute('**/api/tts');
@@ -327,38 +335,40 @@ await t('the mic is released when the call ends', async () => {
 // on a two-sentence turn, measured on the deployment, and that is 3.3s of the
 // agent visibly not answering.
 
-await t('a long line is SPLIT, and the first request is the short one', async () => {
+await t('THE FIRST PHRASE SHIPS WITH THE TURN — one round trip, not two', async () => {
   await restart();
   const line = 'Namaste, this is Anaga from Vaak. I have a three BHK in Gachibowli. Would you like the details?';
   process.env.STUB_LLM_SAY = line;
   await page.locator('#lang button[data-lang="en-IN"]').click();
   await page.locator('#start').click();
   await page.waitForSelector('#log .ln.her', { timeout: 10000 });
-  // Her opening is the flow line; the SPLIT under test is her reply to this.
-  // Let the opening finish before measuring the reply — its own phrases would
-  // otherwise be counted as the split under test.
   await page.waitForTimeout(600);
   synths.length = 0;
+
   await page.locator('#say').fill('tell me about it');
   await page.locator('#compose button[type=submit]').click();
   await page.waitForFunction(() => document.querySelectorAll('#log .ln.her').length >= 2,
     null, { timeout: 10000 });
-  // Poll the TEST's own list, not the page's counter: the page counts every
-  // synth since load, including the opening's, so it was already past three
-  // before the reply's phrases had been requested at all.
-  const deadline = Date.now() + 15000;
-  while (Date.now() < deadline
-    && synths.map((p) => p.text).join(' ').replace(/\s+/g, ' ').trim() !== line.replace(/\s+/g, ' ').trim()) {
-    await page.waitForTimeout(150);
-  }
 
-  const asked = synths.map((p) => p.text);
-  assert.ok(asked.length >= 2, `the line should be split, got ${asked.length} request(s)`);
-  assert.ok(asked[0].length < line.length / 2,
-    `the first request must be the SHORT one, got "${asked[0]}"`);
-  // Every word still gets said — splitting must not drop the tail.
-  assert.equal(asked.join(' ').replace(/\s+/g, ' ').trim(), line.replace(/\s+/g, ' ').trim(),
-    'the phrases must reassemble into the whole line');
+  // The reply carries its own first phrase, rendered server-side the instant
+  // the model answered. Asking for it separately meant a second
+  // handset-to-server hop on a mobile network after the slow part was over.
+  const turn = await page.evaluate((h) => fetch('/api/anaga/turn?voice=1', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ history: h, lang: 'en-IN', direction: 'outbound' }),
+  }).then((r) => r.json()), [{ role: 'user', text: 'tell me about it' }]);
+  assert.ok(turn.speak, 'the turn must carry audio');
+  assert.ok(turn.speak.audio, '…with actual bytes in it');
+  assert.equal(turn.speak.text, 'Namaste, this is Anaga from Vaak.',
+    'and it must be the FIRST phrase, not the whole line');
+
+  // The browser then renders only what is left — no duplicate of phrase one.
+  const deadline = Date.now() + 15000;
+  const rest = () => synths.map((p) => p.text).join(' ').replace(/\s+/g, ' ').trim();
+  const expected = line.slice(turn.speak.text.length).trim();
+  while (Date.now() < deadline && rest() !== expected) await page.waitForTimeout(150);
+  assert.equal(rest(), expected,
+    'the browser must render the remainder, and only the remainder');
   process.env.STUB_LLM_SAY = STUB_SAY;
 });
 

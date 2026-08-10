@@ -56,7 +56,10 @@ function reset() { routes = []; calls = []; if (tts) tts.clearSynthCache(); }
 const ENV_KEYS = ['TTS_PROVIDER', 'SARVAM_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_SERVICE_ACCOUNT',
   'FIREBASE_SERVICE_ACCOUNT', 'TRANSLATE_PROVIDER', 'VOICESTUDIO_URL', 'VOICESTUDIO_API_KEY',
   'VOICESTUDIO_MODEL', 'VOICESTUDIO_VOICE_MALE', 'VOICESTUDIO_VOICE_FEMALE', 'SARVAM_STREAM',
-  'SARVAM_TTS_MODEL', 'SARVAM_SPEAKERS', 'INDICF5_URL', 'INDICF5_VOICE_MALE', 'INDICF5_VOICE_FEMALE'];
+  'SARVAM_TTS_MODEL', 'SARVAM_SPEAKERS', 'INDICF5_URL', 'INDICF5_VOICE_MALE', 'INDICF5_VOICE_FEMALE',
+  // The brain is a chain now too, and a key left set by an earlier test made
+  // "nothing configured" quietly untrue.
+  'LLM_PROVIDER', 'GEMINI_API_KEY', 'SARVAM_LLM_MODEL', 'SARVAM_LLM_REASONING'];
 function clearEnv() { for (const k of ENV_KEYS) delete process.env[k]; }
 clearEnv();
 
@@ -809,6 +812,70 @@ await t('A FALLBACK IS NEVER CACHED', async () => {
 
 await t('the cache is BOUNDED — a long call cannot eat the instance', () => {
   assert.ok(tts.synthCacheStats().max <= 100, 'an unbounded audio cache is a memory leak');
+});
+
+// ===========================================================================
+section('§3c the brain is a chain too');
+// ===========================================================================
+
+await t('SARVAM IS TRIED FIRST, and Gemini is the fallback', async () => {
+  // Gemini's free tier returned 429 on every turn for hours. The browser fell
+  // back to a four-line canned script and the call stopped being a
+  // conversation. One vendor's quota must not be able to do that.
+  clearEnv(); reset();
+  const llm = await import('../api/_lib/llm.js');
+  process.env.SARVAM_API_KEY = 's';
+  process.env.GEMINI_API_KEY = 'g';
+  const hit = [];
+  routes = [
+    { match: /api\.sarvam\.ai\/v1\/chat/, reply: (_u, init) => { hit.push('sarvam'); return json({ choices: [{ message: { content: '{"say":"hi","end":false,"disposition":"qualifying"}' } }] }); } },
+    { match: /generativelanguage/, reply: () => { hit.push('gemini'); return json({ candidates: [{ content: { parts: [{ text: '{}' }] } }] }); } },
+  ];
+  const out = await llm.generate({ system: 's', user: 'u', json: true });
+  assert.deepEqual(hit, ['sarvam'], 'the paid Indic model answers, Gemini is not touched');
+  assert.equal(out.say, 'hi');
+  clearEnv();
+});
+
+await t('a QUOTA on the first provider falls through to the second', async () => {
+  clearEnv(); reset();
+  const llm = await import('../api/_lib/llm.js');
+  process.env.SARVAM_API_KEY = 's';
+  process.env.GEMINI_API_KEY = 'g';
+  const hit = [];
+  routes = [
+    { match: /api\.sarvam\.ai\/v1\/chat/, reply: () => { hit.push('sarvam'); return json({ error: 'quota' }, 429); } },
+    { match: /generativelanguage/, reply: () => { hit.push('gemini'); return json({ candidates: [{ content: { parts: [{ text: '{"say":"from gemini"}' }] } }] }); } },
+  ];
+  const out = await llm.generate({ system: 's', user: 'u', json: true });
+  assert.deepEqual(hit, ['sarvam', 'gemini'], 'a 429 must not end the conversation');
+  assert.equal(out.say, 'from gemini');
+  clearEnv();
+});
+
+await t('BOTH out of quota reports quota_exceeded, not a mystery', async () => {
+  // A quota is a billing problem, not a broken agent, and only one of those is
+  // fixed by waiting. The screen says which.
+  clearEnv(); reset();
+  const llm = await import('../api/_lib/llm.js');
+  process.env.SARVAM_API_KEY = 's';
+  process.env.GEMINI_API_KEY = 'g';
+  routes = [
+    { match: /api\.sarvam\.ai\/v1\/chat/, reply: () => json({ error: 'quota' }, 429) },
+    { match: /generativelanguage/, reply: () => json({ error: { code: 429, message: 'quota' } }, 429) },
+  ];
+  await assert.rejects(() => llm.generate({ system: 's', user: 'u', json: true }),
+    (e) => e.code === 'quota_exceeded');
+  clearEnv();
+});
+
+await t('a provider with no key is inert, not an error', async () => {
+  clearEnv(); reset();
+  const llm = await import('../api/_lib/llm.js');
+  assert.deepEqual(llm.llmStatus().ready, [], 'nothing configured means nothing ready');
+  process.env.SARVAM_API_KEY = 's';
+  assert.deepEqual(llm.llmStatus().ready, ['sarvam']);
+  clearEnv();
 });
 
 // ===========================================================================

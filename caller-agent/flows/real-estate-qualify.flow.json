@@ -175,7 +175,7 @@
     }
   ],
   "directions": {
-    "_note": "How the call STARTED. Everything after the opening — the qualification questions, the scoring, the closing, the opt-out — is identical, and is deliberately NOT duplicated here: two copies of a qualification script drift, and the one that drifts is the one nobody is reading. Only the opening and the consent model differ, because only they actually do. {project} and {city} are substituted from `project` above so a greeting cannot name a development this flow is not selling. Every line is reviewed wording, never machine-translated — same rule as the disclosure in anaga.persona.json.",
+    "_note": "How the call STARTED. Everything after the opening — the qualification questions, the scoring, the closing, the opt-out — is identical, and is deliberately NOT duplicated here: two copies of a qualification script drift, and the one that drifts is the one nobody is reading. Only the opening and the consent model differ, because only they actually do. {project} and {city} are substituted from `project` above so a greeting cannot name a development this flow is not selling. Every line is reviewed wording, never machine-translated — same rule as the disclosure in anaga.persona.json. SCRIPT: the Hindi and Telugu lines are in NATIVE SCRIPT, not Roman transliteration. Bulbul is asked to speak te-IN/hi-IN and was being handed Latin text, which it pronounces as transliterated English — the single loudest reason the voice sounded synthetic. The em dashes were replaced with commas for the same reason: they are read as an unnatural break. These are transcriptions of the same reviewed wording, not a rewrite, and still want a native speaker's ear before launch.",
     "outbound": {
       "label": "We ring a lead who left their number on a Meta or Instagram ad",
       "consent": "explicit",
@@ -186,8 +186,8 @@
       ],
       "greet": {
         "en-IN": "Hi, I'm Anaga, an AI voice assistant from Vaak. You asked about {project} in {city} on Instagram — is now a good time to talk for two minutes?",
-        "hi-IN": "Namaste, main Anaga hoon — Vaak ki ek AI voice assistant. Aapne Instagram par {city} ke {project} ke baare mein poocha tha. Kya main do minute baat kar sakti hoon?",
-        "te-IN": "Namaskaram, nenu Anaga — Vaak nunchi oka AI voice assistant. Meeru Instagram lo {city} lo unna {project} gurinchi adigaaru. Konni nimishaalu maatladocha?"
+        "hi-IN": "नमस्ते, मैं अनगा हूँ, वाक् की एक AI वॉइस असिस्टेंट। आपने इंस्टाग्राम पर {city} के {project} के बारे में पूछा था। क्या मैं दो मिनट बात कर सकती हूँ?",
+        "te-IN": "నమస్కారం, నేను అనగా, వాక్ నుంచి ఒక AI వాయిస్ అసిస్టెంట్. మీరు ఇన్‌స్టాగ్రామ్‌లో {city}లో ఉన్న {project} గురించి అడిగారు. కొన్ని నిమిషాలు మాట్లాడొచ్చా?"
       },
       "rules": [
         "They left their number on a Meta or Instagram ad for this project. SAY SO in the opening — that enquiry is the reason this call is permitted at all, and a stranger who cannot place you hangs up.",
@@ -205,8 +205,8 @@
       ],
       "greet": {
         "en-IN": "Thanks for calling Vaak — I'm Anaga, an AI voice assistant. Are you calling about {project}?",
-        "hi-IN": "Vaak mein call karne ke liye dhanyavaad — main Anaga hoon, ek AI voice assistant. Kya aap {project} ke baare mein poochh rahe hain?",
-        "te-IN": "Vaak ki call chesinanduku dhanyavaadalu — nenu Anaga, oka AI voice assistant. Meeru {project} gurinchi adugutunnaara?"
+        "hi-IN": "वाक् में कॉल करने के लिए धन्यवाद। मैं अनगा हूँ, एक AI वॉइस असिस्टेंट। क्या आप {project} के बारे में पूछ रहे हैं?",
+        "te-IN": "వాక్‌కి కాల్ చేసినందుకు ధన్యవాదాలు. నేను అనగా, ఒక AI వాయిస్ అసిస్టెంట్. మీరు {project} గురించి అడుగుతున్నారా?"
       },
       "rules": [
         "THEY rang YOU. Do not ask permission to talk and do not apologise for calling — they started this, and asking 'is now a good time?' of someone who just dialled you sounds like a machine reading a script.",
