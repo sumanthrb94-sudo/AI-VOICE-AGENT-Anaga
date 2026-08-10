@@ -86,6 +86,9 @@ jobs:
       - name: Self-hosted voice QA (telephony sample rates — the chipmunk bug)
         run: node --experimental-detect-module scripts/test-voicestudio.mjs
 
+      - name: Call-leg TTS QA (the bytes Bulbul gets, the samples the line gets)
+        run: node --experimental-detect-module scripts/test-call-tts.mjs
+
       - name: Recording QA (Indian-region gate, no public URLs, DPDP erasure)
         run: node --experimental-detect-module scripts/test-recording.mjs
 

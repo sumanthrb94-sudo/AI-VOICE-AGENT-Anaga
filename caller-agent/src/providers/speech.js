@@ -26,6 +26,9 @@
 // WP-1 spike before launch. LAUNCH.md blocker #3 is exactly this.
 
 const SARVAM_TTS_URL = 'https://api.sarvam.ai/text-to-speech';
+// Same synthesis, streamed. ~400ms sooner to first byte, and it takes
+// output_audio_codec so the telephony leg can ask for WAV instead of MP3.
+const SARVAM_TTS_STREAM_URL = 'https://api.sarvam.ai/text-to-speech/stream';
 const SARVAM_STT_URL = 'https://api.sarvam.ai/speech-to-text';
 
 function sarvamKey() {
@@ -201,15 +204,16 @@ export function createTTS({ provider = process.env.TTS_PROVIDER || 'sarvam' } = 
 
   if (provider !== 'sarvam') throw new Error(`unsupported TTS_PROVIDER: ${provider}`);
 
-  // NOTE ON THE ENDPOINT. api/_lib/tts.js — the browser demo — moved to
-  // /text-to-speech/stream, which is ~400ms faster to first byte. The call leg
-  // deliberately did NOT follow it: that endpoint returns MP3, and the
+  // ENDPOINT. This used to stay on the batch endpoint with a note saying the
+  // stream one was ~400ms faster but unusable, "because it returns MP3, and the
   // telephony path needs raw 16-bit PCM at 8kHz, which means decoding MP3 in a
-  // repo with zero dependencies. So this stays on the batch endpoint, whose
-  // response time scales with the length of the string — which is exactly why
-  // the transport splits a line into phrases before calling this (see
-  // media/transport.js say()). If Sarvam ever exposes WAV on the stream
-  // endpoint, switch and delete this note.
+  // repo with zero dependencies — if Sarvam ever exposes WAV on the stream
+  // endpoint, switch and delete this note."
+  //
+  // It does, and this is that switch. The stream endpoint takes
+  // output_audio_codec: mp3 | wav | linear16 | mulaw | alaw | opus | flac | aac.
+  // Asking for `wav` gets the same bytes the batch endpoint returns, sooner, and
+  // no decoder is needed. SARVAM_STREAM=0 goes back to batch.
   // Anaga is a woman (caller-agent/flows/anaga.persona.json), so the default has
   // to be a FEMALE voice of the configured model — not the model's own default,
   // which is 'shubh', a man.
@@ -249,26 +253,45 @@ export function createTTS({ provider = process.env.TTS_PROVIDER || 'sarvam' } = 
       // would have 4xx'd on every line of every real call. Nothing caught it
       // because the phone leg is not wired yet; the browser hit the identical
       // bug and hid it behind a fallback voice.
+      const streaming = process.env.SARVAM_STREAM !== '0';
       if ((process.env.SARVAM_TTS_MODEL || 'bulbul:v3') === 'bulbul:v2') {
         body.enable_preprocessing = true;
       }
+      // The stream endpoint answers raw bytes in whichever codec is asked for;
+      // the batch one answers JSON with base64 inside. Ask explicitly.
+      if (streaming) body.output_audio_codec = 'wav';
 
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), Number(process.env.TTS_TIMEOUT_MS || 8000));
       try {
-        const res = await fetch(SARVAM_TTS_URL, {
+        const res = await fetch(streaming ? SARVAM_TTS_STREAM_URL : SARVAM_TTS_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'api-subscription-key': sarvamKey() },
           body: JSON.stringify(body),
           signal: ctrl.signal,
         });
         if (!res.ok) throw new Error(`sarvam_tts_${res.status}`);
-        const data = await res.json();
-        const b64 = Array.isArray(data?.audios) ? data.audios[0] : data?.audio;
-        if (!b64) throw new Error('sarvam_tts_empty');
 
-        const audio = Buffer.from(b64, 'base64');
-        return { frames: frameAudio(audio), audio, mime: 'audio/wav' };
+        let wav;
+        if (streaming) {
+          wav = Buffer.from(await res.arrayBuffer());
+        } else {
+          const data = await res.json();
+          const b64 = Array.isArray(data?.audios) ? data.audios[0] : data?.audio;
+          if (!b64) throw new Error('sarvam_tts_empty');
+          wav = Buffer.from(b64, 'base64');
+        }
+        if (!wav.length) throw new Error('sarvam_tts_empty');
+
+        // PARSE THE WAV, do not frame it whole. This used to hand frameAudio the
+        // file including its 44-byte header, so the first frame of every single
+        // utterance was "RIFF….WAVEfmt….data" played as if it were samples — a
+        // burst of noise before Anaga's first syllable, on every line. It also
+        // assumed Sarvam returned exactly the rate and channel count asked for;
+        // toTelephonyPcm checks instead, and resamples when it did not.
+        const target = Number(process.env.TELEPHONY_SAMPLE_RATE || 8000);
+        const audio = toTelephonyPcm(wav, target);
+        return { frames: frameAudio(audio, { sampleRate: target }), audio, mime: 'audio/l16' };
       } finally {
         clearTimeout(timer);
       }

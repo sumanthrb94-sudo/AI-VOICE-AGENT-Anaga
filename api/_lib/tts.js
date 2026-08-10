@@ -678,9 +678,11 @@ async function viaSarvam(text, opts) {
   //
   // v3's pace range is also narrower (0.5–2.0, against v2's 0.3–3.0).
   const v3 = model !== 'bulbul:v2';
+  const streaming = process.env.SARVAM_STREAM !== '0';
   const body = {
-    // v3 accepts 2500 per request, up from v2's 1500.
-    text: text.slice(0, Number(process.env.SARVAM_MAX_CHARS || 2500)),
+    // 3500 on the stream endpoint, per the spec. The old 2500 was a guess that
+    // silently truncated a long line rather than failing on it.
+    text: text.slice(0, Number(process.env.SARVAM_MAX_CHARS || (streaming ? 3500 : 2500))),
     target_language_code: normalizeLang(opts.lang),
     speaker: spk,
     model,
@@ -690,13 +692,18 @@ async function viaSarvam(text, opts) {
     // The CALL leg overrides this to the telephony rate — see caller-agent.
     speech_sample_rate: Number(process.env.SARVAM_SAMPLE_RATE || 24000),
   };
-  if (!v3) {
-    body.pitch = clamp(opts.pitch, -1, 1, 0);
-    body.loudness = clamp(opts.loudness, 0.1, 3, 1.0);
+  if (v3) {
+    // v3-only. Lower is steadier: at 0.6 the same sentence comes back with
+    // audibly different delivery run to run, which reads as an unstable agent
+    // rather than as variety. Range 0.01–1.0.
+    body.temperature = clamp(opts.temperature, 0.01, 1, Number(process.env.SARVAM_TEMPERATURE || 0.4));
+  } else {
+    // v2 ranges, from the spec — NOT the ±1 this used to send, which v2 rejects.
+    body.pitch = clamp(opts.pitch, -0.75, 0.75, 0);
+    body.loudness = clamp(opts.loudness, 0.3, 3, 1.0);
     body.enable_preprocessing = true;      // v3 preprocesses unconditionally
   }
 
-  const streaming = process.env.SARVAM_STREAM !== '0';
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20000);
   let res;
