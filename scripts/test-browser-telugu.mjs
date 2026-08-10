@@ -58,9 +58,20 @@ console.log('\n═══ REAL BROWSER: Telugu voice sampler ═══\n');
 await page.goto(BASE);
 await page.waitForSelector('.v', { timeout: 10000 });
 
-await t('every Bulbul voice is listed', async () => {
-  const n = await page.locator('.v').count();
-  assert.ok(n >= 30, `expected the full catalogue, got ${n}`);
+await t('ONE voice is offered — kavya, and nothing else', async () => {
+  // The picker was the tool for choosing Anaga's voice. It has been used; the
+  // choice is kavya. Thirty-seven cards now only invite the question again.
+  const ids = await page.$$eval('.v', (els) => els.map((e) => e.dataset.voice));
+  assert.deepEqual(ids, ['kavya'], `expected only kavya, got ${ids.join(', ')}`);
+
+  // But the catalogue is intact — "one voice" must never be indistinguishable
+  // from "one voice survived", which is exactly what a Sarvam outage looked
+  // like before the named-voice rule made it say so.
+  const probe = await page.evaluate(() => fetch('/api/tts').then((r) => r.json()));
+  assert.ok(probe.catalogueSize >= 30, 'the full catalogue must still be reported');
+  assert.equal(probe.voice, 'kavya');
+  const all = await page.evaluate(() => fetch('/api/tts?all=1').then((r) => r.json()));
+  assert.ok(all.voices.length >= 30, '?all=1 must still return everything, for the benchmark');
 });
 
 await t('NOTHING PLAYS UNTIL A TAP', async () => {
@@ -71,23 +82,21 @@ await t('NOTHING PLAYS UNTIL A TAP', async () => {
   assert.equal(vendorCalls.length, 0, 'the vendor was called with nobody asking');
 });
 
-await t('POOJA is the default, and she is the ONLY one selected', async () => {
-  // The bug was never "there is a default" — it was a default nobody chose,
-  // wearing the name of the voice you actually picked. This one was listened to
-  // and selected, and it is pinned by NAME, not by grid position: "the first
-  // card" would silently become somebody else the day Sarvam reorders its list.
+await t('KAVYA is selected, by NAME', async () => {
+  // Pinned by name, never by grid position: "the first card" silently becomes
+  // somebody else the day Sarvam reorders its list.
   const on = await page.locator('.v[aria-pressed="true"]').all();
   assert.equal(on.length, 1, `${on.length} voices selected, expected exactly 1`);
-  assert.equal(await on[0].getAttribute('data-voice'), 'pooja');
+  assert.equal(await on[0].getAttribute('data-voice'), 'kavya');
 });
 
 await t('a tap plays that voice, and only that voice', async () => {
   posts.length = 0; vendorCalls.length = 0;
-  const card = page.locator('.v').nth(3);
+  const card = page.locator('.v').first();
   const id = await card.getAttribute('data-voice');
   await card.click();
   await page.waitForFunction(() => document.querySelectorAll('.v[data-state="playing"]').length > 0
-    || /ms$/.test(document.querySelector('.v:nth-child(4) em')?.textContent || ''), null, { timeout: 8000 });
+    || /ms/.test(document.querySelector('.v em')?.textContent || ''), null, { timeout: 8000 });
   assert.equal(posts.length, 1, `expected exactly one request, got ${posts.length}`);
   assert.equal(posts[0].speaker, id, 'the tapped voice must be the one requested');
 });
@@ -100,21 +109,34 @@ await t('it asks for TELUGU, always', async () => {
 });
 
 await t('the measured latency is shown on the card', async () => {
-  const label = await page.locator('.v').nth(3).locator('em').innerText();
+  const label = await page.locator('.v').first().locator('em').innerText();
   assert.ok(/\d+\s*ms/.test(label), `expected a millisecond figure, got "${label}"`);
+});
+
+await t('A CACHED REPLAY SAYS SO, instead of posing as a fast voice', async () => {
+  // 35ms on a card against 3366ms measured on the server, in the same place,
+  // in the same units. The cache was being read as the voice being quick, and
+  // a voice was very nearly chosen on that number.
+  const card = page.locator('.v').first();
+  await card.click();                        // stop
+  await page.waitForTimeout(200);
+  await card.click();                        // replay — same settings, cached
+  await page.waitForTimeout(900);
+  const label = await card.locator('em').innerText();
+  assert.match(label, /cached/, `a replay must be labelled, got "${label}"`);
 });
 
 await t('the pace control reaches the vendor', async () => {
   posts.length = 0; vendorCalls.length = 0;
   await page.locator('#pace').fill('1.45');
-  await page.locator('.v').nth(5).click();
+  await page.locator('.v').first().click();
   await page.waitForTimeout(1200);
   assert.ok(posts.length >= 1, 'a tap should synthesize');
   assert.equal(posts[0].pace, 1.45, 'the slider must actually change the request');
 });
 
 await t('a second tap on the same voice is served from cache', async () => {
-  const card = page.locator('.v').nth(7);
+  const card = page.locator('.v').first();
   await card.click();
   await page.waitForTimeout(1200);
   const before = vendorCalls.length;
@@ -194,12 +216,12 @@ await t('an opt-out ends the call regardless of what the brain says', async () =
 // test below deliberately reloads into a degraded state.
 await page.screenshot({ path: process.env.SHOT_PATH || '/tmp/telugu.png' });
 
-await t('tapping quickly through voices does not paint the grid red', async () => {
+await t('tapping quickly does not paint the card red', async () => {
   // Swapping src aborts the previous load and fires an error on it. That is
-  // "superseded", not "broken", and labelling the card you just left with a
-  // failure is how comparing voices looked like a broken deployment.
-  for (const i of [10, 11, 12, 13]) {
-    await page.locator('.v').nth(i).click();
+  // "superseded", not "broken", and labelling it a failure is how comparing
+  // voices looked like a broken deployment.
+  for (let i = 0; i < 4; i++) {
+    await page.locator('.v').first().click();
     await page.waitForTimeout(70);
   }
   await page.waitForTimeout(1200);
@@ -209,7 +231,7 @@ await t('tapping quickly through voices does not paint the grid red', async () =
   assert.deepEqual(red, [], `cards reported failures they did not have: ${red.join(', ')}`);
 });
 
-await t('on a fresh page she answers in POOJA, with no tap at all', async () => {
+await t('on a fresh page she answers in KAVYA, with no tap at all', async () => {
   await page.reload();
   await page.waitForSelector('.v');
   posts.length = 0; vendorCalls.length = 0;
@@ -222,17 +244,25 @@ await t('on a fresh page she answers in POOJA, with no tap at all', async () => 
 
   const spoken = posts.filter((p) => p.speaker);
   assert.ok(spoken.length >= 1, 'she must speak without needing a voice tap first');
-  assert.equal(spoken[0].speaker, 'pooja', 'the default is a NAME, not the first card');
+  assert.equal(spoken[0].speaker, 'kavya', 'the default is a NAME, not the first card');
 });
 
 await t('a card error does not outlive the voice that caused it', async () => {
   // The status line kept the last failure forever, so the page read as broken
   // while a working voice was playing through it.
+  // Start from STOPPED. With one card on the page a click is a toggle, and a
+  // toggle-off correctly clears nothing — the previous version of this test
+  // silently depended on there being a second card to tap.
+  const card = page.locator('.v').first();
+  if (await card.getAttribute('data-state') === 'playing') {
+    await card.click();
+    await page.waitForTimeout(200);
+  }
   await page.evaluate(() => {
     const s = document.getElementById('status');
     s.className = 'err'; s.textContent = 'ఈ వాయిస్ అందుబాటులో లేదు';
   });
-  await page.locator('.v').nth(4).click();
+  await card.click();
   await page.waitForTimeout(1500);
   const cls = await page.locator('#status').getAttribute('class');
   assert.notEqual(cls, 'err', 'a successful play must clear the stale error');

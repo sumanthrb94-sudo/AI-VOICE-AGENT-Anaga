@@ -56,7 +56,9 @@ await page.waitForFunction(() => /female voices/.test(document.getElementById('n
 
 let women = 0;
 await t('it measures the FEMALE voices, and only those', async () => {
-  const probe = await page.evaluate(() => fetch('/api/tts').then((r) => r.json()));
+  // ?all=1 — the home page offers one voice now, but the benchmark measures the
+  // whole catalogue or it is not a benchmark.
+  const probe = await page.evaluate(() => fetch('/api/tts?all=1').then((r) => r.json()));
   women = probe.voices.filter((v) => v.gender === 'female').length;
   assert.ok(women >= 10, `expected the female half of the catalogue, got ${women}`);
   assert.ok(probe.voices.some((v) => v.gender === 'male'), 'the catalogue does have men in it');
@@ -75,7 +77,7 @@ await t('every voice it requests is a woman', async () => {
   await page.waitForFunction(() => /^done/.test(document.getElementById('note')?.textContent || ''),
     null, { timeout: 120000 });
 
-  const probe = await page.evaluate(() => fetch('/api/tts').then((r) => r.json()));
+  const probe = await page.evaluate(() => fetch('/api/tts?all=1').then((r) => r.json()));
   const male = new Set(probe.voices.filter((v) => v.gender === 'male').map((v) => v.id));
   const asked = posts.filter((p) => p.speaker).map((p) => p.speaker);
   assert.deepEqual(asked.filter((s) => male.has(s)), [], 'a man was measured in a women-only run');
@@ -117,6 +119,19 @@ await t('IT SAYS SO WHEN THE WINNER IS NOISE', async () => {
   // benchmark: it launders a coin flip into a decision.
   const v = await page.locator('#verdict').innerText();
   assert.ok(/too close to call/i.test(v), `expected an overlap warning, got "${v}"`);
+});
+
+await t('the offered voice does NOT limit what can be synthesized', async () => {
+  // The page shows kavya. The API must still speak as anyone in the catalogue,
+  // or narrowing the picker would quietly narrow the product.
+  const probe = await page.evaluate(() => fetch('/api/tts').then((r) => r.json()));
+  assert.equal(probe.voices.length, 1, 'the default probe offers one voice');
+  assert.ok(probe.catalogueSize >= 30, 'and says how many exist, so one never reads as an outage');
+  const other = await page.evaluate(() => fetch('/api/tts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'x', lang: 'te-IN', speaker: 'shreya' }),
+  }).then((r) => r.json()));
+  assert.equal(other.voice, 'shreya', 'a voice off the picker must still synthesize');
 });
 
 await t('the server reports its OWN time, separate from the round trip', async () => {

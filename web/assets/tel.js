@@ -36,7 +36,7 @@
   // Anaga's voice. Kept in step with SARVAM_DEFAULT_SPEAKER (api/_lib/tts.js)
   // and defaultSpeaker() (caller-agent) — the demo and the phone call must not
   // be two different women.
-  var DEFAULT_VOICE = "pooja";
+  var DEFAULT_VOICE = "kavya";
 
   var $ = function (id) { return document.getElementById(id); };
   var statusEl = $("status"), grid = $("voices"), modelEl = $("model");
@@ -86,7 +86,11 @@
   function fetchVoice(id, text) {
     text = text || SAMPLE;
     var k = key(id, text);
-    if (cache[k]) return Promise.resolve(cache[k]);
+    // Report the hit. A cached replay returns in ~30ms and was being shown in
+    // the same place as a real synthesis, so the cache looked like the voice
+    // being fast — 35ms on the card against 3366ms actually measured on the
+    // server. A number that means two different things is worse than none.
+    if (cache[k]) return Promise.resolve({ src: cache[k], cached: true });
     // A long conversation would otherwise hold every line ever spoken as base64.
     if (Object.keys(cache).length > 60) cache = Object.create(null);
     return fetch("/api/tts", {
@@ -113,7 +117,7 @@
     }).then(function (d) {
       if (!d || !d.audio) throw new Error(d && d.error ? d.error : "no_audio");
       cache[k] = "data:" + (d.mime || "audio/mpeg") + ";base64," + d.audio;
-      return cache[k];
+      return { src: cache[k], cached: false, server: d.ms };
     });
   }
 
@@ -143,8 +147,9 @@
     playing = card;
     var t0 = performance.now();
 
-    fetchVoice(id).then(function (src) {
+    fetchVoice(id).then(function (got) {
       if (playing !== card) return;             // they tapped something else
+      var src = got.src;
       a.onended = function () { reset(card); };
       // Superseded, not broken: swapping src aborts the previous load and fires
       // an error on it. Reporting that as "audio error" on the card you just
@@ -157,8 +162,11 @@
         // Clear a previous voice's error. It used to persist under a working
         // voice, so the page read as broken while it was playing fine.
         if (statusEl.className === "err") say(baseStatus);
-        // The measured number, on their device, for this voice.
-        card.querySelector("em").textContent = ms + " ms";
+        // The measured number, on their device, for this voice — and whether
+        // it is a real synthesis or a replay of one.
+        card.querySelector("em").textContent = got.cached
+          ? ms + " ms · cached"
+          : ms + " ms" + (got.server ? " · " + got.server + " server" : "");
       });
     }).catch(function (err) {
       if (playing !== card) return;             // superseded — say nothing
@@ -374,7 +382,8 @@
     playing = card;
     card.dataset.state = "loading";
 
-    return fetchVoice(selected.id, text).then(function (src) {
+    return fetchVoice(selected.id, text).then(function (got) {
+      var src = got.src;
       return new Promise(function (done) {
         a.onended = function () { reset(card); done(); };
         a.onerror = function () {

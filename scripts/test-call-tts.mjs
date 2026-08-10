@@ -80,7 +80,7 @@ await t('v3 IS NOT SENT enable_preprocessing', async () => {
 
 await t('the default speaker belongs to the default MODEL', async () => {
   // 'anushka' is v2. A v2 name against v3 is not a fallback, it is a 400.
-  assert.equal(sent.speaker, 'pooja');
+  assert.equal(sent.speaker, 'kavya');
   const v3 = ['shubh', 'ritu', 'priya', 'neha', 'pooja', 'simran', 'kavya'];
   assert.ok(v3.includes(sent.speaker), `${sent.speaker} is not a bulbul:v3 speaker`);
 });
@@ -96,10 +96,10 @@ await t('pinning v2 restores its v2-only parameters and its own speaker', async 
 });
 
 await t('TTS_SPEAKER overrides, and is sent verbatim', async () => {
-  process.env.TTS_SPEAKER = 'kavya';
+  process.env.TTS_SPEAKER = 'shreya';
   reply = binary(wavTone(8000));
   await createTTS({ provider: 'sarvam' }).synth('x', 'te-IN');
-  assert.equal(sent.speaker, 'kavya');
+  assert.equal(sent.speaker, 'shreya');
   delete process.env.TTS_SPEAKER;
 });
 

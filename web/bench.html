@@ -73,7 +73,9 @@
     return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
   }
 
-  fetch("/api/tts").then(function (r) { return r.json(); }).then(function (d) {
+  // ?all=1: the page offers one voice now, but the benchmark has to reach all
+  // fourteen or it is measuring the decision instead of informing it.
+  fetch("/api/tts?all=1").then(function (r) { return r.json(); }).then(function (d) {
     women = (d.voices || []).filter(function (v) { return v.gender === "female"; });
     note.textContent = women.length + " female voices · " + ROUNDS + " rounds each · "
       + (women.length * ROUNDS) + " requests";

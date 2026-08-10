@@ -28,7 +28,10 @@ export default async function handler(req, res) {
   // Capability probe — lets the browser decide whether to use cloud voices, and
   // whether the male voice it is offering can actually be served.
   if (req.method === 'GET') {
-    return res.status(200).json(ttsStatus());
+    // ?all=1 returns the whole catalogue — the benchmark needs every female
+    // voice reachable even while the page offers only one.
+    const all = String(req.query?.all || '') === '1';
+    return res.status(200).json(ttsStatus({ all }));
   }
 
   if (req.method !== 'POST') {

@@ -218,12 +218,13 @@ export function createTTS({ provider = process.env.TTS_PROVIDER || 'sarvam' } = 
   // to be a FEMALE voice of the configured model — not the model's own default,
   // which is 'shubh', a man.
   //
-  // 'pooja' is not a guess: it was listened to on a handset and chosen. Keep it
-  // in step with SARVAM_DEFAULT_SPEAKER in api/_lib/tts.js — the browser and the
-  // phone must not be two different women. Pin TTS_SPEAKER to override.
+  // 'kavya' is not a guess: it was listened to across the catalogue on a
+  // handset and chosen. Keep it in step with SARVAM_DEFAULT_SPEAKER in
+  // api/_lib/tts.js — the browser and the phone must not be two different
+  // women. Pin TTS_SPEAKER to override.
   function defaultSpeaker() {
     const model = process.env.SARVAM_TTS_MODEL || 'bulbul:v3';
-    return model === 'bulbul:v2' ? 'anushka' : 'pooja';
+    return model === 'bulbul:v2' ? 'anushka' : 'kavya';
   }
 
   return {

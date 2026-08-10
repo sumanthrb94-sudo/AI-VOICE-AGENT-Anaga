@@ -95,10 +95,18 @@ const SARVAM_VOICES = {
 };
 
 // Anaga is a woman, so the default cannot be Sarvam's own default 'shubh'.
-// 'pooja' was CHOSEN — listened to on a handset and picked. That is the whole
-// difference between this and the default-voice bug: a default nobody selected
-// is a substitution, a default somebody sat down and picked is a decision.
-const SARVAM_DEFAULT_SPEAKER = { 'bulbul:v3': 'pooja', 'bulbul:v2': 'anushka' };
+// 'kavya' was CHOSEN — listened to across the catalogue on a handset and
+// picked. That is the whole difference between this and the default-voice bug:
+// a default nobody selected is a substitution; a default somebody sat down and
+// picked is a decision.
+const SARVAM_DEFAULT_SPEAKER = { 'bulbul:v3': 'kavya', 'bulbul:v2': 'anushka' };
+
+/** The voice the UI OFFERS. The API still accepts every name in the catalogue —
+ *  narrowing what is on screen is a product decision, not a capability one, and
+ *  the benchmark still needs to reach all fourteen. */
+export function offeredSpeaker() {
+  return String(process.env.SARVAM_VOICE || SARVAM_DEFAULT_SPEAKER[sarvamModel()] || '').toLowerCase();
+}
 
 // ⚠️ NOT LISTENED TO — DOCUMENTED, WHICH IS ONE STEP BETTER THAN GUESSED.
 //
@@ -261,8 +269,16 @@ export async function voiceStudioHealth() {
 }
 
 /** For the health endpoint and the /api/tts probe. */
-export function ttsStatus() {
+export function ttsStatus({ all = false } = {}) {
   const chain = providerChain();
+  // One voice on screen unless asked otherwise. Anaga has a voice now; the
+  // picker was the tool for choosing it, and its job is done. `all` keeps the
+  // full catalogue reachable for the benchmark and for choosing again later.
+  const only = offeredSpeaker();
+  const catalogue = sarvamCatalogue();
+  const offered = all || !only
+    ? catalogue
+    : catalogue.filter((v) => v.id === only);
   return {
     available: chain.some(providerReady),
     chain,
@@ -274,7 +290,11 @@ export function ttsStatus() {
     // rather than hardcoded in the browser so the picker cannot drift from what
     // the API will actually accept — the drift that had the page offering seven
     // invented names for a model with thirty-seven real ones.
-    voices: providerReady('sarvam') ? sarvamCatalogue() : [],
+    voices: providerReady('sarvam') ? offered : [],
+    // What the picker WOULD show, so "one voice" never looks like "one voice
+    // survived". The difference between a choice and an outage matters.
+    catalogueSize: providerReady('sarvam') ? catalogue.length : 0,
+    voice: only || undefined,
     model: sarvamModel(),
     // Which modulation the CONFIGURED model actually honours. v3 dropped pitch
     // and loudness; offering a pitch slider against v3 is a control that does
