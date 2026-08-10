@@ -292,25 +292,60 @@ await t('the mic button opens the recogniser', async () => {
   assert.equal(await page.evaluate(() => document.getElementById('mic').getAttribute('aria-pressed')), 'true');
 });
 
-await t('THE MIC IS CLOSED WHILE ANAGA SPEAKS — and STAYS closed', async () => {
+await t('the RECOGNISER closes while she speaks — she must not answer herself', async () => {
   const before = await page.evaluate(() => window.__sr.aborts);
   await page.locator('#say').fill('three bedrooms please');
   await page.locator('#compose button[type=submit]').click();
-  // Her reply triggers speak(), which must close recognition before any audio
-  // starts. An open mic on a phone speaker hears her and answers her.
   await page.waitForFunction((n) => window.__sr.aborts > n, before, { timeout: 10000 });
-
-  // STAYS closed. Asserting only that an abort happened is what let this ship
-  // broken: aborting fires onend synchronously, onend reopened the mic in the
-  // same tick, and the abort counter went up exactly as it does when the fix is
-  // working. The property is "shut while she talks", not "shut once".
+  // Transcribing her own voice and replying to it is the failure this prevents.
   const live = await page.evaluate(() =>
     document.body.classList.contains('speaking') ? window.__sr.live : null);
-  assert.notEqual(live, true, 'the mic reopened while Anaga still had the floor');
+  assert.notEqual(live, true, 'the recogniser reopened while Anaga still had the floor');
 });
 
-await t('and it REOPENS once she has finished', async () => {
-  await page.waitForFunction(() => window.__sr.live === true, null, { timeout: 10000 });
+await t('SHE STOPS WHEN SOMEBODY TALKS OVER HER', async () => {
+  // The bug this replaces: closing the recogniser during playback meant NOTHING
+  // was listening while she spoke, so interrupting her was impossible — and the
+  // test that used to sit here asserted the mic "STAYS closed", which locked it
+  // in. Two things listen now, and only one of them is the recogniser: an
+  // energy detector stays open the whole time and has no idea what you said,
+  // only that somebody is talking, which is all barge-in needs.
+  await restart();
+  await page.locator('#start').click();          // #mic lives on the call screen
+  await page.waitForSelector('#log .ln.her', { timeout: 10000 });
+  await page.waitForFunction(() => !document.body.classList.contains('speaking'),
+    null, { timeout: 15000 });
+  await page.locator('#mic').click();
+  await page.waitForFunction(() => window.__sr.starts > 0, null, { timeout: 5000 });
+
+  await page.locator('#say').fill('tell me more about the project');
+  await page.locator('#compose button[type=submit]').click();
+  await page.waitForFunction(() => document.body.classList.contains('speaking'),
+    null, { timeout: 10000 });
+
+  // Sustained speech, not one loud frame: a single frame was enough for our own
+  // audio to cancel our own sentence.
+  await page.evaluate(() => { for (let i = 0; i < 2; i++) window.__vad(true, 100); });
+  const stillSpeaking = await page.evaluate(() => document.body.classList.contains('speaking'));
+  assert.equal(stillSpeaking, true, 'a short burst must NOT cut her off — that is echo');
+
+  await page.evaluate(() => { for (let i = 0; i < 3; i++) window.__vad(true, 100); });
+  await page.waitForFunction(() => !document.body.classList.contains('speaking'),
+    null, { timeout: 4000 });
+});
+
+await t('and the transcript says she was CUT OFF, not that she finished', async () => {
+  // She must not believe she asked a question she was talked over halfway
+  // through — she reads it back as "already asked" and moves on without the
+  // answer. Same rule the call leg keeps in session.js.
+  const her = await page.locator('#log .ln.her').last().innerText();
+  assert.match(her, /cut off/, `expected a cut-off marker, got "${her}"`);
+});
+
+await t('the recogniser REOPENS the moment she is interrupted', async () => {
+  // Whatever they are saying over her is the next turn, and it starts before
+  // she has finished stopping.
+  await page.waitForFunction(() => window.__sr.live === true, null, { timeout: 5000 });
 });
 
 await t('AN OPT-OUT HEARD THROUGH THE MIC still ends the call', async () => {
@@ -320,7 +355,10 @@ await t('AN OPT-OUT HEARD THROUGH THE MIC still ends the call', async () => {
   assert.equal(ok, true, 'the stub must be wired to the live recogniser');
   await page.waitForSelector('body.ended', { timeout: 10000 });
   const her = await page.locator('#log .ln.her').last().innerText();
-  assert.match(her, /do-not-call/i, `expected the opt-out acknowledgement, got "${her}"`);
+  // Either script — this page runs in Telugu by default, and an English-only
+  // assertion passes on a page nobody in the room can read.
+  assert.match(her, /do-not-call|డు-నాట్-కాల్/i,
+    `expected the opt-out acknowledgement, got "${her}"`);
 });
 
 await t('the mic is released when the call ends', async () => {

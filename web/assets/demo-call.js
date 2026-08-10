@@ -409,7 +409,10 @@
     // mic was closed and reopened in the same tick, and half-duplex existed
     // only on paper. She would have heard herself and answered herself.
     speaking = true; body.classList.add("speaking");
+    // The RECOGNISER closes so she cannot transcribe herself. The VOICE
+    // DETECTOR above stays open, which is what makes interrupting possible.
     pauseListening();
+    voiceRunMs = 0;
 
     if (utterance) utterance.cancelled = true;     // supersede whatever was mid-line
     var me = { cancelled: false };
@@ -481,12 +484,120 @@
     return step(0, inflight);
   }
 
+  /* ---------------- barge-in ----------------
+     THE MISTAKE THIS FIXES: the recogniser was aborted before she spoke and
+     reopened only after she finished, so while Anaga was talking NOTHING was
+     listening and interrupting her was impossible. I did that on purpose to
+     stop her hearing herself and answering herself — and then wrote a test
+     asserting the mic "STAYS closed", which locked the bug in.
+
+     The call leg had it right all along (caller-agent/src/media/transport.js):
+     two different things are listening, and only one of them is the recogniser.
+
+       RECOGNISER (speech to text) — closed while she speaks. This is what
+         stops her transcribing her own voice and answering it.
+       VOICE DETECTOR (energy only) — open the whole time. It has no idea what
+         you said, only that somebody is talking, which is all barge-in needs.
+
+     Echo is handled the way a phone does it: echoCancellation on the mic
+     stream, plus a SUSTAINED run of speech rather than a single loud frame.
+     One frame was enough for our own audio to cancel our own sentence; a human
+     interrupting talks for longer than that, a speaker click does not. */
+  var vadStream = null, vadCtx = null, vadNode = null, vadBuf = null;
+  var voiceRunMs = 0, vadFloor = 0.01, vadLast = 0;
+  var BARGE_MS = 280;              // sustained speech before she yields
+
+  function startVad() {
+    if (vadStream || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+    navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,     // without this she hears herself and stops herself
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    }).then(function (stream) {
+      vadStream = stream;
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      vadCtx = new AC();
+      var src = vadCtx.createMediaStreamSource(stream);
+      vadNode = vadCtx.createAnalyser();
+      vadNode.fftSize = 512;
+      src.connect(vadNode);
+      vadBuf = new Uint8Array(vadNode.fftSize);
+      vadLast = 0;
+      requestAnimationFrame(vadTick);
+    }).catch(function () { /* no mic permission: typing still works */ });
+  }
+
+  function rms() {
+    vadNode.getByteTimeDomainData(vadBuf);
+    var sum = 0;
+    for (var i = 0; i < vadBuf.length; i++) {
+      var v = (vadBuf[i] - 128) / 128;
+      sum += v * v;
+    }
+    return Math.sqrt(sum / vadBuf.length);
+  }
+
+  function vadTick(now) {
+    if (!vadNode) return;
+    requestAnimationFrame(vadTick);
+    var dt = vadLast ? Math.min(100, now - vadLast) : 16;
+    vadLast = now;
+    var level = rms();
+
+    if (!speaking) {
+      // Learn the room while she is quiet. A fixed threshold is wrong in a car
+      // and wrong in an empty office, and this call happens in both.
+      vadFloor = vadFloor * 0.95 + level * 0.05;
+      voiceRunMs = 0;
+      return;
+    }
+    feedVad(level > Math.max(0.02, vadFloor * 3.5), dt);
+  }
+
+  /** Split out so a test can drive it without a microphone. */
+  function feedVad(isVoice, dt) {
+    if (!speaking) { voiceRunMs = 0; return; }
+    voiceRunMs = isVoice ? voiceRunMs + dt : 0;
+    if (voiceRunMs >= BARGE_MS) { voiceRunMs = 0; bargeIn(); }
+  }
+  window.__vad = function (isVoice, dt) { feedVad(isVoice, dt || 100); };
+
+  /** Somebody is talking over her. Stop, now, mid-word. */
+  function bargeIn() {
+    if (!utterance || utterance.cancelled) return;
+    utterance.cancelled = true;
+    try { element().pause(); } catch (e) {}
+    speaking = false; body.classList.remove("speaking");
+    // What she actually SAID is what goes in the record. She was cut off, so
+    // the line is marked rather than trimmed to a guessed word — we know the
+    // audio stopped, not which word it stopped on.
+    markCutOff();
+    state("");
+    if (micWanted) listen();       // hear what they are saying, immediately
+  }
+
+  function markCutOff() {
+    var last = history[history.length - 1];
+    if (!last || last.role !== "agent" || /…\[cut off\]$/.test(last.text)) return;
+    last.text += " …[cut off]";
+    var bubbles = $("log").querySelectorAll(".ln.her");
+    var el2 = bubbles[bubbles.length - 1];
+    if (el2) el2.lastChild.nodeValue += " …[cut off]";
+  }
+
   /* ---------------- listening (half-duplex) ---------------- */
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   var recog = null, micWanted = false;
 
   function listen() {
-    if (!SR || ended || recog) return;
+    // NEVER while she has the floor. The energy detector covers barge-in; the
+    // recogniser opening mid-sentence is how she transcribes her own voice and
+    // answers it. Pressing the mic button while she talks used to do exactly
+    // that.
+    if (!SR || ended || recog || speaking) return;
     recog = new SR();
     recog.lang = lang;
     recog.interimResults = true;
@@ -513,6 +624,10 @@
   function pauseListening() { if (recog) { try { recog.abort(); } catch (e) {} recog = null; } }
   function micOff() {
     micWanted = false;
+    if (vadStream) {
+      vadStream.getTracks().forEach(function (t) { t.stop(); });
+      vadStream = null; vadNode = null;
+    }
     $("mic").setAttribute("aria-pressed", "false");
     pauseListening(); clearDraft();
   }
@@ -610,6 +725,7 @@
     if (!SR) return state("this browser has no speech recogniser — type instead");
     micWanted = true;
     this.setAttribute("aria-pressed", "true");
+    startVad();                    // inside the gesture — getUserMedia needs it
     listen();
   });
   $("compose").addEventListener("submit", function (ev) {
