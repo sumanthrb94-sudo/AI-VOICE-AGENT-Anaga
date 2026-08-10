@@ -71,7 +71,18 @@ if (process.env.STUB_VENDORS === '1') {
       }
       const said = process.env.STUB_LLM_SAY
         || 'మీరు ఉండటానికా, లేక పెట్టుబడి కోసమా చూస్తున్నారు?';
-      const payload = JSON.stringify({ say: said, end: false, disposition: 'qualifying' });
+      // A SUPERSET of both contracts. /turn and /summary ask the same provider
+      // for different JSON, and one stub shape meant whichever endpoint the test
+      // was not written for silently got an object full of holes — a summary
+      // that scores 0 on every call looks like a scoring bug, not a stub.
+      const payload = JSON.stringify({
+        say: said, end: false, disposition: 'qualifying',
+        interested: true,
+        qualification: { purpose: 'end-use', budget: 'in-range', config: '3bhk', timeline: '0-3m' },
+        summary: 'Stubbed summary for local runs.',
+        nextAction: 'Book the site visit.',
+        comment: 'Stub.',
+      });
       return new Response(JSON.stringify({
         candidates: [{ content: { parts: [{ text: payload }] } }],
       }), { status: 200, headers: { 'content-type': 'application/json' } });

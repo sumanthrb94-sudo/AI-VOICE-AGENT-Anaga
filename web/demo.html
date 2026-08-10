@@ -1,321 +1,171 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Vaak demo · Vaak AI — Mission Control</title>
-  <meta name="description" content="Voice-AI sales infrastructure for Bharat's high-ticket, multilingual, regulated industries." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/styles.css?v=16" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vaak · Anaga live call</title>
+<meta name="description" content="Anaga qualifying a property lead — inbound or outbound, in Telugu, Hindi or English.">
+<style>
+  :root{
+    --bg:#08090c; --panel:#101219; --card:#171a23; --line:#242835; --txt:#e9ebf1;
+    --dim:#8b93a7; --accent:#ff8a3d; --ok:#35d07f; --warn:#ffb020; --bad:#ff4d4f;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font:15px/1.45 ui-sans-serif,system-ui,"Noto Sans Telugu","Noto Sans Devanagari",sans-serif;
+    -webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+  .app{max-width:460px;margin:0 auto;min-height:100%;display:flex;flex-direction:column}
+
+  /* ── setup ─────────────────────────────────────────────────────── */
+  .setup{padding:20px 18px 8px}
+  .setup h1{margin:0 0 2px;font-size:20px;letter-spacing:-.01em}
+  .setup p{margin:0 0 16px;color:var(--dim);font-size:12.5px;line-height:1.6}
+  .field{margin-bottom:14px}
+  .field>span{display:block;color:var(--dim);font-size:11px;text-transform:uppercase;
+    letter-spacing:.05em;margin-bottom:7px}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{flex:1;min-width:92px;background:var(--card);color:var(--txt);
+    border:1px solid var(--line);border-radius:10px;padding:11px 8px;font:inherit;cursor:pointer;
+    text-align:left;line-height:1.3}
+  .seg button b{display:block;font-size:13.5px;font-weight:600}
+  .seg button em{font-style:normal;color:var(--dim);font-size:10.5px}
+  .seg button[aria-pressed=true]{border-color:var(--accent);background:#1c1409}
+  .start{width:100%;margin-top:6px;background:var(--ok);color:#05130b;border:0;
+    border-radius:999px;padding:15px;font:700 15px/1 inherit;cursor:pointer}
+  .start:disabled{opacity:.45;cursor:default}
+  .src{color:var(--dim);font-size:11px;margin-top:12px;line-height:1.6}
+
+  /* ── the call ──────────────────────────────────────────────────── */
+  .call{display:none;flex:1;flex-direction:column;min-height:100vh}
+  body.in-call .setup{display:none}
+  body.in-call .call{display:flex}
+
+  .head{padding:26px 18px 18px;text-align:center;
+    background:linear-gradient(180deg,#141826 0%,var(--bg) 100%)}
+  .avatar{width:76px;height:76px;border-radius:50%;margin:0 auto 12px;display:grid;
+    place-items:center;font-size:29px;font-weight:600;color:#0b0b0b;
+    background:linear-gradient(135deg,var(--accent),#ffb877);position:relative}
+  .avatar::after{content:"";position:absolute;inset:-7px;border-radius:50%;
+    border:2px solid var(--accent);opacity:0;}
+  body.speaking .avatar::after{animation:ring 1.15s ease-out infinite}
+  @keyframes ring{0%{opacity:.65;transform:scale(1)}100%{opacity:0;transform:scale(1.22)}}
+  .who{font-size:19px;font-weight:600}
+  .sub{color:var(--dim);font-size:12.5px;margin-top:3px}
+  .timer{font-variant-numeric:tabular-nums;color:var(--ok);font-size:13px;margin-top:8px}
+  .state{color:var(--warn);font-size:12px;margin-top:6px;min-height:16px}
+
+  /* live level meter — real, driven by the audio element */
+  .level{display:flex;gap:3px;justify-content:center;align-items:flex-end;height:22px;margin-top:12px}
+  .level i{width:3px;background:var(--accent);border-radius:2px;height:3px;
+    transition:height .09s linear;opacity:.85}
+
+  .log{flex:1;overflow-y:auto;padding:6px 14px 12px;display:flex;flex-direction:column;gap:7px}
+  .ln{padding:9px 12px;border-radius:13px;max-width:86%;font-size:14.5px;
+    white-space:pre-wrap;overflow-wrap:anywhere}
+  .ln.you{align-self:flex-end;background:#1b2330;border:1px solid #26374d}
+  .ln.her{align-self:flex-start;background:#1b1408;border:1px solid #3a2a10}
+  .ln.draft{opacity:.5;font-style:italic}
+  .ln small{display:block;color:var(--dim);font-size:10px;margin-bottom:2px;font-style:normal}
+
+  .compose{padding:8px 14px;display:flex;gap:7px;border-top:1px solid var(--line)}
+  .compose input{flex:1;min-width:0;background:var(--card);color:var(--txt);
+    border:1px solid var(--line);border-radius:999px;padding:11px 15px;font:inherit}
+  .compose input:focus{outline:none;border-color:var(--accent)}
+  .compose button{background:var(--card);color:var(--txt);border:1px solid var(--line);
+    border-radius:999px;width:44px;font-size:17px;cursor:pointer}
+
+  .controls{display:flex;gap:10px;padding:12px 14px 26px;justify-content:center}
+  .ctl{width:56px;height:56px;border-radius:50%;border:1px solid var(--line);
+    background:var(--card);color:var(--txt);font-size:19px;cursor:pointer;display:grid;
+    place-items:center}
+  .ctl[aria-pressed=true]{background:var(--accent);color:#0b0b0b;border-color:var(--accent)}
+  .ctl.end{background:var(--bad);border-color:var(--bad);color:#fff}
+
+  /* ── outcome ───────────────────────────────────────────────────── */
+  .outcome{display:none;padding:16px}
+  body.ended .outcome{display:block}
+  body.ended .compose,body.ended .controls .mic{display:none}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .score{display:flex;align-items:baseline;gap:10px}
+  .score b{font-size:34px;line-height:1}
+  .score span{color:var(--dim);font-size:12px}
+  .band{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;
+    font-weight:600;background:#1b1408;color:var(--accent);border:1px solid #3a2a10}
+  .rows{margin-top:14px;font-size:13px}
+  .rows div{display:flex;justify-content:space-between;gap:12px;padding:6px 0;
+    border-top:1px solid var(--line)}
+  .rows span:last-child{color:var(--dim);text-align:right}
+  .again{width:100%;margin-top:14px;background:var(--card);color:var(--txt);
+    border:1px solid var(--line);border-radius:999px;padding:13px;font:600 14px/1 inherit;cursor:pointer}
+</style>
 </head>
 <body>
-  <!-- ambient background -->
-  <div class="bg-grid" aria-hidden="true"></div>
-  <div class="bg-glow" aria-hidden="true"></div>
+<div class="app">
 
-  <!-- ===================== TOP NAV ===================== -->
-  <header class="nav">
-    <div class="nav__brand">
-      <span class="brand__mark" aria-hidden="true">वाक्</span>
-      <span class="brand__name">Vaak<span class="brand__ai">AI</span></span>
-      <span class="brand__tag">Mission Control</span>
-    </div>
-    <nav class="nav__links">
-      <a href="#fleet">Agent Fleet</a>
-      <a href="#metrics">Metrics</a>
-      <a href="console.html">Console</a>
-      <a href="docs/BUSINESS_PLAN.md">Business Plan</a>
-      <a href="engineering/MULTI_AGENT_SPEC.md">Build Spec</a>
-      <button class="nav__key" id="open-settings" type="button">🔑 Connect Gemini</button>
-    </nav>
-    <span class="nav__status"><i class="dot"></i> Pre-seed · Building</span>
-  </header>
-
-  <!-- ===================== HERO ===================== -->
-  <section class="hero">
-    <p class="hero__kicker">वाक् · వాక్ — <em>the spoken word</em></p>
-
-    <!-- Anaga: the named female voice agent -->
-    <div class="agent-chip" title="Anaga — the Vaak caller agent">
-      <span class="agent-chip__avatar" aria-hidden="true">
-        <span class="agent-chip__wave"><i></i><i></i><i></i><i></i><i></i></span>
-      </span>
-      <span class="agent-chip__text">
-        <b>Meet Anaga</b>
-        <em>female voice · Telugu · Hindi · English</em>
-      </span>
-      <span class="agent-chip__live"><i class="dot"></i> on a call</span>
-    </div>
-
-    <!-- Seven Sarvam bulbul:v2 voices, four female and three male. The male
-         ones are served by Sarvam directly — Google Cloud TTS is not required
-         for them, which an earlier version of this file wrongly claimed. -->
-    <div class="voice-picker" id="voice-picker" role="group" aria-label="Choose Anaga's voice">
-      <span class="voice-picker__label">AI voice</span>
-      <div class="voice-picker__cards">
-        <button class="voice-card" data-voice="aria" type="button">
-          <span class="voice-card__wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-          <span class="voice-card__txt"><b>Aria</b><em>Warm &amp; bright</em></span>
-          <span class="voice-card__play" aria-hidden="true">▶</span>
-        </button>
-        <button class="voice-card" data-voice="kiara" type="button">
-          <span class="voice-card__wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-          <span class="voice-card__txt"><b>Kiara</b><em>Low &amp; crisp</em></span>
-          <span class="voice-card__play" aria-hidden="true">▶</span>
-        </button>
-        <button class="voice-card" data-voice="meher" type="button">
-          <span class="voice-card__wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-          <span class="voice-card__txt"><b>Meher</b><em>High &amp; gentle</em></span>
-          <span class="voice-card__play" aria-hidden="true">▶</span>
-        </button>
-        <button class="voice-card" data-voice="arya" type="button">
-          <span class="voice-card__wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-          <span class="voice-card__txt"><b>Arya</b><em>Female &middot; calm</em></span>
-          <span class="voice-card__play" aria-hidden="true">▶</span>
-        </button>
-        <button class="voice-card" data-voice="arjun" type="button">
-          <span class="voice-card__wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-          <span class="voice-card__txt"><b>Arjun</b><em>Male &middot; steady</em></span>
-          <span class="voice-card__play" aria-hidden="true">▶</span>
-        </button>
-        <button class="voice-card" data-voice="karun" type="button">
-          <span class="voice-card__wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-          <span class="voice-card__txt"><b>Karun</b><em>Male &middot; warm</em></span>
-          <span class="voice-card__play" aria-hidden="true">▶</span>
-        </button>
-        <button class="voice-card" data-voice="hitesh" type="button">
-          <span class="voice-card__wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-          <span class="voice-card__txt"><b>Hitesh</b><em>Male &middot; bright</em></span>
-          <span class="voice-card__play" aria-hidden="true">▶</span>
-        </button>
-      </div>
-      <p class="voice-picker__note" id="voice-resolved"></p>
-    </div>
-
-    <!-- Hear Anaga: live in-browser female-voice demo (Web Speech API) -->
-    <div class="voice-demo" id="voice-demo">
-      <div class="voice-demo__langs" role="group" aria-label="Sample language">
-        <button class="lang-pill is-active" data-lang="auto">🌐 Auto</button>
-        <button class="lang-pill" data-lang="en-IN">English</button>
-        <button class="lang-pill" data-lang="hi-IN">हिंदी</button>
-        <button class="lang-pill" data-lang="te-IN">తెలుగు</button>
-      </div>
-      <button class="btn btn--hear" id="hear-anaga" aria-pressed="false">
-        <span class="btn--hear__ico" aria-hidden="true">▶</span>
-        <span class="btn--hear__label">Hear Anaga</span>
-      </button>
-      <p class="voice-demo__note" id="voice-note">Plays the opening line in the voice selected above.</p>
-    </div>
-
-    <!-- Live two-way call demo: your mic → Anaga listens & responds -->
-    <div class="call-cta">
-      <button class="btn btn--call" id="start-call">
-        <span class="btn--call__ring" aria-hidden="true"></span>
-        <span class="btn--call__ico" aria-hidden="true">📞</span>
-        <span class="btn--call__label">Talk to Anaga — live call demo</span>
-      </button>
-      <p class="call-cta__hint">🗣️ The mic closes while she speaks, so she can't hear herself — <b>tap the mic to interrupt her</b> any time. Natural pauses won't cut you off. 🎧 On earphones you can enable full-duplex (always-on mic) from the console. 🌐 Auto-detects your language — on-device in Chrome 138+, otherwise via Google — or pick one above · you can also type.</p>
-    </div>
-
-    <h1 class="hero__title">
-      The voice-AI sales layer<br />for <span class="grad">Bharat</span>.
-    </h1>
-    <p class="hero__sub">
-      Meet <b>Anaga</b> — an autonomous, India-native voice agent with a warm female voice who
-      qualifies leads, handles objections in the languages Indians actually speak, books
-      high-intent meetings, and hands warm prospects to human closers — compliant with
-      TRAI/DLT/DND by design.
+  <section class="setup">
+    <h1>Anaga · live call</h1>
+    <p>
+      A real call, not a recording. Anaga discloses that she is an AI, qualifies the
+      lead against the versioned flow, and books a site visit — or takes the opt-out
+      and stops. Every line you see is generated and spoken live.
     </p>
 
-    <!-- ============ PRIMARY ACTION ROW ============ -->
-    <!-- The special guide button is surgically placed in the centre of the action row. -->
-    <div class="cta-row">
-      <a class="btn btn--ghost" href="engineering/MULTI_AGENT_SPEC.md">
-        <span class="btn__icon">⚙︎</span> Build Spec
-      </a>
-
-      <!-- ★★★ THE BUTTON THE FOUNDER ASKED FOR ★★★ -->
-      <button class="btn btn--playbook" id="open-playbook" aria-haspopup="dialog" aria-controls="playbook">
-        <span class="btn__pulse" aria-hidden="true"></span>
-        <span class="btn__icon">🗺️</span>
-        <span class="btn__label">
-          <span class="btn__label-main">The Playbook</span>
-          <span class="btn__label-sub">Scratch → Production → Investors → Marketing</span>
-        </span>
-        <span class="btn__chev" aria-hidden="true">→</span>
-      </button>
-
-      <a class="btn btn--ghost" href="docs/BUSINESS_PLAN.md">
-        <span class="btn__icon">📈</span> Investor Memo
-      </a>
-    </div>
-    <p class="cta-hint">One button. Zero to a ₹100 Cr company — every step, in order.</p>
-  </section>
-
-  <!-- ===================== VOICE LAB ===================== -->
-  <section class="voicelab" id="voicelab">
-    <div class="section-head">
-      <h2>Voice Lab</h2>
-      <p>Live frequency meter + voice modulator — shape exactly how Anaga sounds.</p>
-    </div>
-    <div class="vlab">
-      <canvas class="vlab__meter" id="vlab-meter" width="900" height="170" aria-label="Voice frequency meter"></canvas>
-      <div class="vlab__row">
-        <div class="vlab__btns">
-          <button class="vlab__btn" id="vlab-mic" type="button">🎤 Visualize my voice</button>
-          <button class="vlab__btn vlab__btn--primary" id="vlab-preview" type="button">🔊 Preview Anaga</button>
-        </div>
-        <div class="vlab__sliders">
-          <label class="vlab__slider">
-            <span>Pitch <b id="vlab-pitch-v">0%</b></span>
-            <input type="range" id="vlab-pitch" min="-50" max="50" step="1" value="0" />
-          </label>
-          <label class="vlab__slider">
-            <span>Pace <b id="vlab-pace-v">0%</b></span>
-            <input type="range" id="vlab-pace" min="-50" max="50" step="1" value="0" />
-          </label>
-          <label class="vlab__slider">
-            <span>Loudness <b id="vlab-loud-v">100%</b></span>
-            <input type="range" id="vlab-loud" min="40" max="200" step="5" value="100" />
-          </label>
-          <button class="vlab__reset" id="vlab-reset" type="button">Reset</button>
-        </div>
-      </div>
-      <p class="vlab__note" id="vlab-note"></p>
-    </div>
-  </section>
-
-  <!-- ===================== AGENT FLEET ===================== -->
-  <section class="fleet" id="fleet">
-    <div class="section-head">
-      <h2>The Agent Fleet</h2>
-      <p>A fleet of specialized agents behind one orchestrator. Each work package is an
-         isolated, branchable task an autonomous coding agent can own end-to-end.</p>
-    </div>
-    <div class="fleet__grid" id="fleet-grid"><!-- injected by app.js --></div>
-  </section>
-
-  <!-- ===================== METRICS ===================== -->
-  <section class="metrics" id="metrics">
-    <div class="section-head">
-      <h2>Production-grade bar</h2>
-      <p>Non-negotiable acceptance targets the system is built against.</p>
-    </div>
-    <div class="metrics__grid" id="metrics-grid"><!-- injected by app.js --></div>
-  </section>
-
-  <footer class="foot">
-    <span>Vaak AI · वाक् · Voice-AI sales infrastructure for Bharat</span>
-    <span>Beachhead: Hyderabad real estate · Confidential</span>
-  </footer>
-
-  <!-- ===================== PLAYBOOK OVERLAY ===================== -->
-  <div class="playbook" id="playbook" role="dialog" aria-modal="true" aria-labelledby="playbook-title" hidden>
-    <div class="playbook__scrim" data-close></div>
-    <div class="playbook__panel" role="document">
-      <header class="playbook__top">
-        <div class="playbook__title-wrap">
-          <h2 id="playbook-title">From Scratch to a ₹100 Cr Company</h2>
-          <p>The end-to-end operating manual — build, raise, and sell, in the order you actually do them.</p>
-        </div>
-        <button class="playbook__close" data-close aria-label="Close playbook">✕</button>
-      </header>
-
-      <!-- phase tabs -->
-      <nav class="playbook__tabs" id="playbook-tabs"><!-- injected --></nav>
-
-      <!-- progress rail -->
-      <div class="playbook__rail"><div class="playbook__rail-fill" id="rail-fill"></div></div>
-
-      <!-- content -->
-      <div class="playbook__body" id="playbook-body"><!-- injected --></div>
-    </div>
-  </div>
-
-  <!-- ===================== LIVE CALL OVERLAY ===================== -->
-  <div class="call" id="call" role="dialog" aria-modal="true" aria-labelledby="call-title" hidden>
-    <div class="call__scrim" data-call-close></div>
-    <div class="call__panel" role="document">
-      <header class="call__top">
-        <div class="call__id">
-          <span class="call__avatar" id="call-avatar" aria-hidden="true">
-            <span class="call__rings"><i></i><i></i></span>
-            <span class="call__wave"><i></i><i></i><i></i><i></i><i></i></span>
-          </span>
-          <div class="call__who">
-            <b id="call-title">Anaga</b>
-            <span class="call__status" id="call-status">Connecting…</span>
-          </div>
-        </div>
-        <button class="call__voice" id="call-voice" type="button" title="Tap to change voice"></button>
-        <span class="call__brain" id="call-brain" hidden aria-live="polite"></span>
-        <button class="call__end" id="call-end">✕ End call</button>
-      </header>
-
-      <div class="call__transcript" id="call-transcript"><!-- bubbles injected --></div>
-
-      <!-- inline notice (e.g. microphone blocked) -->
-      <div class="call__notice" id="call-notice" role="status" aria-live="polite" hidden></div>
-
-      <!-- post-call review card (summary + internal comment) -->
-      <div class="call__review" id="call-review" hidden><!-- injected by app.js --></div>
-
-      <div class="call__controls">
-        <button class="call__mic" id="call-mic" aria-pressed="false">
-          <span class="call__mic-ico" aria-hidden="true">🎤</span>
-          <span class="call__mic-label">Tap to speak</span>
+    <div class="field">
+      <span>How the call starts</span>
+      <div class="seg" id="dir">
+        <button type="button" data-dir="outbound" aria-pressed="true">
+          <b>Outbound</b><em>They left a number on a Meta / Instagram ad</em>
         </button>
-        <form class="call__textform" id="call-textform" autocomplete="off">
-          <input id="call-textinput" type="text" placeholder="…or type your reply and press Enter" aria-label="Type your reply" />
-          <button type="submit" aria-label="Send">➤</button>
-        </form>
+        <button type="button" data-dir="inbound" aria-pressed="false">
+          <b>Inbound</b><em>They ring us after seeing the ad</em>
+        </button>
       </div>
     </div>
-  </div>
 
-  <!-- ===================== SETTINGS / CONNECT GEMINI ===================== -->
-  <div class="settings" id="settings" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
-    <div class="settings__scrim" data-settings-close></div>
-    <div class="settings__panel" role="document">
-      <header class="settings__top">
-        <div>
-          <h2 id="settings-title">🔑 Connect Gemini</h2>
-          <p>Paste your Google Gemini API key to power Anaga's live brain from this browser.</p>
-        </div>
-        <button class="settings__close" data-settings-close aria-label="Close">✕</button>
-      </header>
-
-      <div class="settings__body">
-        <span class="settings__status" id="settings-status">Status: not connected — running the offline script.</span>
-
-        <label class="settings__label" for="settings-key">Gemini API key</label>
-        <div class="settings__keyrow">
-          <input id="settings-key" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false" />
-          <button type="button" id="settings-reveal" class="settings__reveal" aria-label="Show/hide key">👁</button>
-        </div>
-
-        <label class="settings__label" for="settings-model">Model <span>(optional)</span></label>
-        <input id="settings-model" type="text" placeholder="gemini-2.0-flash" autocomplete="off" spellcheck="false" />
-
-        <div class="settings__actions">
-          <button type="button" id="settings-connect" class="settings__connect">Connect</button>
-          <button type="button" id="settings-clear" class="settings__clear">Disconnect</button>
-        </div>
-        <p class="settings__msg" id="settings-msg" hidden></p>
-
-        <div class="settings__help">
-          <p><b>Where do I get a key?</b> <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> → Create API key.</p>
-          <p class="settings__warn">⚠️ This stores the key in <b>your browser only</b> and calls Google directly from your browser — fine for personal testing. For a <b>public</b> site, leave this empty and set <code>GEMINI_API_KEY</code> as a server env var on Vercel instead, so visitors never see your key.</p>
-        </div>
+    <div class="field">
+      <span>Language</span>
+      <div class="seg" id="lang">
+        <button type="button" data-lang="te-IN" aria-pressed="true"><b>తెలుగు</b><em>Telugu</em></button>
+        <button type="button" data-lang="hi-IN" aria-pressed="false"><b>हिंदी</b><em>Hindi</em></button>
+        <button type="button" data-lang="en-IN" aria-pressed="false"><b>English</b><em>Indian English</em></button>
       </div>
     </div>
-  </div>
 
-  <script src="assets/translate.js?v=16"></script>
-  <script src="assets/llm-client.js?v=16"></script>
-  <script src="assets/playbook-data.js?v=16"></script>
-  <script src="assets/app.js?v=16"></script>
+    <button class="start" id="start" type="button">Start the call</button>
+    <p class="src" id="src">Loading…</p>
+  </section>
+
+  <section class="call">
+    <div class="head">
+      <div class="avatar">అ</div>
+      <div class="who" id="who">Anaga</div>
+      <div class="sub" id="sub"></div>
+      <div class="timer" id="timer">00:00</div>
+      <div class="state" id="state"></div>
+      <div class="level" id="level"></div>
+    </div>
+
+    <div class="log" id="log" aria-live="polite" aria-label="Live transcript"></div>
+
+    <div class="outcome"><div class="card">
+      <div class="score"><b id="score">—</b><span>lead score</span>
+        <span class="band" id="band"></span></div>
+      <div class="rows" id="rows"></div>
+      <button class="again" id="again" type="button">Run another call</button>
+    </div></div>
+
+    <form class="compose" id="compose" autocomplete="off">
+      <input id="say" type="text" aria-label="What the prospect says">
+      <button type="submit" aria-label="Send">↑</button>
+    </form>
+
+    <div class="controls">
+      <button class="ctl mic" id="mic" type="button" aria-pressed="false" aria-label="Speak">🎙</button>
+      <button class="ctl end" id="end" type="button" aria-label="End call">✕</button>
+    </div>
+  </section>
+
+</div>
+<script src="assets/demo-call.js" defer></script>
 </body>
 </html>

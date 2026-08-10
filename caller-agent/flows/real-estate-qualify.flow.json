@@ -4,12 +4,24 @@
   "version": "1.0.0",
   "persona": "anaga",
   "vertical": "real-estate",
-  "project": { "name": "Skyline Villaments", "city": "Hyderabad" },
+  "project": {
+    "name": "Skyline Villaments",
+    "city": "Hyderabad"
+  },
   "goal": "Disclose AI, get consent, qualify (purpose/budget/config/timeline), book a site visit, handle opt-out.",
   "notes": "This is the versioned source of truth for the conversation. The browser demo in web/assets/app.js mirrors it (English) for an offline preview. In production the caller-agent (WP-3) loads this flow as data and the LLM handles free-form turns; opt-out is enforced by the compliance-agent (WP-5), fail-closed.",
   "globals": {
     "optout": {
-      "triggers": ["not interested", "do not call", "don't call", "stop calling", "remove me", "unsubscribe", "opt out", "dnd"],
+      "triggers": [
+        "not interested",
+        "do not call",
+        "don't call",
+        "stop calling",
+        "remove me",
+        "unsubscribe",
+        "opt out",
+        "dnd"
+      ],
       "goto": "optout"
     }
   },
@@ -20,25 +32,43 @@
         "id": "purpose",
         "label": "Buying to live in, or to invest",
         "weight": 15,
-        "buckets": { "end-use": 100, "investment": 85, "unclear": 30 }
+        "buckets": {
+          "end-use": 100,
+          "investment": 85,
+          "unclear": 30
+        }
       },
       {
         "id": "budget",
         "label": "Budget range",
         "weight": 30,
-        "buckets": { "above-range": 100, "in-range": 90, "below-range": 20, "unclear": 30 }
+        "buckets": {
+          "above-range": 100,
+          "in-range": 90,
+          "below-range": 20,
+          "unclear": 30
+        }
       },
       {
         "id": "config",
         "label": "Configuration wanted",
         "weight": 15,
-        "buckets": { "match": 100, "mismatch": 35, "unclear": 30 }
+        "buckets": {
+          "match": 100,
+          "mismatch": 35,
+          "unclear": 30
+        }
       },
       {
         "id": "timeline",
         "label": "When they intend to buy",
         "weight": 40,
-        "buckets": { "immediate": 100, "3-6-months": 75, "exploring": 35, "unclear": 30 }
+        "buckets": {
+          "immediate": 100,
+          "3-6-months": 75,
+          "exploring": 35,
+          "unclear": 30
+        }
       }
     ],
     "dispositionCeiling": {
@@ -51,10 +81,22 @@
       "booked": 100
     },
     "bands": [
-      { "min": 75, "label": "hot" },
-      { "min": 50, "label": "warm" },
-      { "min": 25, "label": "cool" },
-      { "min": 0, "label": "cold" }
+      {
+        "min": 75,
+        "label": "hot"
+      },
+      {
+        "min": 50,
+        "label": "warm"
+      },
+      {
+        "min": 25,
+        "label": "cool"
+      },
+      {
+        "min": 0,
+        "label": "cold"
+      }
     ]
   },
   "steps": [
@@ -62,17 +104,116 @@
       "id": "greet",
       "say": "Namaste! This is Anaga, an AI assistant from Vaak, calling about the Skyline Villaments project in Hyderabad. Just so you know, I'm an AI voice agent. Do you have a quick minute to talk?",
       "disclosure": true,
-      "branch": { "optout": "optout", "negative": "busy", "default": "purpose" }
+      "branch": {
+        "optout": "optout",
+        "negative": "busy",
+        "default": "purpose"
+      }
     },
-    { "id": "purpose",  "say": "Are you looking for a home to live in, or more as an investment?", "capture": "purpose",  "next": "budget" },
-    { "id": "budget",   "say": "What budget range are you considering — for example one to two crore, or higher?", "capture": "budget", "next": "config" },
-    { "id": "config",   "say": "Are you looking at a 2BHK, 3BHK, or something larger?", "capture": "config", "next": "timeline" },
-    { "id": "timeline", "say": "Are you planning to buy in the next few months, or just exploring for now?", "capture": "timeline", "next": "offer" },
-    { "id": "offer",    "say": "Based on what you've told me, I think Skyline Villaments would suit you. Could I book you a site visit this weekend?", "branch": { "optout": "optout", "affirmative": "book", "default": "callback" } },
-    { "id": "book",     "say": "Would Saturday or Sunday work better for you?", "capture": "day", "next": "confirm" },
-    { "id": "confirm",  "say": "Done! I've booked your site visit for {day}. You'll get a WhatsApp confirmation with the location, and our sales manager will meet you there. Thank you for your time!", "tool": "book_site_visit", "end": true },
-    { "id": "callback", "say": "No problem — I'll have our sales manager send the project details on WhatsApp, and we can arrange a visit whenever you're ready. Thank you!", "tool": "book_callback", "end": true },
-    { "id": "busy",     "say": "No worries — I'll try you another time. Thank you, and have a good day!", "end": true },
-    { "id": "optout",   "say": "I completely understand. I'm adding your number to our do-not-call list now, so you won't receive further calls. Apologies for the disturbance.", "tool": "mark_optout", "end": true, "optout": true }
-  ]
+    {
+      "id": "purpose",
+      "say": "Are you looking for a home to live in, or more as an investment?",
+      "capture": "purpose",
+      "next": "budget"
+    },
+    {
+      "id": "budget",
+      "say": "What budget range are you considering — for example one to two crore, or higher?",
+      "capture": "budget",
+      "next": "config"
+    },
+    {
+      "id": "config",
+      "say": "Are you looking at a 2BHK, 3BHK, or something larger?",
+      "capture": "config",
+      "next": "timeline"
+    },
+    {
+      "id": "timeline",
+      "say": "Are you planning to buy in the next few months, or just exploring for now?",
+      "capture": "timeline",
+      "next": "offer"
+    },
+    {
+      "id": "offer",
+      "say": "Based on what you've told me, I think Skyline Villaments would suit you. Could I book you a site visit this weekend?",
+      "branch": {
+        "optout": "optout",
+        "affirmative": "book",
+        "default": "callback"
+      }
+    },
+    {
+      "id": "book",
+      "say": "Would Saturday or Sunday work better for you?",
+      "capture": "day",
+      "next": "confirm"
+    },
+    {
+      "id": "confirm",
+      "say": "Done! I've booked your site visit for {day}. You'll get a WhatsApp confirmation with the location, and our sales manager will meet you there. Thank you for your time!",
+      "tool": "book_site_visit",
+      "end": true
+    },
+    {
+      "id": "callback",
+      "say": "No problem — I'll have our sales manager send the project details on WhatsApp, and we can arrange a visit whenever you're ready. Thank you!",
+      "tool": "book_callback",
+      "end": true
+    },
+    {
+      "id": "busy",
+      "say": "No worries — I'll try you another time. Thank you, and have a good day!",
+      "end": true
+    },
+    {
+      "id": "optout",
+      "say": "I completely understand. I'm adding your number to our do-not-call list now, so you won't receive further calls. Apologies for the disturbance.",
+      "tool": "mark_optout",
+      "end": true,
+      "optout": true
+    }
+  ],
+  "directions": {
+    "_note": "How the call STARTED. Everything after the opening — the qualification questions, the scoring, the closing, the opt-out — is identical, and is deliberately NOT duplicated here: two copies of a qualification script drift, and the one that drifts is the one nobody is reading. Only the opening and the consent model differ, because only they actually do. {project} and {city} are substituted from `project` above so a greeting cannot name a development this flow is not selling. Every line is reviewed wording, never machine-translated — same rule as the disclosure in anaga.persona.json.",
+    "outbound": {
+      "label": "We ring a lead who left their number on a Meta or Instagram ad",
+      "consent": "explicit",
+      "source": [
+        "meta_lead_ad",
+        "instagram_lead_ad",
+        "facebook_lead_ad"
+      ],
+      "greet": {
+        "en-IN": "Hi, I'm Anaga, an AI voice assistant from Vaak. You asked about {project} in {city} on Instagram — is now a good time to talk for two minutes?",
+        "hi-IN": "Namaste, main Anaga hoon — Vaak ki ek AI voice assistant. Aapne Instagram par {city} ke {project} ke baare mein poocha tha. Kya main do minute baat kar sakti hoon?",
+        "te-IN": "Namaskaram, nenu Anaga — Vaak nunchi oka AI voice assistant. Meeru Instagram lo {city} lo unna {project} gurinchi adigaaru. Konni nimishaalu maatladocha?"
+      },
+      "rules": [
+        "They left their number on a Meta or Instagram ad for this project. SAY SO in the opening — that enquiry is the reason this call is permitted at all, and a stranger who cannot place you hangs up.",
+        "Get consent before ANY qualification question. If it is a bad time, offer to call back and end (disposition \"busy\").",
+        "You interrupted them. Be brief and be easy to say no to."
+      ]
+    },
+    "inbound": {
+      "label": "They ring us after seeing the ad",
+      "consent": "implicit",
+      "source": [
+        "inbound_call",
+        "instagram_dm",
+        "whatsapp"
+      ],
+      "greet": {
+        "en-IN": "Thanks for calling Vaak — I'm Anaga, an AI voice assistant. Are you calling about {project}?",
+        "hi-IN": "Vaak mein call karne ke liye dhanyavaad — main Anaga hoon, ek AI voice assistant. Kya aap {project} ke baare mein poochh rahe hain?",
+        "te-IN": "Vaak ki call chesinanduku dhanyavaadalu — nenu Anaga, oka AI voice assistant. Meeru {project} gurinchi adugutunnaara?"
+      },
+      "rules": [
+        "THEY rang YOU. Do not ask permission to talk and do not apologise for calling — they started this, and asking 'is now a good time?' of someone who just dialled you sounds like a machine reading a script.",
+        "Disclose that you are an AI in the first sentence anyway. Disclosure is not consent: consent is about whether they want the call, disclosure is about what they are talking to, and only the first one is implied by their dialling.",
+        "Find out WHICH ad or project brought them before qualifying — they may be calling about something this flow is not selling.",
+        "An inbound caller is warmer than a cold lead. Do not re-sell them on interest they have already shown; get to the site visit sooner."
+      ]
+    }
+  }
 }

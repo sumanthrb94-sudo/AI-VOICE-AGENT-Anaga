@@ -27,7 +27,26 @@ const FLOOR = {
     + "is about, and ask consent before anything else.",
   optOutTriggers: ['not interested', 'do not call', "don't call", 'stop calling', 'remove me', 'unsubscribe', 'opt out', 'dnd'],
   goal: 'Disclose AI, get consent, qualify the lead, book a site visit, handle opt-out.',
+  // If the directions block is missing or malformed, an OUTBOUND opening is
+  // what everyone gets — it is the stricter of the two, because it asks consent
+  // that inbound merely implies. Failing toward the version that asks
+  // permission is the only safe direction for a bug in a dialler to fail.
+  direction: {
+    label: 'unknown',
+    consent: 'explicit',
+    source: [],
+    greet: {},
+    rules: ['Ask consent before qualifying. Assume you interrupted them.'],
+  },
 };
+
+/** The languages Anaga has REVIEWED wording for. Not a capability list — the
+ *  vendor speaks eleven; these are the three a human has signed off. */
+export const LANGS = ['en-IN', 'hi-IN', 'te-IN'];
+export function normalizeFlowLang(lang) {
+  const l = String(lang || '').trim();
+  return LANGS.includes(l) ? l : 'en-IN';
+}
 
 function str(v) { return typeof v === 'string' && v.trim() ? v.trim() : null; }
 function arr(v) { return Array.isArray(v) ? v : []; }
@@ -66,6 +85,7 @@ export function loadFlow() {
       ? arr(f.globals.optout.triggers).filter(str)
       : FLOOR.optOutTriggers,
     disclosureStep: steps.find((s) => s.disclosure === true) || null,
+    directions: loadDirections(f),
     qualification: {
       fields,
       dispositionCeiling: obj(q.dispositionCeiling),
@@ -75,6 +95,51 @@ export function loadFlow() {
         .sort((a, b) => b.min - a.min),
     },
   };
+}
+
+/**
+ * The per-direction openings, with {project}/{city} filled in from the flow.
+ *
+ * The substitution is the point: a greeting with a development's name typed
+ * into it stays behind when the flow is pointed at a different project, and
+ * nobody notices until Anaga opens a call by naming a building that is not for
+ * sale. Nothing else about the two directions is duplicated — the qualification
+ * and the closing are shared, because they genuinely are the same.
+ */
+function loadDirections(f) {
+  const out = {};
+  for (const key of ['outbound', 'inbound']) {
+    const d = obj(obj(f.directions)[key]);
+    const greet = obj(d.greet);
+    const filled = {};
+    // Templates are kept RAW here and filled where they are rendered. Filling
+    // them at load time baked the project name into the greeting, so a flow
+    // pointed at a different development still opened by naming the old one —
+    // the exact drift the flow-drives-the-prompt test exists to catch, and it
+    // did catch it.
+    for (const l of LANGS) if (str(greet[l])) filled[l] = greet[l];
+    out[key] = {
+      label: str(d.label) || FLOOR.direction.label,
+      consent: d.consent === 'implicit' ? 'implicit' : 'explicit',
+      source: arr(d.source).filter(str),
+      greet: filled,
+      rules: arr(d.rules).filter(str).length ? arr(d.rules).filter(str) : FLOOR.direction.rules,
+    };
+  }
+  return out;
+}
+
+/** Fill {project}/{city} from the flow the line is being rendered WITH. */
+export function fillTemplate(text, flow) {
+  return String(text || '')
+    .replaceAll('{project}', str(obj(flow?.project).name) || 'the project')
+    .replaceAll('{city}', str(obj(flow?.project).city) || '');
+}
+
+/** One direction, normalized. An unknown name gets OUTBOUND — the stricter. */
+export function loadDirection(name, flow = loadFlow()) {
+  const key = String(name || '').toLowerCase() === 'inbound' ? 'inbound' : 'outbound';
+  return { id: key, ...(flow.directions?.[key] || FLOOR.direction) };
 }
 
 /** The persona, normalized the same way. */
@@ -95,6 +160,14 @@ export function loadPersona() {
       'en-IN': str(d['en-IN']) || FLOOR.disclosure,
       'hi-IN': str(d['hi-IN']) || null,
       'te-IN': str(d['te-IN']) || null,
+    },
+    // The male set, kept whole rather than inherited — Hindi marks the
+    // speaker's gender on the verb, so a man reading the feminine line is
+    // wrong and audibly so.
+    disclosureMale: {
+      'en-IN': str(obj(d.male)['en-IN']) || str(d['en-IN']) || FLOOR.disclosure,
+      'hi-IN': str(obj(d.male)['hi-IN']) || null,
+      'te-IN': str(obj(d.male)['te-IN']) || null,
     },
   };
 }

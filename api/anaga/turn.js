@@ -24,6 +24,7 @@
 import { generate } from '../_lib/llm.js';
 import { limited } from '../_lib/guard.js';
 import { turnPrompt, TURN_DISPOSITIONS } from '../_lib/prompts.js';
+import { LANGS } from '../_lib/flow.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -48,7 +49,15 @@ export default async function handler(req, res) {
   }
 
   const history = body.history;
-  if (!Array.isArray(history) || history.length === 0) {
+  // AN EMPTY HISTORY IS THE OPENING TURN, not a bad request.
+  //
+  // This used to 400, which meant Anaga could not speak first — on an outbound
+  // call, the one thing she must do. Every caller had to invent her opening
+  // line locally to get a non-empty array, which is exactly the hardcoded
+  // script the flow files exist to replace, and the prompt in prompts.js has
+  // always said "if the conversation has not started yet, produce the approved
+  // opening". The guard contradicted the prompt it guarded.
+  if (!Array.isArray(history)) {
     return res.status(400).json({ error: 'history_required' });
   }
   // Each turn must look like { role, text }.
@@ -60,7 +69,14 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'invalid_history' });
   }
 
-  const { system, user } = turnPrompt(history);
+  // Language and direction are DATA about the call, not free text: an unknown
+  // value resolves to the safe default (English, outbound) rather than being
+  // passed through to the prompt, because everything here ends up inside a
+  // model instruction and the caller is anonymous.
+  const lang = LANGS.includes(body.lang) ? body.lang : 'en-IN';
+  const direction = body.direction === 'inbound' ? 'inbound' : 'outbound';
+
+  const { system, user } = turnPrompt(history, { lang, direction });
 
   let out;
   try {
@@ -99,5 +115,7 @@ export default async function handler(req, res) {
     ? out.disposition
     : 'qualifying';
 
-  return res.status(200).json({ say, end, disposition });
+  // Echoed so the caller can render the transcript, and synthesize the reply,
+  // in the language it was actually generated in.
+  return res.status(200).json({ say, end, disposition, lang, direction });
 }

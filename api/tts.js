@@ -31,7 +31,7 @@ export default async function handler(req, res) {
     // ?all=1 returns the whole catalogue — the benchmark needs every female
     // voice reachable even while the page offers only one.
     const all = String(req.query?.all || '') === '1';
-    return res.status(200).json(ttsStatus({ all }));
+    return res.status(200).json(ttsStatus({ all, lang: req.query?.lang }));
   }
 
   if (req.method !== 'POST') {

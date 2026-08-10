@@ -101,11 +101,24 @@ const SARVAM_VOICES = {
 // picked is a decision.
 const SARVAM_DEFAULT_SPEAKER = { 'bulbul:v3': 'kavya', 'bulbul:v2': 'anushka' };
 
-/** The voice the UI OFFERS. The API still accepts every name in the catalogue —
- *  narrowing what is on screen is a product decision, not a capability one, and
- *  the benchmark still needs to reach all fourteen. */
-export function offeredSpeaker() {
-  return String(process.env.SARVAM_VOICE || SARVAM_DEFAULT_SPEAKER[sarvamModel()] || '').toLowerCase();
+/**
+ * The voice the UI OFFERS, per language. The API still accepts every name in the
+ * catalogue — narrowing what is on screen is a product decision, not a
+ * capability one, and the benchmark still needs to reach all fourteen.
+ *
+ * ONE VOICE ACROSS ALL THREE LANGUAGES, deliberately. Bulbul speakers are not
+ * language-bound; kavya speaks Telugu, Hindi and English. Anaga is one person
+ * who works in three languages, not three agents wearing her name, and a
+ * prospect who switches from Telugu to English mid-call should not hear a
+ * different woman finish the sentence.
+ *
+ * The per-language override exists because a voice CAN carry better in one
+ * language than another, and that is a listening test nobody has run yet:
+ * SARVAM_VOICE_TE_IN / _HI_IN / _EN_IN, falling back to SARVAM_VOICE.
+ */
+export function offeredSpeaker(lang) {
+  const perLang = lang ? process.env[`SARVAM_VOICE_${String(lang).toUpperCase().replace(/-/g, '_')}`] : '';
+  return String(perLang || process.env.SARVAM_VOICE || SARVAM_DEFAULT_SPEAKER[sarvamModel()] || '').toLowerCase();
 }
 
 // ⚠️ NOT LISTENED TO — DOCUMENTED, WHICH IS ONE STEP BETTER THAN GUESSED.
@@ -269,12 +282,12 @@ export async function voiceStudioHealth() {
 }
 
 /** For the health endpoint and the /api/tts probe. */
-export function ttsStatus({ all = false } = {}) {
+export function ttsStatus({ all = false, lang } = {}) {
   const chain = providerChain();
   // One voice on screen unless asked otherwise. Anaga has a voice now; the
   // picker was the tool for choosing it, and its job is done. `all` keeps the
   // full catalogue reachable for the benchmark and for choosing again later.
-  const only = offeredSpeaker();
+  const only = offeredSpeaker(lang);
   const catalogue = sarvamCatalogue();
   const offered = all || !only
     ? catalogue

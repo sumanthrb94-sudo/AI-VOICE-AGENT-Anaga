@@ -43,11 +43,6 @@ jobs:
         # unreachable or misconfigured datastore BLOCKS dials, never allows them.
         run: node --experimental-detect-module scripts/test-firestore.mjs
 
-      - name: Real-browser echo test (Chromium, actual page)
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers
-        run: node scripts/test-browser-echo.mjs || echo "::warning::browser test needs Chromium+Playwright on the runner"
-
       - name: Self-echo regression (agent must not answer itself)
         run: node --experimental-detect-module scripts/test-echo.mjs
 
@@ -88,6 +83,17 @@ jobs:
 
       - name: Call-leg TTS QA (the bytes Bulbul gets, the samples the line gets)
         run: node --experimental-detect-module scripts/test-call-tts.mjs
+
+      # This also carries what scripts/test-browser-echo.mjs used to hold. That
+      # suite drove the OLD call page (web/assets/app.js), which no HTML in this
+      # repo loads any more, so it was asserting against a page that no longer
+      # exists. The guarantee it protected — Anaga must not hear herself and
+      # answer herself — is a property of any page with a mic and a speaker, so
+      # it moved here rather than being retired. It caught a real bug on arrival.
+      - name: Investor demo QA (3 languages, both directions, half-duplex, opt-out)
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers
+        run: node scripts/test-browser-demo.mjs
 
       - name: Recording QA (Indian-region gate, no public URLs, DPDP erasure)
         run: node --experimental-detect-module scripts/test-recording.mjs

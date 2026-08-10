@@ -303,7 +303,11 @@ await t('a broken flow still produces a compliant ruleset', () => {
     project: {}, goal: '', steps: [], optOutTriggers: ['do not call'],
     qualification: { fields: [], dispositionCeiling: {}, bands: [] },
   }, loadPersona());
-  assert.ok(/DISCLOSURE & CONSENT/.test(rules));
+  // The heading is now "DISCLOSURE (…— BOTH directions)": consent moved out of
+  // it because inbound and outbound differ on consent and not on disclosure.
+  // The floor being asserted is unchanged — a ruleset built from a broken flow
+  // must still carry the disclosure requirement.
+  assert.ok(/DISCLOSURE \(/.test(rules));
   assert.ok(/OPT-OUT/.test(rules));
   assert.ok(/NEVER claim to close/.test(rules), 'the hard limits must survive an empty flow');
 });
