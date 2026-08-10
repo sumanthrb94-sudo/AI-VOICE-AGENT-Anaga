@@ -1,6 +1,9 @@
 // scripts/test-browser-demo.mjs
 //
-// REAL BROWSER test of web/demo.html — the live-call screen shown to investors.
+// REAL BROWSER test of web/index.html — the live-call screen, which is the home
+// page. It used to live at /demo.html while the voice sampler held the root; the
+// sampler's job ended the moment a voice was chosen, and leaving it as the front
+// door meant the demo URL showed a picker with one card on it.
 //
 // ── WHAT MAKES THIS DEMO WORTH TESTING ────────────────────────────────────
 // It is a real call, not a playback. Every line comes from /api/anaga/turn
@@ -68,7 +71,7 @@ await page.addInitScript(() => {
 });
 
 const restart = async () => {
-  await page.goto(`${BASE}/demo.html`);   // '/' is the voice sampler, not the demo
+  await page.goto(BASE);                 // the call IS the home page now
   await page.waitForSelector('#start');
   turns.length = 0; synths.length = 0;
 };

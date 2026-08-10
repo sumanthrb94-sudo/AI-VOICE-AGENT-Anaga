@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="te">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vaak · voices</title>
+<meta name="description" content="Sarvam Bulbul v3 Telugu voices.">
+<link rel="preconnect" href="/">
+<style>
+  /* Inline and small on purpose: this page's job is to make audio start fast,
+     and a blocking stylesheet request is latency spent before a tap is even
+     possible. */
+  :root{
+    --bg:#08090c; --card:#12141a; --line:#232733; --txt:#e8eaf0;
+    --dim:#8b93a7; --accent:#ff8a3d; --ok:#35d07f; --warn:#ffb020;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--txt);
+    font:15px/1.45 ui-sans-serif,system-ui,"Noto Sans Telugu",sans-serif;
+    -webkit-text-size-adjust:100%}
+  header{padding:18px 16px 10px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  h1{margin:0;font-size:19px;letter-spacing:-.01em}
+  .tag{color:var(--dim);font-size:12px}
+  .bar{padding:0 16px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .bar label{color:var(--dim);font-size:12px}
+  input[type=range]{accent-color:var(--accent);width:120px}
+  .val{font-variant-numeric:tabular-nums;color:var(--txt);font-size:12px;min-width:30px}
+  #status{padding:0 16px 10px;color:var(--dim);font-size:12px;min-height:18px}
+  #status.err{color:var(--warn)}
+  .grid{display:grid;gap:8px;padding:0 12px 28px;
+    grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  .v{display:flex;align-items:center;gap:10px;background:var(--card);
+    border:1px solid var(--line);border-radius:12px;padding:11px 12px;
+    color:var(--txt);font:inherit;text-align:left;cursor:pointer;
+    -webkit-tap-highlight-color:transparent}
+  .v:active{transform:scale(.985)}
+  .v[aria-pressed=true]{border-color:var(--accent);background:#1b1408}
+  .v .play{width:28px;height:28px;flex:0 0 28px;border-radius:50%;
+    display:grid;place-items:center;background:#1e222c;color:var(--accent);font-size:11px}
+  .v[data-state=loading] .play{color:var(--warn)}
+  .v[data-state=playing] .play{background:var(--accent);color:#0b0b0b}
+  .v .n{flex:1;min-width:0}
+  .v .n b{display:block;font-weight:600;font-size:14px}
+  .v .n em{font-style:normal;color:var(--dim);font-size:11px;
+    font-variant-numeric:tabular-nums}
+  footer{padding:0 16px 28px;color:var(--dim);font-size:11px;line-height:1.6}
+  footer a{color:var(--accent)}
+  footer code{color:var(--txt)}
+
+  /* live transcript — both sides, as it happens */
+  .talkbar{padding:0 16px 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .talk{background:var(--accent);color:#0b0b0b;border:0;border-radius:999px;
+    padding:10px 16px;font:600 14px/1 inherit;cursor:pointer;
+    -webkit-tap-highlight-color:transparent}
+  .talk[aria-pressed=true]{background:var(--ok)}
+  .talk:disabled{opacity:.5;cursor:default}
+  /* Typing is not a lesser path: Firefox and every desktop without Web Speech
+     has no mic recogniser at all, and the transcript is the point. */
+  .sayform{display:flex;gap:6px;flex:1;min-width:180px}
+  .sayform input{flex:1;min-width:0;background:var(--card);color:var(--txt);
+    border:1px solid var(--line);border-radius:999px;padding:9px 14px;font:inherit}
+  .sayform input:focus{outline:none;border-color:var(--accent)}
+  .send{background:var(--card);color:var(--txt);border:1px solid var(--line);
+    border-radius:999px;width:40px;font-size:16px;cursor:pointer}
+  .log{margin:0 16px 14px;max-height:38vh;overflow-y:auto;display:flex;
+    flex-direction:column;gap:6px}
+  .log:empty{display:none}
+  .ln{padding:8px 11px;border-radius:11px;max-width:88%;font-size:14px;
+    white-space:pre-wrap;overflow-wrap:anywhere}
+  .ln.you{align-self:flex-end;background:#1b2330;border:1px solid #26374d}
+  .ln.her{align-self:flex-start;background:#1b1408;border:1px solid #3a2a10}
+  /* interim recognition: visibly not final yet */
+  .ln.draft{opacity:.55;font-style:italic}
+  .ln small{display:block;color:var(--dim);font-size:10px;margin-bottom:2px;
+    font-style:normal;opacity:.9}
+</style>
+</head>
+<body>
+<header>
+  <h1>అనగా · తెలుగు</h1>
+  <span class="tag" id="model">Bulbul</span>
+</header>
+
+<div class="bar">
+  <label for="pace">వేగం</label>
+  <input type="range" id="pace" min="0.7" max="1.6" step="0.05" value="1.15">
+  <span class="val" id="paceV">1.15</span>
+  <label for="pitch">పిచ్</label>
+  <input type="range" id="pitch" min="-0.4" max="0.4" step="0.05" value="0">
+  <span class="val" id="pitchV">0</span>
+</div>
+
+<div class="talkbar">
+  <button id="talk" type="button" class="talk" aria-pressed="false">🎙 మాట్లాడండి</button>
+  <form id="sayform" class="sayform" autocomplete="off">
+    <input id="saytxt" type="text" placeholder="టైప్ చేయండి…" aria-label="Type your reply to Anaga">
+    <button type="submit" class="send" aria-label="Send">→</button>
+  </form>
+  <span class="tag" id="talkstate"></span>
+</div>
+<div id="log" class="log" aria-live="polite" aria-label="Live transcript"></div>
+
+<div id="status">Loading voices…</div>
+<div class="grid" id="voices"></div>
+
+<footer>
+  Every Bulbul voice, so a different one can be chosen. Anaga's voice is the
+  highlighted one; tapping another makes it hers for this session only —
+  changing it for real means setting <code>SARVAM_VOICE</code>.<br>
+  Nothing plays until you tap. The number beside each name is time-to-first-audio
+  measured on your device, and a replay says "cached" because a cached replay is
+  not the voice being fast.<br>
+  <a href="/">← back to the call</a> · <a href="/bench.html">measure them all</a>
+</footer>
+
+<script src="assets/tel.js" defer></script>
+</body>
+</html>

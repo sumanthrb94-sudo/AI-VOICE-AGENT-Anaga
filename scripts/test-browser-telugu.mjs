@@ -1,6 +1,11 @@
 // scripts/test-browser-telugu.mjs
 //
-// REAL BROWSER test of the Telugu voice sampler — the home page.
+// REAL BROWSER test of the Telugu voice sampler at /voices.html.
+//
+// It is no longer the home page. Once kavya was pinned, the root served a picker
+// with a single card on it and a footer describing behaviour the page no longer
+// had — so the call screen took the root and this became what it actually is: the
+// page you open to hear the others and change your mind.
 //
 // It runs against the REAL API handlers via scripts/dev-server.mjs, not a
 // hand-written stub. Every previous browser suite here stubbed /api/tts itself,
@@ -55,23 +60,22 @@ page.on('request', (r) => {
 
 console.log('\n═══ REAL BROWSER: Telugu voice sampler ═══\n');
 
-await page.goto(BASE);
+await page.goto(`${BASE}/voices.html`);   // the root is the call screen
 await page.waitForSelector('.v', { timeout: 10000 });
 
-await t('ONE voice is offered — kavya, and nothing else', async () => {
-  // The picker was the tool for choosing Anaga's voice. It has been used; the
-  // choice is kavya. Thirty-seven cards now only invite the question again.
+await t('THE PICKER SHOWS EVERY VOICE — that is what it is for', async () => {
+  // The call screen at / offers the one chosen voice. This page exists to hear
+  // the others, so showing one card here leaves it with nothing to do — which
+  // is exactly how it looked when it was still the home page.
   const ids = await page.$$eval('.v', (els) => els.map((e) => e.dataset.voice));
-  assert.deepEqual(ids, ['kavya'], `expected only kavya, got ${ids.join(', ')}`);
+  assert.ok(ids.length >= 30, `expected the full catalogue, got ${ids.length}`);
+  assert.ok(ids.includes('kavya'));
 
-  // But the catalogue is intact — "one voice" must never be indistinguishable
-  // from "one voice survived", which is exactly what a Sarvam outage looked
-  // like before the named-voice rule made it say so.
+  // And the default probe still narrows, because the CALL screen depends on it.
   const probe = await page.evaluate(() => fetch('/api/tts').then((r) => r.json()));
-  assert.ok(probe.catalogueSize >= 30, 'the full catalogue must still be reported');
+  assert.equal(probe.voices.length, 1, 'the unqualified probe still offers one voice');
   assert.equal(probe.voice, 'kavya');
-  const all = await page.evaluate(() => fetch('/api/tts?all=1').then((r) => r.json()));
-  assert.ok(all.voices.length >= 30, '?all=1 must still return everything, for the benchmark');
+  assert.ok(probe.catalogueSize >= 30, 'and says how many exist, so one never reads as an outage');
 });
 
 await t('NOTHING PLAYS UNTIL A TAP', async () => {
@@ -84,7 +88,8 @@ await t('NOTHING PLAYS UNTIL A TAP', async () => {
 
 await t('KAVYA is selected, by NAME', async () => {
   // Pinned by name, never by grid position: "the first card" silently becomes
-  // somebody else the day Sarvam reorders its list.
+  // somebody else the day Sarvam reorders its list — and on this page, where
+  // every voice is listed, kavya is not the first card at all.
   const on = await page.locator('.v[aria-pressed="true"]').all();
   assert.equal(on.length, 1, `${on.length} voices selected, expected exactly 1`);
   assert.equal(await on[0].getAttribute('data-voice'), 'kavya');
@@ -216,12 +221,12 @@ await t('an opt-out ends the call regardless of what the brain says', async () =
 // test below deliberately reloads into a degraded state.
 await page.screenshot({ path: process.env.SHOT_PATH || '/tmp/telugu.png' });
 
-await t('tapping quickly does not paint the card red', async () => {
+await t('tapping quickly through voices does not paint the grid red', async () => {
   // Swapping src aborts the previous load and fires an error on it. That is
-  // "superseded", not "broken", and labelling it a failure is how comparing
-  // voices looked like a broken deployment.
-  for (let i = 0; i < 4; i++) {
-    await page.locator('.v').first().click();
+  // "superseded", not "broken", and labelling the card you just left with a
+  // failure is how comparing voices looked like a broken deployment.
+  for (const i of [10, 11, 12, 13]) {
+    await page.locator('.v').nth(i).click();
     await page.waitForTimeout(70);
   }
   await page.waitForTimeout(1200);

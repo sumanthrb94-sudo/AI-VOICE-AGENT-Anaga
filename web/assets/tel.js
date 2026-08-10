@@ -494,7 +494,10 @@
   // Independent of whether voices load: typing must still produce a transcript.
   talkReady();
 
-  fetch("/api/tts")
+  // ?all=1 — this page IS the picker. The call screen at / offers the one
+  // chosen voice; showing one card here too would leave the page with nothing
+  // to do, which is exactly how it looked after kavya was pinned.
+  fetch("/api/tts?all=1")
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (d) {
       if (!d) throw new Error("probe failed");
