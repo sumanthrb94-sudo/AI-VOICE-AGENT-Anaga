@@ -84,12 +84,6 @@
     place-items:center}
   .ctl[aria-pressed=true]{background:var(--accent);color:#0b0b0b;border-color:var(--accent)}
   .ctl.end{background:var(--bad);border-color:var(--bad);color:#fff}
-  /* Press and hold. She is muted for as long as your finger is down, so her
-     voice cannot reach the microphone at all — no guard is load-bearing. */
-  .ptt{flex:1;max-width:280px;border-radius:999px;border:1px solid var(--line);
-    background:var(--card);color:var(--txt);font:600 15px/1 inherit;padding:0 18px;
-    height:56px;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none}
-  .ptt[aria-pressed=true]{background:var(--ok);color:#05130b;border-color:var(--ok)}
 
   /* ── outcome ───────────────────────────────────────────────────── */
   .outcome{display:none;padding:16px}
@@ -115,10 +109,11 @@
   <section class="setup">
     <h1>Anaga · live call</h1>
     <p>
-      A real call, not a recording. Press and hold the button to talk — she goes quiet
-      while you do, which is what stops her hearing herself. Anaga discloses that she is
-      an AI, qualifies the lead against the versioned flow, and books a site visit, or
-      takes the opt-out and stops. Every line you see is generated and spoken live.
+      A real call, not a recording. Starting it opens your microphone and leaves it
+      open — just talk, and interrupt her whenever you like. Your voice is captured with
+      echo cancellation and transcribed by Sarvam, so she cannot hear herself. Anaga
+      discloses that she is an AI, qualifies the lead against the versioned flow, and
+      books a site visit, or takes the opt-out and stops. Every line is live.
     </p>
 
     <div class="field">
@@ -175,12 +170,12 @@
     </form>
 
     <div class="controls">
-      <button class="ptt" id="ptt" type="button" aria-pressed="false">🎙 నొక్కి పట్టుకోండి</button>
       <button class="ctl end" id="end" type="button" aria-label="End call">✕</button>
     </div>
   </section>
 
 </div>
+<script src="assets/mic.js" defer></script>
 <script src="assets/demo-call.js" defer></script>
 </body>
 </html>

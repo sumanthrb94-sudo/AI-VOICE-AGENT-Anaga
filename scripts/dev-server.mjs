@@ -88,6 +88,17 @@ if (process.env.STUB_VENDORS === '1') {
       }), { status: 200, headers: { 'content-type': 'application/json' } });
     }
 
+    // SPEECH TO TEXT. Multipart, so the body is not JSON — record the URL and
+    // answer with a transcript the test can assert on.
+    if (/sarvam\.ai\/speech-to-text/.test(u)) {
+      vendorCalls.push({ url: u.split('?')[0], body: null });
+      return new Response(JSON.stringify({
+        request_id: 'stub',
+        transcript: process.env.STUB_STT_TEXT || 'నాకు మూడు బెడ్‌రూమ్‌లు కావాలి',
+        language_code: 'te-IN',
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+
     if (/sarvam\.ai|texttospeech\.googleapis|translate_tts|voicestudio|indicf5/.test(u)
         || /gpu|10\.0\.0/.test(u)) {
       vendorCalls.push({ url: u.split('?')[0], body });

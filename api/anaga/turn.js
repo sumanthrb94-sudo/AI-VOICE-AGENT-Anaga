@@ -26,6 +26,7 @@ import { limited } from '../_lib/guard.js';
 import { turnPrompt, TURN_DISPOSITIONS } from '../_lib/prompts.js';
 import { LANGS, loadFlow, loadDirection, fillTemplate, normalizeFlowLang } from '../_lib/flow.js';
 import { synth, ttsAvailable } from '../_lib/tts.js';
+import { transcribe, sttAvailable } from '../_lib/stt.js';
 import { splitForSpeech } from '../../shared/speech-split.js';
 
 export default async function handler(req, res) {
@@ -78,6 +79,59 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'invalid_body' });
   }
 
+  // ── AUDIO IN ────────────────────────────────────────────────────────────
+  // The browser can send the prospect's utterance instead of its transcript,
+  // and get back the transcript, the reply AND the reply's first phrase as
+  // audio — one request for the whole turn.
+  //
+  // This is what lets the browser stop using the Web Speech API, which cannot
+  // do echo cancellation and so transcribed Anaga's own voice off the speaker
+  // and answered it. Capturing through getUserMedia with echoCancellation
+  // removes her audio BEFORE anything sees it; that stream has to be sent
+  // somewhere to become words, and this is where.
+  let heard = null;
+  if (typeof body.audio === 'string' && body.audio.length) {
+    if (!sttAvailable()) return res.status(503).json({ error: 'stt_unavailable' });
+    try {
+      const audio = Buffer.from(body.audio, 'base64');
+      // DON'T PAY TO TRANSCRIBE A DOOR CLOSING — but measure the right thing.
+      //
+      // This floor was on BYTE LENGTH, and byte length is not duration. Opus
+      // with DTX encodes near-silence to almost nothing, so a long quiet clip
+      // is small and a short loud one is large: the floor measured how much
+      // SOUND there was, not how long somebody spoke. A 400 ms "అవును" — the
+      // single most consequential word in a qualifying call — lands under a
+      // kilobyte and was being dropped without ever reaching Saaras.
+      //
+      // Duration is what the endpointer actually measured (web/assets/mic.js
+      // MIN_SPEECH_MS), so that is what this checks. The byte check stays only
+      // as "is this a container at all", which is a header's worth.
+      const spokenMs = Number(body.ms);
+      const tooShort = (Number.isFinite(spokenMs) && spokenMs > 0
+          && spokenMs < Number(process.env.STT_MIN_MS || 300))
+        || audio.length < Number(process.env.STT_MIN_BYTES || 256);
+      if (tooShort) {
+        return res.status(200).json({ heard: '', say: null, ignored: 'too_short' });
+      }
+      const out = await transcribe({ audio, mime: body.mime, lang: body.lang });
+      heard = out.text;
+      console.log(JSON.stringify({
+        event: 'stt_ok', provider: out.provider, chars: heard.length,
+        bytes: audio.length, detected: out.lang,
+      }));
+    } catch (err) {
+      console.error(JSON.stringify({
+        event: 'stt_failed',
+        reason: String(err?.message || 'stt_error'),
+        detail: err?.detail ? String(err.detail).slice(0, 400) : undefined,
+      }));
+      return res.status(503).json({ error: 'stt_unavailable' });
+    }
+    // Nothing intelligible. Say so rather than answering an empty string —
+    // the model will happily invent a reply to silence.
+    if (!heard) return res.status(200).json({ heard: '', say: null, ignored: 'no_speech' });
+  }
+
   const history = body.history;
   // AN EMPTY HISTORY IS THE OPENING TURN, not a bad request.
   //
@@ -106,7 +160,11 @@ export default async function handler(req, res) {
   const lang = LANGS.includes(body.lang) ? body.lang : 'en-IN';
   const direction = body.direction === 'inbound' ? 'inbound' : 'outbound';
 
-  const { system, user } = turnPrompt(history, { lang, direction });
+  // A transcribed utterance is just a user turn. The caller sends the history
+  // WITHOUT it (it did not know the words yet), so it is appended here.
+  const full = heard ? history.concat([{ role: 'user', text: heard }]) : history;
+
+  const { system, user } = turnPrompt(full, { lang, direction });
 
   let out;
   try {
@@ -155,7 +213,11 @@ export default async function handler(req, res) {
     ? await firstPhrase(say, lang)
     : null;
 
-  return res.status(200).json({ say, end, disposition, lang, direction, ...(speak ? { speak } : {}) });
+  return res.status(200).json({
+    say, end, disposition, lang, direction,
+    ...(heard !== null ? { heard } : {}),
+    ...(speak ? { speak } : {}),
+  });
 }
 
 /**

@@ -81,6 +81,9 @@ jobs:
       - name: Voice QA (provider chain, fallback, and the honesty rules)
         run: node --experimental-detect-module scripts/test-voice.mjs
 
+      - name: STT QA (Saaras adapter, and silence never becomes an invented reply)
+        run: node --experimental-detect-module scripts/test-stt.mjs
+
       - name: Self-hosted voice QA (telephony sample rates — the chipmunk bug)
         run: node --experimental-detect-module scripts/test-voicestudio.mjs
 

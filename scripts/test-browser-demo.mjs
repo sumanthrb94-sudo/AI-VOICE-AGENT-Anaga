@@ -41,8 +41,16 @@ const server = createDevServer();
 await new Promise((r) => server.listen(0, r));
 const BASE = `http://127.0.0.1:${server.address().port}`;
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
-const page = await (await browser.newContext()).newPage();
+// A REAL microphone, faked by Chromium. getUserMedia resolves, MediaRecorder
+// produces real WebM — so the pipeline under test is the one that ships, not a
+// stub of it. Without these flags getUserMedia rejects and the whole audio path
+// is untestable, which is how it went three rounds without one.
+const browser = await chromium.launch({
+  executablePath: '/opt/pw-browsers/chromium',
+  args: ['--use-fake-device-for-media-capture', '--use-fake-ui-for-media-stream',
+    '--autoplay-policy=no-user-gesture-required'],
+});
+const page = await (await browser.newContext({ permissions: ['microphone'] })).newPage();
 const pageErrors = [];
 page.on('pageerror', (e) => pageErrors.push(String(e.message)));
 
@@ -56,12 +64,53 @@ page.on('request', (r) => {
   } catch { /* ignore */ }
 });
 
+// A REAL MediaStream with no hardware.
+//
+// This container has no audio device and Chromium's fake-device flags do not
+// provide one — every combination returns NotFoundError, so getUserMedia cannot
+// be exercised here at all. Rather than stub my own code, an AudioContext
+// oscillator is piped into createMediaStreamDestination(), which yields a
+// genuine MediaStream that a genuine MediaRecorder will record. Only the
+// hardware is synthetic; the capture path, the recorder, the container
+// negotiation and the blob are all real.
+//
+// WHAT THIS STILL CANNOT PROVE: that echoCancellation actually removes Anaga's
+// voice on a handset. That is the property the whole design rests on and it is
+// verifiable only on a real device. The constraint being REQUESTED is asserted
+// below; whether the browser honours it is the browser's half.
+await page.addInitScript(() => {
+  window.__gumConstraints = null;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  navigator.mediaDevices = navigator.mediaDevices || {};
+  navigator.mediaDevices.getUserMedia = async (c) => {
+    window.__gumConstraints = c;
+    const ctx = new AC();
+    const dest = ctx.createMediaStreamDestination();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    // SILENT on purpose. A constant tone reads as continuous speech to the
+    // real analyser, which then fights the synthetic _feed() the tests use to
+    // drive endpointing — both were mutating the same state and both failed.
+    // The recorder still captures (silence is bytes); the endpointer is driven
+    // deterministically instead of by a signal nobody can control.
+    gain.gain.value = 0;
+    osc.connect(gain).connect(dest);
+    osc.start();
+    window.__fakeCtx = ctx;
+    return dest.stream;
+  };
+});
+
 // Timestamp every synth request inside the page, so "was phrase 2 requested
 // while phrase 1 was playing?" is a measurement rather than an inference.
 await page.addInitScript(() => {
-  window.__ttsPosts = []; window.__ttsTimes = [];
+  window.__ttsPosts = []; window.__ttsTimes = []; window.__turnAudio = 0;
   const real = window.fetch;
   window.fetch = function (url, init) {
+    if (String(url).includes('/api/anaga/turn') && init && init.method === 'POST'
+        && String(init.body || '').includes('"audio"')) {
+      window.__turnAudio++;
+    }
     if (String(url).includes('/api/tts') && init && init.method === 'POST') {
       window.__ttsPosts.push(1);
       window.__ttsTimes.push(Math.round(performance.now()));
@@ -70,16 +119,8 @@ await page.addInitScript(() => {
   };
 });
 
-const restart = async ({ handsFree = false } = {}) => {
+const restart = async () => {
   await page.goto(BASE);                 // the call IS the home page now
-  if (handsFree) {
-    // Hands-free is OPT-IN: press-and-hold is the default because it is the
-    // only mode that cannot loop on any hardware.
-    await page.evaluate(() => localStorage.setItem('vaak_hands_free', '1'));
-    await page.reload();
-  } else {
-    await page.evaluate(() => localStorage.removeItem('vaak_hands_free'));
-  }
   await page.waitForSelector('#start');
   turns.length = 0; synths.length = 0;
 };
@@ -294,168 +335,99 @@ await page.locator('#lang button[data-lang="en-IN"]').click();
 await page.locator('#start').click();
 await page.waitForSelector('#log .ln.her', { timeout: 10000 });
 
-await t('THE CALL TURNS THE MICROPHONE ON — there is no mic button', async () => {
-  // There is no microphone button on a phone call. You answer it and you talk.
-  // The Start click is the gesture the browser needs for both the audio unlock
-  // and the mic, so it is the right and only place to ask.
-  await restart({ handsFree: true });
-  assert.equal(await page.locator('#mic').count(), 0, 'the old mic toggle should be gone');
-  await page.locator('#start').click();
-  await page.waitForFunction(() => window.__sr.starts > 0, null, { timeout: 8000 });
-});
-
-await t('THE RECOGNISER IS CLOSED WHILE SHE SPEAKS — this is the loop', async () => {
-  // The self-answer loop, which shipped: her voice reaches the microphone, is
-  // transcribed as a prospect turn, gets answered, and she talks to herself
-  // forever. Leaving the recogniser open and relying on a CONTENT check is not
-  // enough — once one fragment slips through, `speaking` is already false and
-  // every fragment after it is accepted.
-  await page.waitForFunction(() => document.body.classList.contains('speaking'),
-    null, { timeout: 10000 }).catch(() => {});
-  assert.notEqual(await page.evaluate(() => window.__sr.live), true,
-    'an open recogniser during playback is how she answers herself');
-});
-
-await t('AND FOR AN ECHO TAIL AFTER — the loop lived in that gap', async () => {
-  // Her audio does not stop reaching the microphone the instant the element
-  // does: speaker decay, the room, the handset's buffer. Reopening the moment
-  // she finishes puts the last second of HER sentence at the start of YOURS.
-  await page.waitForFunction(() => !document.body.classList.contains('speaking'),
-    null, { timeout: 15000 });
-  assert.notEqual(await page.evaluate(() => window.__sr.live), true,
-    'the recogniser must not reopen inside the echo tail');
-  await page.waitForFunction(() => window.__sr.live === true, null, { timeout: 5000 });
-});
-
-await t('AN ECHO OF A LINE SHE HAS ALREADY MOVED ON FROM is still hers', async () => {
-  // Exactly the screenshot: the mic returns her OPENING sentence a moment after
-  // she has started the next one. A guard that only knows the current line
-  // matches nothing, and her own words become a "Prospect" turn — the loop.
-  const line = await page.evaluate(() => fetch('/api/anaga/turn?lang=te-IN&direction=outbound')
-    .then((r) => r.json()).then((d) => d.say));
-  await page.locator('#say').fill('tell me more');
-  await page.locator('#compose button[type=submit]').click();
-  await page.waitForFunction(() => document.body.classList.contains('speaking'),
-    null, { timeout: 10000 });
-  const before = await page.locator('#log .ln').count();
-  // Her OPENING line, fed back while she is saying a DIFFERENT one.
-  await page.evaluate((echo) => window.__hear(echo, true), line);
-  await page.waitForTimeout(700);
-  assert.equal(await page.locator('#log .ln').count(), before,
-    'a previous line of hers must not become a prospect turn');
-});
-
-await t('SHE STOPS WHEN SOMEBODY TALKS OVER HER', async () => {
-  // With the recogniser closed during playback, something else has to notice:
-  // a getUserMedia stream with echoCancellation, which the browser can subtract
-  // her own audio from. It is opened while she speaks and RELEASED before the
-  // recogniser restarts — holding both at once is what killed speech-to-text.
-  await restart({ handsFree: true });
-  await page.locator('#start').click();
-  await page.waitForFunction(() => document.body.classList.contains('speaking'),
-    null, { timeout: 10000 });
-
-  // Sustained speech, not one burst: a single frame was enough for her own
-  // audio to cancel her own sentence.
-  await page.evaluate(() => window.__vad(true, 120));
-  assert.equal(await page.evaluate(() => document.body.classList.contains('speaking')), true,
-    'a short burst must NOT cut her off — that is echo, or a cough');
-
-  await page.evaluate(() => { for (let i = 0; i < 3; i++) window.__vad(true, 120); });
-  await page.waitForFunction(() => !document.body.classList.contains('speaking'),
-    null, { timeout: 5000 });
-});
-
-await t('and the transcript says she was CUT OFF, not that she finished', async () => {
-  // She must not read a question back as "already asked" when she was talked
-  // over halfway through it — the rule the call leg keeps in session.js.
-  const hers = await page.locator('#log .ln.her').allInnerTexts();
-  assert.ok(hers.some((h) => /cut off/.test(h)), `expected a cut-off marker, got ${JSON.stringify(hers)}`);
-});
-
-await t('NO SELF-ANSWER LOOP: her own line, fed back repeatedly, starts nothing', async () => {
-  // The failure as reported: she talks, the mic hears her, she answers herself,
-  // forever. This is the regression test for it — feed her own words back the
-  // way a speakerphone does and assert the conversation does not grow.
-  await restart({ handsFree: true });
-  await page.locator('#start').click();
-  await page.waitForSelector('#log .ln.her', { timeout: 10000 });
-  const line = await page.evaluate(() => fetch('/api/anaga/turn?lang=te-IN&direction=outbound')
-    .then((r) => r.json()).then((d) => d.say));
-
-  const before = await page.locator('#log .ln').count();
-  const brainCalls = turns.length;
-  for (let i = 0; i < 5; i++) {
-    await page.evaluate((echo) => { if (window.__hear) window.__hear(echo, true); }, line);
-    await page.waitForTimeout(250);
-  }
-  assert.equal(await page.locator('#log .ln').count(), before,
-    'echo must not add turns');
-  assert.equal(turns.length, brainCalls,
-    'and it must never reach the brain — every loop iteration is a billed call');
-});
-
-await t('AN OPT-OUT SPOKEN OVER HER still ends the call', async () => {
-  // The one thing that must never be lost to an echo guard, a half-heard
-  // phrase, or a barge-in race. It ends the call here, in the client, whatever
-  // the model returns — and on a real call the number joins the suppression
-  // list before anything else happens.
+await t('THE CALL OPENS ONE ECHO-CANCELLED STREAM', async () => {
   await restart();
   await page.locator('#start').click();
-  await page.waitForFunction(() => document.body.classList.contains('speaking'),
+  await page.waitForFunction(() => window.__mic && window.__mic.isOpen(),
     null, { timeout: 10000 });
-  await page.evaluate(() => window.__hear('actually please remove me from your list', true));
-  await page.waitForSelector('body.ended', { timeout: 10000 });
-  const her = await page.locator('#log .ln.her').last().innerText();
-  assert.match(her, /do-not-call|డు-నాట్-కాల్/i,
-    `expected the opt-out acknowledgement, got "${her}"`);
+  // echoCancellation is the whole design. Without it her voice reaches the
+  // recorder and no downstream cleverness reliably removes it — three attempts
+  // proved that on real hardware.
+  // The constraint must be ASKED FOR. Whether the browser honours it is the
+  // browser's half and only a real handset can answer that.
+  const c = await page.evaluate(() => window.__gumConstraints);
+  assert.equal(c && c.audio && c.audio.echoCancellation, true,
+    'the microphone must be requested WITH echo cancellation — the whole design rests on it');
+  assert.equal(c.audio.noiseSuppression, true);
 });
 
-await t('PRESS AND HOLD IS THE DEFAULT — the mic is shut until you hold it', async () => {
-  // Hands-free needs the microphone open between her sentences, and on a phone
-  // speaker (over Bluetooth especially, where the delay is outside the
-  // browser's echo cancellation entirely) her voice comes back late enough to
-  // look like yours. Every defence against that is a heuristic; three shipped
-  // and three failed on real hardware.
-  await restart();
-  await page.locator('#start').click();
-  await page.waitForSelector('#log .ln.her', { timeout: 10000 });
-  await page.waitForTimeout(1500);
-  assert.equal(await page.evaluate(() => window.__sr.starts), 0,
-    'nothing may open the microphone on its own');
-  assert.equal(await page.locator('#ptt').count(), 1, 'and there must be a hold button');
+await t('SPEECH IS ENDPOINTED, and the utterance is SENT AS AUDIO', async () => {
+  // The endpointer decides when you started and stopped; the recorder hands
+  // over that utterance; the server transcribes it. One request for the whole
+  // turn — audio in, transcript and reply and her audio out.
+  const before = turns.length;
+  // The onset is driven synthetically — there is no audio device here to talk
+  // into. The SILENCE is not: real time has to pass, because the recorder is
+  // real and captures wall-clock. Feeding both halves synthetically closed the
+  // utterance in the same tick the recorder opened it, and the blob that
+  // reached the server was a few bytes of container with no audio in it.
+  await page.evaluate(() => {
+    for (let i = 0; i < 8; i++) window.__mic._feed(true, 100);   // talking
+  });
+  await page.waitForTimeout(1100);   // …and stopped. The real endpointer sees it.
+  await page.waitForFunction((n) => window.__turnAudio > n, before, { timeout: 15000 })
+    .catch(() => {});
+  const withAudio = turns.filter((t) => t.audio);
+  assert.ok(withAudio.length >= 1, 'the utterance must be posted as audio');
+  assert.ok(withAudio[0].mime, 'and must say what container it is in');
+  assert.equal(withAudio[0].lang, 'te-IN');
 });
 
-await t('HOLDING MUTES HER — the loop is impossible, not unlikely', async () => {
-  // Muting is not decoration. On Bluetooth her audio is already in flight when
-  // the element pauses, and muting is the only thing that reliably stops it
-  // arriving. While the finger is down there is no window in which her voice
-  // can reach the recogniser, so no guard is load-bearing.
-  await restart();
-  await page.locator('#start').click();
-  await page.waitForFunction(() => document.body.classList.contains('speaking'),
-    null, { timeout: 10000 });
-
-  await page.evaluate(() => window.__hold.start());
-  assert.equal(await page.evaluate(() => document.querySelector('audio') ? null : true), true);
-  assert.equal(await page.evaluate(() => window.__muted === undefined ? null : null), null);
-  await page.waitForFunction(() => window.__sr.live === true, null, { timeout: 5000 });
-  assert.equal(await page.evaluate(() => document.body.classList.contains('speaking')), false,
-    'she stops the instant you hold the button');
-
-  await page.evaluate(() => window.__hold.end());
-  await page.waitForFunction(() => window.__sr.live === false, null, { timeout: 5000 });
-});
-
-await t('what you say while holding becomes your turn', async () => {
-  await page.evaluate(() => window.__hold.start());
-  await page.waitForFunction(() => window.__sr.live === true, null, { timeout: 5000 });
-  await page.evaluate(() => window.__hear('I want a three bedroom', true));
-  await page.evaluate(() => window.__hold.end());
+await t('THE TRANSCRIPT COMES BACK AND BECOMES A TURN', async () => {
   await page.waitForFunction(() => document.querySelectorAll('#log .ln.you').length > 0,
-    null, { timeout: 8000 });
+    null, { timeout: 15000 });
   const you = await page.locator('#log .ln.you').last().innerText();
-  assert.match(you, /three bedroom/);
+  assert.match(you, /బెడ్‌రూమ్/, `expected the transcript, got "${you}"`);
+});
+
+await t('A COUGH IS NOT AN UTTERANCE', async () => {
+  // Under the minimum speech length nothing is sent. Transcribing a door
+  // closing costs money to be told it was a door.
+  const before = turns.filter((t) => t.audio).length;
+  await page.evaluate(() => {
+    window.__mic._feed(true, 100); window.__mic._feed(true, 60);
+    for (let i = 0; i < 10; i++) window.__mic._feed(false, 100);
+  });
+  await page.waitForTimeout(1200);
+  assert.equal(turns.filter((t) => t.audio).length, before,
+    'a burst too short to be speech must not be sent');
+});
+
+await t('SHE STOPS WHEN YOU START TALKING — no threshold of its own', async () => {
+  // Barge-in is just the endpointer noticing speech. It needs no separate
+  // guess, because her voice is not in this signal at all.
+  await restart();
+  await page.locator('#start').click();
+  await page.waitForFunction(() => document.body.classList.contains('speaking'),
+    null, { timeout: 12000 });
+  await page.evaluate(() => { for (let i = 0; i < 3; i++) window.__mic._feed(true, 100); });
+  await page.waitForFunction(() => !document.body.classList.contains('speaking'),
+    null, { timeout: 6000 });
+  const hers = await page.locator('#log .ln.her').allInnerTexts();
+  assert.ok(hers.some((h) => /cut off/.test(h)), 'and the transcript records that she was cut off');
+});
+
+await t('NO SELF-ANSWER LOOP: she speaks, and nothing arrives from it', async () => {
+  // The failure that shipped three times. With echo cancellation there is no
+  // echo to guard against, so the assertion is simply that her own speech
+  // produces no turn at all.
+  await restart();
+  await page.locator('#start').click();
+  await page.waitForSelector('#log .ln.her', { timeout: 12000 });
+  const lines = await page.locator('#log .ln').count();
+  const brainCalls = turns.length;
+  await page.waitForTimeout(3000);        // let her finish talking, undisturbed
+  assert.equal(await page.locator('#log .ln').count(), lines,
+    'her own voice must not produce a single turn');
+  assert.equal(turns.length, brainCalls,
+    'and must never reach the brain — every loop iteration was a billed call');
+});
+
+await t('the microphone is released when the call ends', async () => {
+  await page.locator('#end').click();
+  await page.waitForSelector('body.ended', { timeout: 8000 });
+  assert.equal(await page.evaluate(() => window.__mic.isOpen()), false,
+    'a finished call must not hold the microphone');
 });
 
 await t('THE FIRST PHRASE SHIPS WITH THE TURN — one round trip, not two', async () => {

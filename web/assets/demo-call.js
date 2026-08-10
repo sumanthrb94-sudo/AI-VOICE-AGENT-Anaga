@@ -12,8 +12,11 @@
       fresh Audio() built after an await is not unlocked — it is refused
       silently, which looks exactly like a broken agent.
 
-   2. HALF-DUPLEX. The mic is closed while Anaga speaks. An open mic on a phone
-      speaker hears her and answers her; that is not hypothetical.
+   2. THE MICROPHONE IS CAPTURED WITH ECHO CANCELLATION (web/assets/mic.js) and
+      transcribed server-side by Sarvam. The Web Speech API cannot do this: it
+      handed us Anaga's own voice off the speaker, she answered herself, and
+      three separate heuristics failed to tell her voice from a prospect's.
+      Clean audio at the source beats filtering afterwards.
 
    3. THE OPT-OUT IS OURS, NOT THE MODEL'S. It ends the call in this client
       whatever the model returns. On a real call the number joins the
@@ -28,7 +31,7 @@
   // Bumped by hand on every change to this file. "Still the same" and "you are
   // running last week's bundle" look identical from a phone, and I have spent
   // two rounds unable to tell them apart.
-  var BUILD = "2026-08-10.4-holdtotalk";
+  var BUILD = "2026-08-10.5-sarvam-stt";
 
   var $ = function (id) { return document.getElementById(id); };
   var body = document.body;
@@ -310,13 +313,8 @@
     if (isEnd) ended = true;
     speak(text, prerendered).then(function () {
       speaking = false; body.classList.remove("speaking");
-      closeVad();
       if (ended) return hangup();
       state("");
-      // NOT immediately — the tail of her audio is still reaching the mic.
-      listenAfterTail();
-      // Keep her line for the content check through the tail window.
-      setTimeout(function () { spokenNow = ""; }, ECHO_TAIL_MS + 500);
     });
   }
 
@@ -418,11 +416,8 @@
     // mic was closed and reopened in the same tick, and half-duplex existed
     // only on paper. She would have heard herself and answered herself.
     speaking = true; body.classList.add("speaking");
-    spokenNow = text;
-    remember(text);            // for the echo window, not just for right now
-    // Hand the microphone over: recogniser out, barge-in detector in.
-    pauseListening();
-    if (micWanted) openVad();
+    // The microphone stays open and stays listening. It is not hearing her:
+    // echo cancellation removed her before the analyser saw the signal.
 
     if (utterance) utterance.cancelled = true;     // supersede whatever was mid-line
     var me = { cancelled: false };
@@ -494,105 +489,18 @@
     return step(0, inflight);
   }
 
-  /* ---------------- barge-in, with ONE microphone consumer ----------------
+  /* THE ECHO GUARD IS GONE, and its absence is the point.
 
-     TWO BUGS LIVED HERE, both mine.
+     There used to be three defences here — a 15-second window of what she had
+     said, a content-overlap score, a timing hangover — because the Web Speech
+     API handed us her own voice and something had to filter it out. All three
+     shipped, all three failed on real hardware, and the last one failed over
+     Bluetooth where the delay is outside the browser altogether.
 
-     First I closed the recogniser while she spoke, so nothing was listening
-     and interrupting her was impossible.
-
-     Then I fixed that by opening a SECOND microphone stream (getUserMedia) as
-     an energy detector. On Android Chrome a held getUserMedia stream stops
-     SpeechRecognition from starting at all — so barge-in worked and speech-to-
-     text stopped working entirely. One mic, two consumers, and the browser
-     picks the winner.
-
-     So: ONE consumer. The recogniser stays open the whole time, including
-     while Anaga speaks, and an ECHO GUARD decides what to do with what it
-     hears:
-
-       sounds like HER  -> discard. It is her own voice off the speaker.
-       sounds like YOU  -> stop her mid-word; this is your turn.
-
-     The logic mirrors shared/echo-guard.js (content overlap + a verbatim run
-     of her exact words). It is duplicated rather than imported because this
-     page is a plain script with no module loader — same reason as the phrase
-     splitter. If you change the thresholds there, change them here. */
-
-  function norm(t) {
-    return String(t || "").toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-  }
-  function words(t) { return norm(t).split(" ").filter(function (w) { return w.length > 2; }); }
-
-  /* Echo reproduces her phrasing verbatim; a human paraphrases. A contiguous
-     run of her exact words is the strongest single signal there is. */
-  function longestRun(candidate, reference) {
-    var a = words(candidate), b = words(reference), best = 0;
-    for (var i = 0; i < a.length; i++) {
-      for (var j = 0; j < b.length; j++) {
-        var n = 0;
-        while (i + n < a.length && j + n < b.length && a[i + n] === b[j + n]) n++;
-        if (n > best) best = n;
-      }
-    }
-    return best;
-  }
-  function overlap(candidate, reference) {
-    var a = words(candidate);
-    if (!a.length) return 0;
-    var b = {}, hit = 0;
-    words(reference).forEach(function (w) { b[w] = true; });
-    a.forEach(function (w) { if (b[w]) hit++; });
-    return hit / a.length;
-  }
-
-  /* WHAT SHE HAS SAID RECENTLY — not just what she is saying right now.
-     This is the bug in the screenshot. The guard compared against the CURRENT
-     line only, so when the microphone returned the opening sentence a moment
-     after she had moved on to the next one, it matched nothing and became a
-     "Prospect" turn — her own words, quoted back at her, answered. The loop.
-
-     shared/echo-guard.js keeps a 15-second window for exactly this reason and
-     I mirrored the scoring while dropping the window. Echo is late by
-     definition; a guard that only knows the present cannot catch it. */
-  var RECENT_MS = 15000;
-  var recent = [];                       // [{ text, at }]
-  function remember(text) {
-    recent.push({ text: text, at: Date.now() });
-    var cut = Date.now() - RECENT_MS;
-    while (recent.length && recent[0].at < cut) recent.shift();
-  }
-
-  /** Is this our own voice coming back off the speaker? */
-  function isEcho(heard) {
-    var n = words(heard).length;
-    var cut = Date.now() - RECENT_MS;
-    for (var i = recent.length - 1; i >= 0; i--) {
-      if (recent[i].at < cut) break;
-      var ref = recent[i].text;
-      // Under four content words, overlap is meaningless — a human answering
-      // "to live in" scores 1.0 against a line of hers containing those words.
-      // Judge those on a verbatim run instead.
-      if (n < 4) { if (longestRun(heard, ref) >= 2) return true; }
-      else if (longestRun(heard, ref) >= 4 || overlap(heard, ref) >= 0.55) return true;
-    }
-    return false;
-  }
-
-  var spokenNow = "";        // the line she is saying RIGHT NOW, for the guard
-  // ECHO TAIL. Her audio does not stop reaching the microphone the instant the
-  // element stops: there is the speaker's own decay, the room, and whatever the
-  // handset buffers. Reopening the recogniser the moment she finishes means the
-  // last second of HER sentence arrives as the FIRST second of YOURS, becomes a
-  // turn, gets answered — and that is the loop.
-  //
-  // This is defence #1 in shared/echo-guard.js ("TIMING"), which I implemented
-  // #2 of and skipped. The content check alone cannot save you: once one
-  // fragment slips through, `speaking` is already false and every fragment
-  // after it is accepted.
-  var ECHO_TAIL_MS = 700;
-  var quietUntil = 0;
+     mic.js captures with echoCancellation, so her voice is subtracted at the
+     source. There is nothing to filter, nothing to score and nothing to guess.
+     shared/echo-guard.js still exists for the TELEPHONY leg, where the echo
+     comes back over a phone line and the browser cannot help us. */
 
   /** Somebody is talking over her. Stop, now, mid-word. */
   function bargeIn() {
@@ -600,15 +508,13 @@
     utterance.cancelled = true;
     try { element().pause(); } catch (e) {}
     speaking = false; body.classList.remove("speaking");
-    closeVad();
     // What she actually SAID is what goes in the record. She was cut off, so
     // the line is marked rather than trimmed to a guessed word — we know the
     // audio stopped, not which word it stopped on.
     markCutOff();
     state("");
-    // Straight back to listening: whatever you are saying over her IS the next
-    // turn. A short tail still applies — she was mid-word a moment ago.
-    listenAfterTail();
+    // Nothing to reopen: the microphone never closed. Whatever you are saying
+    // over her is already being recorded and will arrive as the next turn.
   }
   window.__bargeIn = bargeIn;          // test introspection
 
@@ -621,219 +527,97 @@
     if (el2) el2.lastChild.nodeValue += " …[cut off]";
   }
 
-  /* ---------------- listening (half-duplex) ---------------- */
-  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var recog = null, micWanted = false;
-  // Opt in, not out. The stored preference lets you keep hands-free once it is
-  // trustworthy without editing anything.
-  var handsFree = false;
-  try { handsFree = localStorage.getItem("vaak_hands_free") === "1"; } catch (e) {}
+  /* ---------------- listening: ONE echo-cancelled stream ----------------
 
-  /** The recogniser may only run when she is NOT speaking, and not inside the
-   *  echo tail after. One owner of the microphone at a time — the other owner
-   *  is the barge-in detector below. */
-  function canListen() {
-    if (!SR || ended) return false;
-    // While the button is held she is MUTED, so there is nothing of hers to
-    // hear and none of the echo rules apply.
-    if (holding) return true;
-    return micWanted && !speaking && Date.now() >= quietUntil;
-  }
+     web/assets/mic.js owns the microphone. It captures through getUserMedia
+     with echoCancellation, so Anaga's voice is removed BEFORE anything here
+     sees it — which is why there is no echo guard in this file any more, no
+     timing window, and no threshold. The three heuristics that used to live
+     here all failed on real hardware; none of them is needed once the audio is
+     clean at the source.
 
-  function listen() {
-    if (!canListen() || recog) return;
-    recog = new SR();
-    recog.lang = lang;
-    recog.interimResults = true;
-    recog.continuous = false;
-    recog.onresult = function (ev) {
-      var interim = "", final = "";
-      for (var i = ev.resultIndex; i < ev.results.length; i++) {
-        var r = ev.results[i];
-        if (r.isFinal) final += r[0].transcript; else interim += r[0].transcript;
-      }
-      var heard = (final || interim).trim();
-      if (!heard) return;
+     The same stream does two jobs: an analyser decides when you start and stop
+     talking, and a recorder captures the utterance, which is POSTed to
+     /api/anaga/turn and transcribed by Sarvam. */
+  var mic = null, micWanted = false;
 
-      // Second line of defence. The recogniser should not be open during her
-      // speech at all now, but a result can still land from audio captured just
-      // before she started — and that audio is hers.
-      if (isEcho(heard)) { setDraft(""); return; }
-
-      if (final.trim()) turn(final.trim()); else setDraft(interim);
-    };
-    recog.onerror = function (ev) {
-      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+  function startMic() {
+    if (mic || !global_createMic) return Promise.resolve(false);
+    mic = global_createMic({
+      onSpeechStart: function () {
+        // You are talking. If she is, she stops — that is barge-in, and it
+        // needs no threshold of its own: the endpointer already decided this
+        // is speech, and her voice is not in this signal.
+        if (speaking) bargeIn();
+        state("వింటున్నాను…");
+      },
+      onUtterance: function (u) { sendAudio(u); },
+      onError: function (code) {
         micWanted = false;
-        note = "microphone blocked — allow it, or type below";
-        state("");
-      } else if (ev.error === "audio-capture") {
-        micWanted = false;
-        note = "no microphone available — type below";
-        state("");
-      } else if (ev.error === "language-not-supported") {
-        // Chrome does not recognise every language it will happily SPEAK.
-        note = "this browser cannot transcribe " + lang + " — type below";
+        note = code === "denied"
+          ? "microphone blocked — allow it, or type below"
+          : "no microphone available — type below";
         state("");
       }
-    };
-    recog.onend = function () {
-      recog = null; clearDraft();
-      // Chrome ends recognition after every utterance and after silence, so it
-      // has to be reopened — but only when it is our turn to own the mic.
-      if (canListen()) listen();
-    };
-
-    try { recog.start(); state("వింటున్నాను…"); }
-    catch (e) { recog = null; }
-  }
-
-  /** Reopen once the echo tail has passed. */
-  function listenAfterTail() {
-    quietUntil = Date.now() + ECHO_TAIL_MS;
-    setTimeout(function () { if (canListen()) listen(); }, ECHO_TAIL_MS + 20);
-  }
-
-  /* ---------------- barge-in: the OTHER owner of the microphone ----------
-     While she speaks the recogniser is closed, so something else has to notice
-     you talking. getUserMedia with echoCancellation can: the browser subtracts
-     what it is playing from what it hears, which is the one thing
-     SpeechRecognition cannot do for us.
-
-     It is opened when she starts and RELEASED before the recogniser restarts.
-     Holding both at once is what stopped speech-to-text working on Android
-     Chrome — the two consumers fight and the browser picks the winner. They
-     alternate instead. If the stream is slow or refused, this turn simply has
-     no barge-in; speech-to-text is unaffected. */
-  var vadStream = null, vadCtx = null, vadNode = null, vadBuf = null;
-  var voiceRunMs = 0, vadLast = 0, vadFloor = 0;
-  var vadCalibMs = 0, vadPeak = 0;
-  var BARGE_MS = 400;             // sustained speech before she yields
-  var CALIBRATE_MS = 450;         // learn the room first, trust nothing before
-
-  function openVad() {
-    if (vadStream || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
-    navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-    }).then(function (stream) {
-      if (!speaking) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
-      vadStream = stream;
-      var AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
-      vadCtx = vadCtx || new AC();
-      vadNode = vadCtx.createAnalyser();
-      vadNode.fftSize = 512;
-      vadCtx.createMediaStreamSource(stream).connect(vadNode);
-      vadBuf = new Uint8Array(vadNode.fftSize);
-      vadLast = 0; voiceRunMs = 0; vadCalibMs = 0; vadPeak = 0; vadFloor = 0;
-      requestAnimationFrame(vadTick);
-    }).catch(function () { /* no barge-in this turn; the call still works */ });
-  }
-
-  function closeVad() {
-    if (vadStream) vadStream.getTracks().forEach(function (t) { t.stop(); });
-    vadStream = null; vadNode = null; voiceRunMs = 0;
-  }
-
-  function vadTick(now) {
-    if (!vadNode || !speaking) return;
-    requestAnimationFrame(vadTick);
-    var dt = vadLast ? Math.min(100, now - vadLast) : 16;
-    vadLast = now;
-    vadNode.getByteTimeDomainData(vadBuf);
-    var sum = 0;
-    for (var i = 0; i < vadBuf.length; i++) {
-      var v = (vadBuf[i] - 128) / 128;
-      sum += v * v;
-    }
-    var level = Math.sqrt(sum / vadBuf.length);
-
-    // CALIBRATE FIRST. The floor is measured while HER audio is already
-    // playing, so it captures whatever her voice leaves behind after echo
-    // cancellation, plus the room. A fixed threshold cut her off on her own
-    // voice on every single line — every bubble in the transcript ended
-    // "…[cut off]" and nobody had said a word.
-    if (vadCalibMs < CALIBRATE_MS) {
-      vadCalibMs += dt;
-      if (level > vadPeak) vadPeak = level;
-      vadFloor = Math.max(0.02, vadPeak * 1.8);
-      return;
-    }
-    feedVad(level > vadFloor, dt);
-  }
-
-  /** Split out so a test can drive barge-in without a microphone. */
-  function feedVad(isVoice, dt) {
-    if (!speaking) { voiceRunMs = 0; return; }
-    voiceRunMs = isVoice ? voiceRunMs + dt : 0;
-    if (voiceRunMs >= BARGE_MS) { voiceRunMs = 0; bargeIn(); }
-  }
-  window.__vad = function (isVoice, dt) { feedVad(isVoice, dt || 120); };
-
-  function pauseListening() { if (recog) { try { recog.abort(); } catch (e) {} recog = null; } }
-  function micOff() {
-    micWanted = false;
-    pauseListening(); clearDraft();
-  }
-
-
-  /* ---------------- PRESS AND HOLD TO TALK ----------------
-     The mode that cannot loop, on any hardware, ever.
-
-     Finger down  -> she is MUTED and the microphone opens.
-     Finger up    -> the microphone closes.
-
-     There is no window in which her audio can reach the recogniser, so no
-     echo guard, no threshold and no timing window is load-bearing. Muting is
-     not decoration: on Bluetooth her audio is already in flight when the
-     element pauses, and muting the element is the only thing that reliably
-     stops it arriving.
-
-     It is also the interaction everybody here already knows from WhatsApp. */
-  var holding = false;
-
-  function holdStart(ev) {
-    if (ev) ev.preventDefault();
-    if (ended || holding) return;
-    holding = true;
-    $("ptt").setAttribute("aria-pressed", "true");
-    $("ptt").textContent = "వింటున్నాను… వదిలేయండి";
-
-    // Silence her completely for as long as you are talking.
-    var a = element();
-    a.muted = true;
-    if (utterance) utterance.cancelled = true;
-    try { a.pause(); } catch (e) {}
-    if (speaking) { speaking = false; body.classList.remove("speaking"); markCutOff(); }
-    closeVad();
-
+    });
     micWanted = true;
-    quietUntil = 0;                  // nothing of hers can be arriving: she is muted
-    listen();
+    window.__mic = mic;            // test introspection
+    return mic.open();
   }
 
-  function holdEnd(ev) {
-    if (ev) ev.preventDefault();
-    if (!holding) return;
-    holding = false;
-    $("ptt").setAttribute("aria-pressed", "false");
-    $("ptt").textContent = "🎙 నొక్కి పట్టుకోండి";
-    micWanted = handsFree;
-    pauseListening();
-    element().muted = false;
+  function stopMic() {
+    micWanted = false;
+    if (mic) mic.close();
+    mic = null;
   }
 
-  (function wirePtt() {
-    var b = $("ptt");
-    if (!b) return;
-    ["pointerdown", "touchstart"].forEach(function (e) { b.addEventListener(e, holdStart); });
-    ["pointerup", "pointercancel", "pointerleave", "touchend", "touchcancel"]
-      .forEach(function (e) { b.addEventListener(e, holdEnd); });
-    // A pointer released outside the button still ends the turn — otherwise the
-    // microphone stays open because a finger slid off a target.
-    document.addEventListener("pointerup", holdEnd);
-  })();
-  window.__hold = { start: holdStart, end: holdEnd };
+  /** One request for the whole turn: audio in, transcript + reply + audio out. */
+  function sendAudio(u) {
+    if (ended || thinking) return;
+    thinking = true;
+    state("…");
+    var reader = new FileReader();
+    reader.onloadend = function () {
+      var b64 = String(reader.result || "").split(",")[1];
+      if (!b64) { thinking = false; return; }
+      fetch("/api/anaga/turn?voice=1", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          history: history, lang: lang, direction: direction,
+          // How long they actually spoke, as the endpointer measured it. The
+          // server cannot infer this from the bytes — a compressed container's
+          // size tracks loudness, not length.
+          audio: b64, mime: u.mime, ms: u.ms
+        })
+      }).then(function (r) {
+        return r.json().catch(function () { return null; })
+          .then(function (d) { return { ok: r.ok, d: d }; });
+      }).then(function (res) {
+        thinking = false;
+        var d = res.d;
+        if (!res.ok || !d) { note = "brain unavailable"; state(""); return; }
+        // Nothing intelligible — a door, a cough, a passing bus. Say nothing.
+        if (d.ignored || !d.heard) { state(""); return; }
+
+        history.push({ role: "user", text: d.heard });
+        bubble("user", d.heard);
+        if (isOptOut(d.heard)) return reply(BYE[lang] || BYE["en-IN"], true, "opt-out");
+        if (!d.say) { state(""); return; }
+
+        note = "";
+        var pre = d.speak && d.speak.audio
+          ? "data:" + (d.speak.mime || "audio/mpeg") + ";base64," + d.speak.audio
+          : null;
+        reply(d.say, d.end === true, d.disposition, pre);
+      }).catch(function () {
+        thinking = false;
+        note = "brain unavailable"; state("");
+      });
+    };
+    reader.readAsDataURL(u.blob);
+  }
+
+  var global_createMic = window.createMic;
 
   /* ---------------- call lifecycle ---------------- */
   function clock() {
@@ -872,8 +656,7 @@
     // There is no window in which her audio can reach the recogniser, so the
     // loop is not unlikely, it is impossible. Hands-free stays available for
     // when the guards have been proven on real hardware rather than in a test.
-    micWanted = handsFree;
-    if (handsFree) listen();
+    startMic();
     state(direction === "inbound" ? "answering…" : "connecting…");
     turn(null);                                // she opens
   }
@@ -881,7 +664,7 @@
   function hangup() {
     ended = true;
     if (utterance) utterance.cancelled = true;
-    micOff();
+    stopMic();
     clearInterval(tick); tick = null;
     try { element().pause(); } catch (e) {}
     body.classList.add("ended");

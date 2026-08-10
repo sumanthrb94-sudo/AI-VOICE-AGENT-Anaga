@@ -1,0 +1,524 @@
+// scripts/test-stt.mjs
+//
+// QA for speech-to-text: the Sarvam Saaras adapter (api/_lib/stt.js) and the
+// audio half of POST /api/anaga/turn.
+//
+// ── WHY THIS SUITE EXISTS ─────────────────────────────────────────────────
+// The browser used to transcribe with the Web Speech API, which cannot do echo
+// cancellation. It heard Anaga through the phone's own speaker, answered her,
+// and the call became a loop — shipped three times, with three different
+// heuristics stacked on top to guess which voice was which. The fix was to
+// capture through getUserMedia with echoCancellation and send those bytes to a
+// server-side recogniser, which is the path under test here.
+//
+// The guarantees, in the order they matter:
+//
+//   1. A failed transcription is NEVER silence. Silence on a live call is the
+//      agent ignoring a prospect, so every failure surfaces as an error or an
+//      explicit `ignored` reason — it never quietly becomes an empty turn.
+//   2. Nothing that is not speech reaches the vendor, because every request is
+//      billed and a door closing costs money to be told it was a door.
+//   3. …but the floor is on DURATION, which is what the endpointer measured,
+//      not on byte length, which measures loudness. See §3.
+//   4. The key stays server-side and out of every URL and log line.
+//
+// ── WHAT IT DOES NOT PROVE ────────────────────────────────────────────────
+// That Saaras is reachable or that it transcribes Telugu well. Every network
+// call is stubbed so this runs in CI with no keys and no egress. Reachability
+// is a deploy question, answered by GET /api/integrations/health.
+//
+// Run: node --experimental-detect-module scripts/test-stt.mjs
+
+import assert from 'node:assert';
+
+let pass = 0, fail = 0;
+const failures = [];
+async function t(name, fn) {
+  try { await fn(); pass++; console.log('  ✓', name); }
+  catch (e) { fail++; failures.push(`${name}: ${e.message}`); console.log('  ✗', name, '\n     ', e.message); }
+}
+function section(s) { console.log('\n' + s); }
+
+// ---------------------------------------------------------------------------
+// fetch stub — records what the vendor was ASKED FOR, which is our half
+// ---------------------------------------------------------------------------
+const realFetch = globalThis.fetch;
+let routes = [];
+let calls = [];
+globalThis.fetch = async (url, init = {}) => {
+  const u = String(url);
+  // Multipart, so the body is a FormData — kept as-is and read field by field.
+  calls.push({ url: u, init, form: init.body instanceof FormData ? init.body : null });
+  for (const r of routes) if (r.match.test(u)) return r.reply(u, init);
+  throw new Error('unstubbed fetch: ' + u);
+};
+const json = (body, status = 200) => ({
+  ok: status >= 200 && status < 300, status,
+  json: async () => body, text: async () => JSON.stringify(body),
+  arrayBuffer: async () => new ArrayBuffer(0), headers: new Map(),
+});
+function reset() { routes = []; calls = []; }
+
+const ENV_KEYS = ['STT_PROVIDER', 'SARVAM_API_KEY', 'SARVAM_STT_MODEL', 'SARVAM_STT_MODE',
+  'STT_TIMEOUT_MS', 'STT_MIN_MS', 'STT_MIN_BYTES',
+  'TTS_PROVIDER', 'LLM_PROVIDER', 'GEMINI_API_KEY', 'RATE_LIMIT_TURN'];
+function clearEnv() { for (const k of ENV_KEYS) delete process.env[k]; }
+clearEnv();
+
+const stt = await import('../api/_lib/stt.js');
+
+/** The field values Sarvam was actually sent, for the last multipart call. */
+function lastForm() {
+  // The LAST call is not always the STT one — a full turn calls the brain
+  // afterwards, with a JSON body — so search backwards for the multipart.
+  const c = [...calls].reverse().find((x) => x.form);
+  if (!c) return null;
+  const out = {};
+  for (const [k, v] of c.form.entries()) {
+    out[k] = typeof v === 'string' ? v : { name: v.name, type: v.type, size: v.size };
+  }
+  return out;
+}
+
+// Real-ish bytes. Content is irrelevant to the adapter (it forwards them) but
+// LENGTH is not — the byte floor is a guard under test.
+const audio = (n) => Buffer.alloc(n, 7);
+
+// ===========================================================================
+section('§1 configuration — what this deployment can actually hear');
+// ===========================================================================
+
+await t('with no key configured, STT is not available', () => {
+  clearEnv();
+  assert.equal(stt.sttReady('sarvam'), false);
+  assert.equal(stt.sttAvailable(), false);
+});
+
+await t('the Sarvam key is the only thing it needs', () => {
+  clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  assert.equal(stt.sttReady('sarvam'), true);
+  assert.equal(stt.sttAvailable(), true);
+});
+
+await t('an unknown provider name is never "ready"', () => {
+  clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  process.env.STT_PROVIDER = 'whisper';
+  assert.equal(stt.sttReady('whisper'), false);
+  assert.equal(stt.sttAvailable(), false, 'a typo in STT_PROVIDER must fail closed, not fall through');
+});
+
+await t('sttStatus reports the chain and the model, and no secret', () => {
+  clearEnv();
+  process.env.SARVAM_API_KEY = 'super-secret';
+  const s = stt.sttStatus();
+  assert.deepEqual(s.chain, ['sarvam']);
+  assert.deepEqual(s.ready, ['sarvam']);
+  assert.equal(s.model, 'saaras:v3');
+  assert.doesNotMatch(JSON.stringify(s), /super-secret/, 'health output must never carry the key');
+});
+
+// ===========================================================================
+section('§2 the request Sarvam actually receives');
+// ===========================================================================
+
+await t('one multipart POST, keyed by header — never by URL', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k-123';
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'ok', language_code: 'te-IN' }) });
+
+  await stt.transcribe({ audio: audio(4096), mime: 'audio/webm;codecs=opus' });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://api.sarvam.ai/speech-to-text');
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(calls[0].init.headers['api-subscription-key'], 'k-123');
+  // A key in the query string ends up in every proxy log and every browser
+  // history between here and Sarvam.
+  assert.doesNotMatch(calls[0].url, /k-123/, 'the key must never travel in the URL');
+  assert.ok(calls[0].form, 'the body must be multipart — Saaras takes a file, not JSON');
+});
+
+await t('the transcript and the DETECTED language both come back', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({
+    match: /speech-to-text/,
+    reply: () => json({ request_id: 'r1', transcript: '  నాకు మూడు బెడ్‌రూమ్‌లు కావాలి  ', language_code: 'te-IN' }),
+  });
+  const out = await stt.transcribe({ audio: audio(4096) });
+  assert.equal(out.text, 'నాకు మూడు బెడ్‌రూమ్‌లు కావాలి', 'the transcript is trimmed');
+  assert.equal(out.lang, 'te-IN');
+  assert.equal(out.provider, 'sarvam');
+});
+
+await t('LANGUAGE IS AUTO-DETECTED by default', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'yes' }) });
+  await stt.transcribe({ audio: audio(4096) });
+  // A prospect who answers a Telugu call in English is ordinary here. Pinning
+  // the language transcribes them as gibberish.
+  assert.equal(lastForm().language_code, 'unknown');
+});
+
+await t('…but a language we support is passed through', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'yes' }) });
+  await stt.transcribe({ audio: audio(4096), lang: 'te-IN' });
+  assert.equal(lastForm().language_code, 'te-IN');
+});
+
+await t('an unsupported language falls back to auto-detect, not to an error', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'yes' }) });
+  await stt.transcribe({ audio: audio(4096), lang: 'fr-FR' });
+  assert.equal(lastForm().language_code, 'unknown',
+    'a language Saaras cannot do must degrade to detection, not drop the utterance');
+});
+
+await t('the model and mode are the transcribing pair, and are overridable', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'yes' }) });
+
+  await stt.transcribe({ audio: audio(4096) });
+  let f = lastForm();
+  assert.equal(f.model, 'saaras:v3');
+  // "transcribe" keeps the prospect's own language and normalises numbers, so a
+  // budget or a phone number arrives as digits rather than spelled out.
+  assert.equal(f.mode, 'transcribe');
+
+  process.env.SARVAM_STT_MODEL = 'saaras:v2';
+  process.env.SARVAM_STT_MODE = 'codemix';
+  await stt.transcribe({ audio: audio(4096) });
+  f = lastForm();
+  assert.equal(f.model, 'saaras:v2');
+  assert.equal(f.mode, 'codemix');
+});
+
+await t('THE CONTAINER THE BROWSER PRODUCED IS THE ONE DECLARED', async () => {
+  // Chrome gives WebM/Opus, Safari gives MP4. Declaring one and sending the
+  // other is how "it works on my phone" happens.
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'yes' }) });
+
+  const cases = [
+    ['audio/webm;codecs=opus', 'utterance.webm', 'audio/webm'],
+    ['audio/mp4', 'utterance.m4a', 'audio/mp4'],
+    ['audio/ogg;codecs=opus', 'utterance.ogg', 'audio/ogg'],
+    ['audio/wav', 'utterance.wav', 'audio/wav'],
+  ];
+  for (const [mime, name, type] of cases) {
+    await stt.transcribe({ audio: audio(4096), mime });
+    const f = lastForm();
+    assert.equal(f.file.name, name, `${mime} should be sent as ${name}`);
+    assert.equal(f.file.type, type, 'the codec parameter is stripped; the type is not invented');
+  }
+
+  // No mime at all is the common browser case, not an error.
+  await stt.transcribe({ audio: audio(4096) });
+  assert.equal(lastForm().file.name, 'utterance.webm');
+});
+
+await t('the bytes are forwarded whole — nothing re-encodes them here', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'yes' }) });
+  await stt.transcribe({ audio: audio(9001), mime: 'audio/webm' });
+  assert.equal(lastForm().file.size, 9001);
+});
+
+// ===========================================================================
+section('§3 failure — because silence is the one answer that must never happen');
+// ===========================================================================
+
+await t('NOTHING CONFIGURED THROWS. It does not return an empty transcript', async () => {
+  reset(); clearEnv();
+  await assert.rejects(() => stt.transcribe({ audio: audio(4096) }), /stt_unavailable/);
+  assert.equal(calls.length, 0, 'and it must not have called anybody');
+});
+
+await t('empty audio throws rather than billing a request for nothing', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  await assert.rejects(() => stt.transcribe({ audio: Buffer.alloc(0) }), /stt_audio_required/);
+  await assert.rejects(() => stt.transcribe({}), /stt_audio_required/);
+  assert.equal(calls.length, 0);
+});
+
+await t("A VENDOR ERROR CARRIES THE VENDOR'S OWN SENTENCE", async () => {
+  // "[object Object]" in this position cost days on the TTS side: Sarvam nests
+  // the real reason under error.message, and the adapter was stringifying the
+  // wrapper. Every call failed and the log said nothing about why.
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({
+    match: /speech-to-text/,
+    reply: () => json({ error: { message: 'Invalid model saaras:v9' } }, 400),
+  });
+  await assert.rejects(() => stt.transcribe({ audio: audio(4096) }), (err) => {
+    assert.match(err.message, /stt_failed/);
+    assert.match(String(err.detail), /Invalid model saaras:v9/,
+      'the vendor sentence must survive to the log');
+    assert.doesNotMatch(String(err.detail), /\[object Object\]/);
+    return true;
+  });
+});
+
+await t('a non-JSON error body still reports the status', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({
+    match: /speech-to-text/,
+    reply: () => ({ ok: false, status: 502, json: async () => { throw new Error('not json'); } }),
+  });
+  await assert.rejects(() => stt.transcribe({ audio: audio(4096) }), (err) => {
+    assert.match(String(err.detail), /HTTP 502/);
+    return true;
+  });
+});
+
+await t('a network failure is reported as one, not as silence', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({ match: /speech-to-text/, reply: () => { throw new TypeError('fetch failed'); } });
+  await assert.rejects(() => stt.transcribe({ audio: audio(4096) }), (err) => {
+    assert.match(String(err.detail), /sarvam_stt_network/);
+    return true;
+  });
+});
+
+await t('a hung vendor times out instead of holding the call open', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  process.env.STT_TIMEOUT_MS = '60';
+  routes.push({
+    match: /speech-to-text/,
+    reply: (_u, init) => new Promise((_ok, no) => {
+      init.signal.addEventListener('abort', () => {
+        const e = new Error('aborted'); e.name = 'AbortError'; no(e);
+      });
+    }),
+  });
+  await assert.rejects(() => stt.transcribe({ audio: audio(4096) }), (err) => {
+    assert.match(String(err.detail), /sarvam_stt_timeout/);
+    return true;
+  });
+});
+
+await t('an empty transcript is returned as empty — the adapter does not guess', async () => {
+  // Deciding what silence MEANS is the caller's job (see §4). The adapter's job
+  // is to report what came back.
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: '', language_code: 'te-IN' }) });
+  const out = await stt.transcribe({ audio: audio(4096) });
+  assert.equal(out.text, '');
+});
+
+// ===========================================================================
+section('§4 the audio turn — POST /api/anaga/turn with an utterance');
+// ===========================================================================
+
+const turn = (await import('../api/anaga/turn.js')).default;
+
+function call(body, query = {}) {
+  const req = {
+    method: 'POST', body, query,
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.0.0.1' },
+    socket: { remoteAddress: '10.0.0.1' },
+  };
+  let done;
+  const p = new Promise((r) => { done = r; });
+  const res = {
+    statusCode: 200,
+    setHeader() { return this; },
+    status(c) { this.statusCode = c; return this; },
+    json(o) { done({ status: this.statusCode, body: o }); return this; },
+    send(o) { done({ status: this.statusCode, body: o }); return this; },
+    end(o) { done({ status: this.statusCode, body: o }); return this; },
+  };
+  return Promise.resolve(turn(req, res)).then(() => p);
+}
+
+/** A brain that answers, so a turn that gets past STT has somewhere to go. */
+function stubBrain(say = 'Are you looking to live in it, or to invest?') {
+  process.env.LLM_PROVIDER = 'gemini';
+  process.env.GEMINI_API_KEY = 'g';
+  routes.push({
+    match: /generativelanguage\.googleapis/,
+    reply: () => json({
+      candidates: [{ content: { parts: [{ text: JSON.stringify({ say, end: false, disposition: 'qualifying' }) }] } }],
+    }),
+  });
+}
+
+const b64 = (n) => audio(n).toString('base64');
+
+await t('AUDIO IN, TRANSCRIPT AND REPLY OUT — one round trip for the whole turn', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  process.env.TTS_PROVIDER = 'none';
+  routes.push({
+    match: /speech-to-text/,
+    reply: () => json({ transcript: 'నాకు మూడు బెడ్‌రూమ్‌లు కావాలి', language_code: 'te-IN' }),
+  });
+  stubBrain();
+
+  const r = await call({ history: [], lang: 'te-IN', direction: 'outbound', audio: b64(4096), mime: 'audio/webm', ms: 900 });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.heard, 'నాకు మూడు బెడ్‌రూమ్‌లు కావాలి',
+    'the browser never knew the words — it has to be told what it said');
+  assert.equal(r.body.say, 'Are you looking to live in it, or to invest?');
+  assert.equal(r.body.lang, 'te-IN');
+});
+
+await t('THE TRANSCRIPT IS APPENDED TO THE HISTORY THE MODEL SEES', async () => {
+  // The caller sends the history WITHOUT the utterance, because it did not know
+  // the words yet. If it is not appended here, Anaga answers the turn before.
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  process.env.TTS_PROVIDER = 'none';
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'three bedrooms' }) });
+  stubBrain();
+
+  await call({ history: [{ role: 'agent', text: 'How many bedrooms?' }], lang: 'en-IN', audio: b64(4096), ms: 900 });
+  const brain = calls.find((c) => /generativelanguage/.test(c.url));
+  assert.ok(brain, 'the brain must have been asked');
+  assert.match(String(brain.init.body), /three bedrooms/);
+});
+
+await t('A COUGH NEVER REACHES THE VENDOR — the duration floor is checked first', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  const r = await call({ history: [], lang: 'te-IN', audio: b64(4096), mime: 'audio/webm', ms: 120 });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ignored, 'too_short');
+  assert.equal(r.body.say, null, 'and she says nothing rather than answering a cough');
+  assert.equal(calls.length, 0, 'a door closing must cost nothing');
+});
+
+await t('A LONG QUIET CLIP IS NOT DROPPED — the floor is duration, not bytes', async () => {
+  // THE REGRESSION THIS TEST EXISTS FOR. The floor used to be 1200 BYTES, and
+  // byte length is not duration: Opus with DTX encodes near-silence to almost
+  // nothing, so the check measured how much SOUND there was rather than how
+  // long somebody spoke. A short quiet "అవును" — the single most consequential
+  // word in a qualifying call — landed under a kilobyte and was thrown away
+  // without ever reaching Saaras.
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  process.env.TTS_PROVIDER = 'none';
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'అవును' }) });
+  stubBrain();
+
+  const r = await call({ history: [], lang: 'te-IN', audio: b64(700), mime: 'audio/webm', ms: 600 });
+  assert.equal(r.body.heard, 'అవును');
+  assert.ok(calls.some((c) => /speech-to-text/.test(c.url)), 'it must have been transcribed');
+});
+
+await t('bytes too few to be a container at all are still refused', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  const r = await call({ history: [], lang: 'te-IN', audio: b64(40), mime: 'audio/webm', ms: 5000 });
+  assert.equal(r.body.ignored, 'too_short');
+  assert.equal(calls.length, 0);
+});
+
+await t('a caller that reports no duration is judged on bytes alone', async () => {
+  // The call leg and any third-party client may not have an endpointer to ask.
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  process.env.TTS_PROVIDER = 'none';
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'hello' }) });
+  stubBrain();
+  const r = await call({ history: [], lang: 'en-IN', audio: b64(4096), mime: 'audio/webm' });
+  assert.equal(r.body.heard, 'hello');
+});
+
+await t('SILENCE IS ANSWERED WITH SILENCE, not with an invented reply', async () => {
+  // The model will happily produce a warm, plausible sentence in response to an
+  // empty string. On a live call that is Anaga talking over a prospect who has
+  // not said anything yet.
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: '   ' }) });
+  stubBrain();
+
+  const r = await call({ history: [], lang: 'te-IN', audio: b64(4096), ms: 900 });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.ignored, 'no_speech');
+  assert.equal(r.body.say, null);
+  assert.ok(!calls.some((c) => /generativelanguage/.test(c.url)),
+    'the brain must never be asked to reply to silence — it is a billed call for a wrong answer');
+});
+
+await t('STT DOWN IS 503, never a silently empty turn', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({ match: /speech-to-text/, reply: () => json({ error: { message: 'upstream boom' } }, 500) });
+  stubBrain();
+
+  const r = await call({ history: [], lang: 'te-IN', audio: b64(4096), ms: 900 });
+  assert.equal(r.status, 503);
+  assert.equal(r.body.error, 'stt_unavailable');
+  assert.ok(!calls.some((c) => /generativelanguage/.test(c.url)));
+});
+
+await t('STT UNCONFIGURED IS 503 — it fails closed, it does not guess', async () => {
+  reset(); clearEnv();
+  process.env.TTS_PROVIDER = 'none';
+  stubBrain();
+  const r = await call({ history: [], lang: 'te-IN', audio: b64(4096), ms: 900 });
+  assert.equal(r.status, 503);
+  assert.equal(r.body.error, 'stt_unavailable');
+});
+
+await t('a turn with NO audio is unaffected — text callers still work', async () => {
+  // The call leg sends text it transcribed itself. It must not acquire a
+  // dependency on STT being configured.
+  reset(); clearEnv();
+  process.env.TTS_PROVIDER = 'none';
+  stubBrain();
+  const r = await call({ history: [{ role: 'user', text: 'I want three bedrooms' }], lang: 'en-IN' });
+  assert.equal(r.status, 200);
+  assert.ok(r.body.say);
+  assert.equal('heard' in r.body, false, 'nothing was transcribed, so nothing is reported as heard');
+});
+
+await t('the language picked for the call is the language STT is asked for', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  process.env.TTS_PROVIDER = 'none';
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'हाँ' }) });
+  stubBrain();
+  await call({ history: [], lang: 'hi-IN', audio: b64(4096), ms: 900 });
+  assert.equal(lastForm().language_code, 'hi-IN');
+});
+
+// ===========================================================================
+section('§5 the browser sends what the server needs to judge');
+// ===========================================================================
+
+await t('the call page reports the measured utterance length with the audio', async () => {
+  // Without it the server is back to guessing duration from byte length, which
+  // is the bug in §4. This is a one-line contract and it is easy to drop.
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../web/assets/demo-call.js', import.meta.url), 'utf8');
+  assert.match(src, /audio: b64, mime: u\.mime, ms: u\.ms/,
+    'the utterance duration must be posted alongside the audio');
+});
+
+await t('the microphone hands the duration over with the blob', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../web/assets/mic.js', import.meta.url), 'utf8');
+  assert.match(src, /onUtterance\(\{ blob: blob, mime: mime, ms: ms \}\)/);
+});
+
+globalThis.fetch = realFetch;
+console.log(`\n═══ ${pass} passed, ${fail} failed ═══\n`);
+if (fail) { failures.forEach((f) => console.log('  FAIL ' + f)); process.exit(1); }
