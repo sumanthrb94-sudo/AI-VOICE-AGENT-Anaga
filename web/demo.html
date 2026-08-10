@@ -53,6 +53,9 @@
   .sub{color:var(--dim);font-size:12.5px;margin-top:3px}
   .timer{font-variant-numeric:tabular-nums;color:var(--ok);font-size:13px;margin-top:8px}
   .state{color:var(--warn);font-size:12px;margin-top:6px;min-height:16px}
+  /* Measured, not claimed — the number this whole pipeline exists to move. */
+  .ttfa{color:var(--dim);font-size:11px;margin-top:3px;font-variant-numeric:tabular-nums;
+    min-height:14px}
 
   /* live level meter — real, driven by the audio element */
   .level{display:flex;gap:3px;justify-content:center;align-items:flex-end;height:22px;margin-top:12px}
@@ -141,6 +144,7 @@
       <div class="who" id="who">Anaga</div>
       <div class="sub" id="sub"></div>
       <div class="timer" id="timer">00:00</div>
+      <div class="ttfa" id="ttfa"></div>
       <div class="state" id="state"></div>
       <div class="level" id="level"></div>
     </div>

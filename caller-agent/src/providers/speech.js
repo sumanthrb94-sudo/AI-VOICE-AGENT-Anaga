@@ -329,10 +329,25 @@ const CLAUSE_END = /(?<=[,;:—–])\s+/;
  * @param {number} [opts.minChars]  below this a part is merged into the next
  * @returns {string[]} always at least one part
  */
-export function splitForSpeech(text, { maxChars = 140, minChars = 24 } = {}) {
+// A runt is a fragment too short to be worth its own round trip. Every cheap
+// proxy for that is biased by script, and both biases land on the two languages
+// this product sells in:
+//   - CHARACTERS are Latin-biased. "नमस्ते, मैं अनगा हूँ।" is 21 characters and
+//     about a second and a half of speech; the same sentence in English is 33.
+//     A 24-character floor merged every Hindi sentence back into one blob and
+//     quietly defeated first-phrase-first on Hindi calls.
+//   - WORDS are biased the other way. Telugu is agglutinative:
+//     "ఇప్పుడు మాట్లాడవచ్చా?" is a whole question in two words.
+// Short by BOTH is "Yes." and "Theek hai.", and nothing carrying a clause.
+function wordCount(s) { return s.split(/\s+/).filter(Boolean).length; }
+function isRunt(s, minWords, minChars) {
+  return wordCount(s) < minWords && s.length < minChars;
+}
+
+export function splitForSpeech(text, { maxChars = 140, minChars = 16, minWords = 4 } = {}) {
   const whole = String(text ?? '').trim();
   if (!whole) return [];
-  if (whole.length <= minChars) return [whole];
+  if (isRunt(whole, minWords, minChars)) return [whole];
 
   const parts = [];
   for (const sentence of whole.split(SENTENCE_END)) {
@@ -357,14 +372,14 @@ export function splitForSpeech(text, { maxChars = 140, minChars = 24 } = {}) {
   // trip to render two syllables, which costs more than it saves.
   const merged = [];
   for (const p of parts) {
-    if (merged.length && merged[merged.length - 1].length < minChars) {
+    if (merged.length && isRunt(merged[merged.length - 1], minWords, minChars)) {
       merged[merged.length - 1] = `${merged[merged.length - 1]} ${p}`;
     } else {
       merged.push(p);
     }
   }
   // A trailing runt has nothing to merge into; fold it backwards instead.
-  if (merged.length > 1 && merged[merged.length - 1].length < minChars) {
+  if (merged.length > 1 && isRunt(merged[merged.length - 1], minWords, minChars)) {
     const tail = merged.pop();
     merged[merged.length - 1] = `${merged[merged.length - 1]} ${tail}`;
   }

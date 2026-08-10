@@ -53,6 +53,20 @@ page.on('request', (r) => {
   } catch { /* ignore */ }
 });
 
+// Timestamp every synth request inside the page, so "was phrase 2 requested
+// while phrase 1 was playing?" is a measurement rather than an inference.
+await page.addInitScript(() => {
+  window.__ttsPosts = []; window.__ttsTimes = [];
+  const real = window.fetch;
+  window.fetch = function (url, init) {
+    if (String(url).includes('/api/tts') && init && init.method === 'POST') {
+      window.__ttsPosts.push(1);
+      window.__ttsTimes.push(Math.round(performance.now()));
+    }
+    return real.apply(this, arguments);
+  };
+});
+
 const restart = async () => {
   await page.goto(`${BASE}/demo.html`);   // '/' is the voice sampler, not the demo
   await page.waitForSelector('#start');
@@ -263,6 +277,78 @@ await t('AN OPT-OUT HEARD THROUGH THE MIC still ends the call', async () => {
 await t('the mic is released when the call ends', async () => {
   assert.equal(await page.evaluate(() => window.__sr.live), false, 'a finished call must not hold the mic');
   assert.equal(await page.evaluate(() => document.getElementById('mic').getAttribute('aria-pressed')), 'false');
+});
+
+
+// ── first phrase first ──────────────────────────────────────────────────────
+// Synthesizing a whole line before playing any of it means the prospect waits
+// for the LAST word to be rendered before hearing the FIRST. Bulbul takes ~3.3s
+// on a two-sentence turn, measured on the deployment, and that is 3.3s of the
+// agent visibly not answering.
+
+await t('a long line is SPLIT, and the first request is the short one', async () => {
+  await restart();
+  const line = 'Namaste, this is Anaga from Vaak. I have a three BHK in Gachibowli. Would you like the details?';
+  process.env.STUB_LLM_SAY = line;
+  await page.locator('#lang button[data-lang="en-IN"]').click();
+  await page.locator('#start').click();
+  await page.waitForSelector('#log .ln.her', { timeout: 10000 });
+  // Wait for the WHOLE line to have been requested, not just the first two
+  // phrases — otherwise the reassembly assertion below races the third request
+  // and fails for a reason that has nothing to do with the splitter.
+  await page.waitForFunction(() => window.__ttsPosts && window.__ttsPosts.length >= 3,
+    null, { timeout: 15000 }).catch(() => {});
+
+  const asked = synths.map((p) => p.text);
+  assert.ok(asked.length >= 2, `the line should be split, got ${asked.length} request(s)`);
+  assert.ok(asked[0].length < line.length / 2,
+    `the first request must be the SHORT one, got "${asked[0]}"`);
+  // Every word still gets said — splitting must not drop the tail.
+  assert.equal(asked.join(' ').replace(/\s+/g, ' ').trim(), line.replace(/\s+/g, ' ').trim(),
+    'the phrases must reassemble into the whole line');
+  process.env.STUB_LLM_SAY = STUB_SAY;
+});
+
+await t('THE NEXT PHRASE IS RENDERED WHILE THE CURRENT ONE PLAYS', async () => {
+  // The overlap is the entire point. Requesting phrase 2 only after phrase 1
+  // finishes playing would serialise synthesis behind audio and buy nothing.
+  const gaps = await page.evaluate(() => window.__ttsTimes || []);
+  if (gaps.length >= 2) {
+    assert.ok(gaps[1] - gaps[0] < 2000,
+      `phrase 2 should be requested during phrase 1, gap was ${gaps[1] - gaps[0]}ms`);
+  }
+});
+
+await t('THE SPLIT IS NOT LATIN-BIASED — Hindi and Telugu split too', async () => {
+  // Every cheap proxy for "long enough to be worth its own round trip" is
+  // biased by script. A CHARACTER floor swallowed whole Hindi sentences (21
+  // characters, a second and a half of speech). A WORD floor swallowed Telugu,
+  // which is agglutinative — "ఇప్పుడు మాట్లాడవచ్చా?" is a whole question in two
+  // words. Both failures land on exactly the two languages this sells in.
+  const hi = await page.evaluate(() => window.__splitForSpeech(
+    'नमस्ते, मैं अनगा हूँ। मेरे पास गाचीबौली में एक थ्री बीएचके है। क्या आप जानना चाहेंगे?'));
+  assert.equal(hi.length, 3, `the danda ends a sentence like a full stop, got ${hi.length}`);
+
+  const te = await page.evaluate(() => window.__splitForSpeech(
+    'నమస్కారం, నేను అనగా. మీరు అడిగిన ఇంటి గురించి మాట్లాడటానికి కాల్ చేశాను. ఇప్పుడు మాట్లాడవచ్చా?'));
+  assert.equal(te.length, 3, `Telugu must split too, got ${te.length}`);
+  assert.ok(te[0].length < 25, 'the first Telugu phrase must be the short one');
+});
+
+await t('a SHORT line is not split into a pointless extra round trip', async () => {
+  // A runt is short by BOTH measures — which is "Yes." and "Theek hai.", and
+  // nothing that carries a clause.
+  for (const short of ['Theek hai.', 'Yes.', 'సరే.']) {
+    const parts = await page.evaluate((x) => window.__splitForSpeech(x), short);
+    assert.deepEqual(parts, [short], `"${short}" does not deserve its own round trip`);
+  }
+});
+
+await t('TIME TO FIRST WORD IS SHOWN, not claimed', async () => {
+  await page.waitForFunction(() => /\d+\s*ms/.test(document.getElementById('ttfa').textContent),
+    null, { timeout: 10000 });
+  const shown = await page.locator('#ttfa').innerText();
+  assert.match(shown, /\d+ ms to first word/);
 });
 
 await t('no uncaught page errors', () => {

@@ -679,5 +679,31 @@ await t('THE SESSION RECORDS THE SPOKEN TEXT, not the generated text', async () 
     `the transcript claims a phrase she never spoke: ${JSON.stringify(agentLines)}`);
 });
 
+await t('THE PHRASE SPLIT IS NOT SCRIPT-BIASED', () => {
+  // The call leg carried the same Latin bias the browser demo did: a 24-CHAR
+  // floor merged whole Hindi sentences back into one blob, and a word floor
+  // would swallow Telugu instead. Both failures land on the two languages this
+  // product actually sells in — and on the phone leg they cost first-audio on
+  // every line of every call.
+  const cases = {
+    'en-IN': 'Namaste, this is Anaga from Vaak. I have a three BHK in Gachibowli. Would you like the details?',
+    'hi-IN': 'नमस्ते, मैं अनगा हूँ। मेरे पास गाचीबौली में एक थ्री बीएचके है। क्या आप जानना चाहेंगे?',
+    'te-IN': 'నమస్కారం, నేను అనగా. మీరు అడిగిన ఇంటి గురించి మాట్లాడటానికి కాల్ చేశాను. ఇప్పుడు మాట్లాడవచ్చా?',
+  };
+  for (const [lang, line] of Object.entries(cases)) {
+    const parts = splitForSpeech(line);
+    assert.equal(parts.length, 3, `${lang} must split into its three sentences, got ${parts.length}`);
+    assert.equal(parts.join(' '), line, `${lang}: splitting must not drop or reorder a word`);
+  }
+});
+
+await t('a runt is short by BOTH measures, and only then', () => {
+  assert.deepEqual(splitForSpeech('Theek hai.'), ['Theek hai.']);
+  assert.deepEqual(splitForSpeech('Yes.'), ['Yes.']);
+  // Two Telugu words that carry a whole question are NOT a runt.
+  const te = splitForSpeech('ఇప్పుడు మాట్లాడవచ్చా? మీ బడ్జెట్ ఎంత వరకు ఉంది?');
+  assert.equal(te.length, 2, 'an agglutinative two-word question deserves its own phrase');
+});
+
 console.log(`\n═══ ${pass} passed, ${fail} failed ═══\n`);
 if (fail) { failures.forEach((f) => console.log('  FAIL ' + f)); process.exit(1); }

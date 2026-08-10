@@ -187,6 +187,96 @@
     });
   }
 
+
+  /* ---------------- first phrase first ----------------
+     Synthesizing a whole line before playing any of it means the prospect
+     waits for the LAST word to be rendered before hearing the FIRST. Bulbul
+     takes ~3.3s on a two-sentence turn, and that is 3.3s of the agent
+     visibly not answering.
+
+     Split at phrase boundaries and the wait becomes the render time of the
+     first phrase only; everything behind it renders while the earlier audio
+     is still playing. The call leg has done this for a while
+     (caller-agent/src/media/transport.js say()); the browser demo was still
+     sending whole lines.
+
+     Scanned by hand rather than split by regex ON PURPOSE. The obvious
+     pattern is /(?<=[.!?।॥])\s+/, and lookbehind throws a SyntaxError at
+     PARSE time on Safari before 16.4 — which would not degrade this page, it
+     would blank it, on somebody's iPhone, in the room. */
+  var SENTENCE_ENDS = ".!?\u0964\u0965";      // includes the Devanagari danda
+  var CLAUSE_ENDS = ",;:\u2014\u2013";
+
+  function splitOn(text, marks) {
+    var out = [], cur = "";
+    for (var i = 0; i < text.length; i++) {
+      cur += text[i];
+      if (marks.indexOf(text[i]) !== -1) {
+        while (i + 1 < text.length && /\s/.test(text[i + 1])) i++;
+        if (cur.trim()) out.push(cur.trim());
+        cur = "";
+      }
+    }
+    if (cur.trim()) out.push(cur.trim());
+    return out;
+  }
+
+  // MAX_CHARS bounds vendor latency, which really does scale with characters.
+  //
+  // "Too short to be worth its own round trip" does NOT. That is about how long
+  // the fragment takes to SAY, and every cheap proxy for it is biased by
+  // script:
+  //   - CHARACTERS are Latin-biased. "नमस्ते, मैं अनगा हूँ।" is 21 characters
+  //     and about a second and a half of speech; the same sentence in English
+  //     is 33. A 24-character floor merged every Hindi sentence back into one
+  //     blob and defeated first-phrase-first in the languages we sell in.
+  //   - WORDS are biased the other way. Telugu is agglutinative:
+  //     "ఇప్పుడు మాట్లాడవచ్చా?" is a whole question in two words, and a
+  //     four-word floor swallowed it just as badly.
+  // So a fragment is a runt only when it is short by BOTH measures — which is
+  // "Yes." and "Theek hai.", and nothing that carries a clause.
+  var MAX_CHARS = 140, MIN_WORDS = 4, MIN_CHARS = 16;
+  function words(s) { return s.split(/\s+/).filter(Boolean).length; }
+  function isRunt(s) { return words(s) < MIN_WORDS && s.length < MIN_CHARS; }
+
+  function splitForSpeech(text) {
+    var whole = String(text == null ? "" : text).trim();
+    if (!whole) return [];
+    if (isRunt(whole)) return [whole];
+
+    var parts = [];
+    splitOn(whole, SENTENCE_ENDS).forEach(function (sentence) {
+      if (sentence.length <= MAX_CHARS) { parts.push(sentence); return; }
+      // A long sentence still blocks first audio, so break it at clause
+      // boundaries. A hard character split would cut mid-word, and Bulbul
+      // pronounces the fragments as two separate words.
+      var acc = "";
+      splitOn(sentence, CLAUSE_ENDS).forEach(function (clause) {
+        if (acc && (acc.length + clause.length + 1) > MAX_CHARS) { parts.push(acc); acc = clause; }
+        else acc = acc ? acc + " " + clause : clause;
+      });
+      if (acc) parts.push(acc);
+    });
+
+    // Merge runts forward. "Yes." alone is a whole network round trip to
+    // render two syllables, which costs more than it saves.
+    var merged = [];
+    parts.forEach(function (p) {
+      if (merged.length && isRunt(merged[merged.length - 1])) {
+        merged[merged.length - 1] += " " + p;
+      } else merged.push(p);
+    });
+    if (merged.length > 1 && isRunt(merged[merged.length - 1])) {
+      var tail = merged.pop();
+      merged[merged.length - 1] += " " + tail;
+    }
+    return merged.length ? merged : [whole];
+  }
+  // Exposed so the browser test can assert the split without reimplementing it.
+  window.__splitForSpeech = splitForSpeech;
+
+  var utterance = null;                  // the line currently being spoken
+
   function speak(text) {
     var a = element();
     // ORDER MATTERS: raise the flag BEFORE closing the mic. aborting the
@@ -196,25 +286,74 @@
     // only on paper. She would have heard herself and answered herself.
     speaking = true; body.classList.add("speaking");
     pauseListening();
-    return fetch("/api/tts", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text, lang: lang })   // voice: server default
-    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
-      .then(function (res) {
+
+    if (utterance) utterance.cancelled = true;     // supersede whatever was mid-line
+    var me = { cancelled: false };
+    utterance = me;
+
+    var parts = splitForSpeech(text);
+    if (!parts.length) return Promise.resolve();
+    var t0 = performance.now(), started = false;
+
+    function synth(part) {
+      return fetch("/api/tts", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: part, lang: lang })   // voice: server default
+      }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+      }).then(function (res) {
         if (!res.ok || !res.d || !res.d.audio) throw new Error((res.d && res.d.error) || "tts_failed");
-        return new Promise(function (done) {
-          a.onended = function () { done(); };
-          a.onerror = function () { state("audio unavailable"); done(); };
-          a.src = "data:" + (res.d.mime || "audio/mpeg") + ";base64," + res.d.audio;
-          Promise.resolve(a.play()).then(function () { meter(); }, function () {
-            state("tap to allow audio"); done();
-          });
+        return "data:" + (res.d.mime || "audio/mpeg") + ";base64," + res.d.audio;
+      });
+    }
+
+    function play(src) {
+      return new Promise(function (done) {
+        a.onended = function () { done(); };
+        // A superseded clip fires error when its src is swapped. That is not a
+        // fault, and reporting it as one is how a page reads as broken while
+        // playing correctly.
+        a.onerror = function () { done(); };
+        a.src = src;
+        Promise.resolve(a.play()).then(function () {
+          if (started || me.cancelled) return;
+          started = true;
+          // TIME TO FIRST AUDIO, measured, on this device. The whole reason for
+          // this rewrite, so it is shown rather than asserted.
+          var ms = Math.round(performance.now() - t0);
+          $("ttfa").textContent = ms + " ms to first word";
+        }, function () {
+          note = "tap to allow audio"; state(""); done();
         });
-      })
-      .catch(function () {
+      });
+    }
+
+    // Render part 0, then keep exactly one phrase in flight ahead of playback.
+    var inflight = synth(parts[0]);
+    inflight.catch(function () {});
+
+    function step(i, pending) {
+      if (me.cancelled || i >= parts.length) return Promise.resolve();
+      return pending.then(function (src) {
+        if (me.cancelled) return;
+        // Start the NEXT phrase BEFORE playing this one. That overlap is the
+        // point; kicking it off afterwards would serialise synthesis behind
+        // audio again and buy nothing.
+        var ahead = (i + 1 < parts.length) ? synth(parts[i + 1]) : null;
+        if (ahead) ahead.catch(function () {});
+        return play(src).then(function () {
+          return step(i + 1, ahead || Promise.resolve(null));
+        });
+      }, function () {
+        // Part-way through, the line is truncated but the call is live. The
+        // transcript already carries every word — it is written before any of
+        // this runs — so a dead vendor costs the audio and nothing else.
         note = "voice unavailable — transcript still live";
         state("");
       });
+    }
+
+    return step(0, inflight);
   }
 
   /* ---------------- listening (half-duplex) ---------------- */
@@ -273,13 +412,14 @@
     // not when the button was pressed. A timer that starts on the press counts
     // the connection attempt as call time, which is the one number on this
     // screen an investor might actually check against a phone bill.
-    t0 = 0; $("timer").textContent = "00:00";
+    t0 = 0; $("timer").textContent = "00:00"; $("ttfa").textContent = "";
     state(direction === "inbound" ? "answering…" : "connecting…");
     turn(null);                                // she opens
   }
 
   function hangup() {
     ended = true;
+    if (utterance) utterance.cancelled = true;
     micOff();
     clearInterval(tick); tick = null;
     try { element().pause(); } catch (e) {}
