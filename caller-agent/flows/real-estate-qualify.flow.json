@@ -1,7 +1,7 @@
 {
   "$schema": "../../shared/flow.schema.json",
   "id": "real-estate-qualify",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "persona": "anaga",
   "vertical": "real-estate",
   "project": {
@@ -23,6 +23,29 @@
         "dnd"
       ],
       "goto": "optout"
+    },
+    "backchannel": {
+      "note": "Spoken the instant the prospect stops talking, before the reply exists. A human makes a sound within about 200ms; 3-4 seconds of silence while the pipeline runs is what makes an agent feel like a machine. These carry no information and commit to nothing, which is why they can be said before the model has decided anything. Kept here rather than in code because they are words a prospect hears.",
+      "lines": {
+        "te-IN": [
+          "సరే",
+          "అలాగే",
+          "అవునా",
+          "హా, అర్థమైంది"
+        ],
+        "hi-IN": [
+          "theek hai",
+          "achha",
+          "haan, samajh gayi",
+          "ji"
+        ],
+        "en-IN": [
+          "okay",
+          "right",
+          "mm-hmm",
+          "got it"
+        ]
+      }
     }
   },
   "qualification": {

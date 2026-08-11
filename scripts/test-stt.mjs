@@ -57,15 +57,19 @@ const json = (body, status = 200) => ({
   json: async () => body, text: async () => JSON.stringify(body),
   arrayBuffer: async () => new ArrayBuffer(0), headers: new Map(),
 });
-function reset() { routes = []; calls = []; }
+function reset() { routes = []; calls = []; tts.clearSynthCache(); }
 
 const ENV_KEYS = ['STT_PROVIDER', 'SARVAM_API_KEY', 'SARVAM_STT_MODEL', 'SARVAM_STT_MODE',
   'STT_TIMEOUT_MS', 'STT_MIN_MS', 'STT_MIN_BYTES',
-  'TTS_PROVIDER', 'LLM_PROVIDER', 'GEMINI_API_KEY', 'RATE_LIMIT_TURN'];
+  'TTS_PROVIDER', 'LLM_PROVIDER', 'GEMINI_API_KEY', 'RATE_LIMIT_TURN',
+  'SARVAM_STREAM', 'SARVAM_TTS_MODEL', 'RATE_LIMIT_BACKCHANNEL'];
 function clearEnv() { for (const k of ENV_KEYS) delete process.env[k]; }
 clearEnv();
 
 const stt = await import('../api/_lib/stt.js');
+// The synth cache is process-wide by design, so a test that expects the vendor
+// to be called has to start from an empty one.
+const tts = await import('../api/_lib/tts.js');
 
 /** The field values Sarvam was actually sent, for the last multipart call. */
 function lastForm() {
@@ -501,7 +505,112 @@ await t('the language picked for the call is the language STT is asked for', asy
 });
 
 // ===========================================================================
-section('§5 the browser sends what the server needs to judge');
+section('§5 the backchannel — what she says while she is thinking');
+// ===========================================================================
+
+function get(query = {}) {
+  const req = { method: 'GET', query, headers: {}, socket: { remoteAddress: '10.0.0.2' } };
+  let done;
+  const p = new Promise((r) => { done = r; });
+  const res = {
+    statusCode: 200,
+    setHeader() { return this; },
+    status(c) { this.statusCode = c; return this; },
+    json(o) { done({ status: this.statusCode, body: o }); return this; },
+  };
+  return Promise.resolve(turn(req, res)).then(() => p);
+}
+
+await t('THE OPENING RESPONSE CARRIES THE ACKNOWLEDGEMENT LINES', async () => {
+  // Three vendor calls run in series after a prospect stops talking, and until
+  // the first audio returns nothing happens at all — measured at three to five
+  // seconds. A person makes a sound within about 200ms. These are what she says
+  // in that gap; they carry no information, which is why they can be said
+  // before the model has decided anything.
+  reset(); clearEnv();
+  process.env.TTS_PROVIDER = 'none';
+  const r = await get({ lang: 'te-IN', direction: 'outbound' });
+  assert.equal(r.status, 200);
+  assert.ok(Array.isArray(r.body.backchannel) && r.body.backchannel.length,
+    'the client must not have to invent a line a prospect will hear');
+  assert.ok(r.body.backchannel.every((s) => typeof s === 'string' && s.length && s.length < 40));
+});
+
+await t('they are FLOW DATA, in the language of the call', async () => {
+  // Versioned wording, not a constant in a browser script — same rule as the
+  // greeting. A Telugu "సరే" in an English call is worse than saying nothing.
+  reset(); clearEnv();
+  process.env.TTS_PROVIDER = 'none';
+  const te = (await get({ lang: 'te-IN' })).body.backchannel;
+  const en = (await get({ lang: 'en-IN' })).body.backchannel;
+  const hi = (await get({ lang: 'hi-IN' })).body.backchannel;
+  assert.notDeepEqual(te, en, 'each language needs its own');
+  assert.notDeepEqual(hi, en);
+  assert.ok(te.some((s) => /[ఀ-౿]/.test(s)), 'the Telugu set must be in Telugu script');
+
+  const fs = await import('node:fs');
+  const flow = JSON.parse(fs.readFileSync(
+    new URL('../caller-agent/flows/real-estate-qualify.flow.json', import.meta.url), 'utf8'));
+  assert.deepEqual(te, flow.globals.backchannel.lines['te-IN'].map((s) => s.trim()),
+    'served from the flow file, not from a constant in the handler');
+});
+
+await t('no vendor is called to fetch them — the opening must stay fast', async () => {
+  reset(); clearEnv();
+  process.env.TTS_PROVIDER = 'none';
+  await get({ lang: 'te-IN' });
+  assert.equal(calls.length, 0,
+    'four synths in front of the one line that has to be fast defeats the purpose');
+});
+
+await t('ALL OF THEM COME BACK RENDERED, IN ONE REQUEST', async () => {
+  // Four separate fetches put four hits per call into a bucket capped at 60.
+  // That is fine for one person on one line and wrong behind a carrier NAT,
+  // where several prospects share an address and the fourth is rate limited
+  // into silence — which this suite reproduced before the shape changed.
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  // The batch endpoint answers JSON; the stream endpoint answers raw bytes.
+  // Pin batch so one stub shape is the right one.
+  process.env.SARVAM_STREAM = '0';
+  routes.push({ match: /sarvam\.ai\/text-to-speech/, reply: () => json({ audios: ['QUJD'] }) });
+
+  const r = await get({ backchannel: '1', lang: 'te-IN' });
+  assert.equal(r.status, 200);
+  assert.ok(r.body.lines.length >= 2, 'more than one, or every gap sounds identical');
+  assert.ok(r.body.lines.every((l) => l.text && l.audio && l.mime));
+  assert.equal(r.body.lang, 'te-IN');
+});
+
+await t('a synthesis outage costs the acknowledgement and nothing else', async () => {
+  // She goes back to being silent through the gap, which is where this started.
+  // A 503 here would take out a call over a noise.
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({ match: /sarvam\.ai/, reply: () => json({ error: { message: 'down' } }, 500) });
+  const r = await get({ backchannel: '1', lang: 'en-IN' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.lines, []);
+});
+
+await t('the page renders them ONCE and never writes them into the transcript', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../web/assets/demo-call.js', import.meta.url), 'utf8');
+  assert.match(src, /function primeAcks/);
+  assert.match(src, /function acknowledge/);
+  assert.match(src, /backchannel=1/, 'one request for the set, not one per line');
+  // It is a noise, not a turn. A model shown "okay" as its own previous line
+  // starts treating it as one and answering it.
+  const ack = src.slice(src.indexOf('function acknowledge'), src.indexOf('function acknowledge') + 900);
+  assert.doesNotMatch(ack, /history\.push|bubble\(/,
+    'an acknowledgement must never become a turn in the transcript or the history');
+  // Its own element: sharing the reply's would swap the src out from under a
+  // line she is still speaking and resolve the wrong promise in speak().
+  assert.match(src, /ackElement\(\)/);
+});
+
+// ===========================================================================
+section('§6 the browser sends what the server needs to judge');
 // ===========================================================================
 
 await t('the call page reports the measured utterance length with the audio', async () => {

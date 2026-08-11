@@ -52,6 +52,22 @@ function str(v) { return typeof v === 'string' && v.trim() ? v.trim() : null; }
 function arr(v) { return Array.isArray(v) ? v : []; }
 function obj(v) { return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
 
+const BACKCHANNEL_MAX_CHARS = 32;
+const BACKCHANNEL_MAX_LINES = 8;
+
+/** { lang: [line, …] }, keeping only supported languages and short lines. */
+function backchannelLines(raw) {
+  const out = {};
+  for (const lang of LANGS) {
+    const lines = arr(obj(raw)[lang])
+      .filter((s) => str(s) && s.trim().length <= BACKCHANNEL_MAX_CHARS)
+      .map((s) => s.trim())
+      .slice(0, BACKCHANNEL_MAX_LINES);
+    if (lines.length) out[lang] = lines;
+  }
+  return out;
+}
+
 /**
  * The flow, normalized and guaranteed well-shaped. Never throws, never returns
  * a hole — a caller can use every field without checking it first.
@@ -85,6 +101,14 @@ export function loadFlow() {
       ? arr(f.globals.optout.triggers).filter(str)
       : FLOOR.optOutTriggers,
     disclosureStep: steps.find((s) => s.disclosure === true) || null,
+    // WHAT SHE SAYS WHILE SHE IS THINKING, per language. Normalized here rather
+    // than read raw so a malformed flow degrades to no acknowledgement — she
+    // simply stays quiet through the gap, which is where this started — instead
+    // of putting `undefined` or a stray object through a speech engine.
+    // Capped in length because these are meant to be a noise, not a sentence:
+    // anything long enough to carry a claim does not belong in a line spoken
+    // before the model has decided anything.
+    backchannel: backchannelLines(obj(obj(f.globals).backchannel).lines),
     directions: loadDirections(f),
     qualification: {
       fields,

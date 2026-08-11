@@ -44,18 +44,24 @@
   var el = null, unlocked = false;
   var SILENT = "data:audio/wav;base64,UklGRiUAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQEAAAAA";
   function element() { if (!el) { el = new Audio(); el.preload = "auto"; } return el; }
+  function ackElement() { if (!ackEl) { ackEl = new Audio(); ackEl.preload = "auto"; } return ackEl; }
   function unlock() {                       // MUST run inside the gesture
-    var a = element();
     if (unlocked) return;
-    try {
-      a.muted = true; a.src = SILENT;
-      var p = a.play();
-      if (p && p.then) p.then(function () {
-        try { a.pause(); a.currentTime = 0; } catch (e) {}
-        a.muted = false; unlocked = true;
-      }, function () { a.muted = false; });
-      else { a.muted = false; unlocked = true; }
-    } catch (e) { /* play() reports it properly below */ }
+    // BOTH elements. The backchannel plays on its own, and an element that was
+    // not touched inside the gesture is refused silently later — which is
+    // indistinguishable from a bug and is exactly how the first one broke.
+    [element(), ackElement()].forEach(function (a) {
+      try {
+        a.muted = true; a.src = SILENT;
+        var p = a.play();
+        if (p && p.then) p.then(function () {
+          try { a.pause(); a.currentTime = 0; } catch (e) {}
+          a.muted = false;
+        }, function () { a.muted = false; });
+        else a.muted = false;
+      } catch (e) { /* play() reports it properly below */ }
+    });
+    unlocked = true;
   }
 
   /* ---------------- level meter ----------------
@@ -153,6 +159,36 @@
   var opening = null;     // { key, text, src, textReady } for the armed combo
   var audioWanted = false;
 
+  /* ---------------- the backchannel ----------------
+
+     THE THING THAT MAKES HER FEEL LIKE A MACHINE IS NOT THE VOICE.
+
+     When you stop talking, three vendor calls run in series — transcribe,
+     think, synthesize — and until the first audio comes back, nothing happens
+     at all. Measured in production that is three to five seconds of dead air,
+     and no amount of voice quality survives it, because a person makes some
+     sound within about two hundred milliseconds of you finishing.
+
+     So she makes one. "సరే", "achha", "mm-hmm" — said the instant the
+     endpointer closes your utterance, before the request has even left the
+     phone. It carries no information and commits to nothing, which is exactly
+     why it can be said before the model has decided anything.
+
+     The lines come from the flow (they are words a prospect hears, so they are
+     versioned data). They are rendered ONCE per call and reused: four short
+     strings, and the server's synth cache means everyone after the first user
+     gets them for nothing.
+
+     It plays on its OWN audio element. Sharing the reply's element would mean
+     an acknowledgement landing mid-sentence swaps the src out from under a
+     line she is still speaking, and the play()/onended chain in speak() would
+     resolve the wrong promise. */
+  var ackLines = [], acks = [], ackEl = null, acksPending = false;
+  // Under this, the endpointer heard a cough, a door, a chair. Acknowledging a
+  // door is worse than saying nothing, and the server may well come back
+  // "ignored" — so the floor is deliberately above the endpointer's own.
+  var ACK_MIN_UTTERANCE_MS = 900;
+
   function openingKey() { return lang + "|" + direction; }
 
   /* The TEXT is free — a static read of a JSON file, no model, no vendor — so
@@ -172,6 +208,9 @@
       .then(function (d) {
         if (!d || !d.say || opening !== mine) return null;
         mine.text = d.say;
+        // Versioned flow data, not invented here. Held until the call starts —
+        // rendering them costs a synthesis each.
+        if (d.backchannel && d.backchannel.length) ackLines = d.backchannel;
         // Rendered server-side alongside the text when we asked for it — one
         // request instead of two, before the call has even started.
         if (d.speak && d.speak.audio) {
@@ -201,6 +240,48 @@
       mine.src = "data:" + (a.mime || "audio/mpeg") + ";base64," + a.audio;
       window.__openingReady = true;      // test introspection
     }).catch(function () { /* a prewarm that fails costs the latency it saved */ });
+  }
+
+  /** Render the acknowledgements once, in the background, after the call starts.
+   *  ONE request for all of them: four separate ones put four hits per call into
+   *  a rate-limit bucket shared by everybody behind the same address. */
+  function primeAcks() {
+    if (acks.length || acksPending) return;
+    acksPending = true;
+    var mineLang = lang;
+    window.__acksWanted = ackLines.length || 1;    // test introspection
+    fetch("/api/anaga/turn?backchannel=1&lang=" + encodeURIComponent(mineLang))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        acksPending = false;
+        // Language can change between calls; a Telugu "సరే" in an English call
+        // is worse than no acknowledgement at all.
+        if (!d || !d.lines || lang !== mineLang) return;
+        acks = d.lines.filter(function (l) { return l && l.audio; }).map(function (l) {
+          return "data:" + (l.mime || "audio/mpeg") + ";base64," + l.audio;
+        });
+        window.__acksWanted = acks.length || 1;
+        window.__acksReady = acks.length;          // test introspection
+      })
+      .catch(function () {
+        acksPending = false;                       // she just stays quiet
+        window.__acksReady = 0; window.__acksWanted = 0;
+      });
+  }
+
+  /** Say something human-sounding NOW, while the real answer is still being made. */
+  function acknowledge() {
+    if (!acks.length || ended || speaking) return;
+    var src = acks[Math.floor(Math.random() * acks.length)];
+    try {
+      var a = ackElement();
+      a.src = src;
+      // Deliberately NOT added to the transcript and NOT pushed into history:
+      // it is a noise, not a turn, and a model shown "okay" as its own previous
+      // line starts treating it as one and answering it.
+      var p = a.play();
+      if (p && p.catch) p.catch(function () { /* not unlocked; silence is fine */ });
+    } catch (e) { /* an acknowledgement is never worth failing a call */ }
   }
 
   // A pointer or a key is the cheapest evidence of a person. Crawlers do not
@@ -367,8 +448,30 @@
   // So a fragment is a runt only when it is short by BOTH measures — which is
   // "Yes." and "Theek hai.", and nothing that carries a clause.
   var MAX_CHARS = 140, MIN_WORDS = 4, MIN_CHARS = 16;
+  // THE FIRST PHRASE IS NOT LIKE THE OTHERS — it is the only one with no
+  // earlier audio to hide behind, so it IS the wait. Synthesis time tracks
+  // length almost linearly (measured: 21 chars 908 ms, 53 chars 2.4 s, 114
+  // chars 4.2 s), so phrase zero is cut at the first clause boundary rather
+  // than the sentence boundary the rest use. Costs one extra round trip on the
+  // one phrase where a round trip is worth paying.
+  // MUST MATCH shared/speech-split.js: the server prerenders phrase zero and
+  // this file synthesizes 1..n, so a disagreement repeats or drops a phrase.
+  var HEAD_CHARS = 36, MIN_HEAD = 12;
   function words(s) { return s.split(/\s+/).filter(Boolean).length; }
   function isRunt(s) { return words(s) < MIN_WORDS && s.length < MIN_CHARS; }
+
+  function splitHead(first) {
+    if (first.length <= HEAD_CHARS) return [first];
+    var head = "", rest = [];
+    splitOn(first, CLAUSE_ENDS).forEach(function (c) {
+      if (head.length >= MIN_HEAD) rest.push(c);
+      else head = head ? head + " " + c : c;
+    });
+    // No clause boundary inside the budget — leave it whole rather than cut
+    // mid-word, which Bulbul pronounces as two separate words.
+    if (!rest.length || head.length < MIN_HEAD) return [first];
+    return [head, rest.join(" ")];
+  }
 
   function splitForSpeech(text) {
     var whole = String(text == null ? "" : text).trim();
@@ -401,7 +504,10 @@
       var tail = merged.pop();
       merged[merged.length - 1] += " " + tail;
     }
-    return merged.length ? merged : [whole];
+    if (!merged.length) return [whole];
+    // LAST, so the runt merge cannot undo it — the merge exists to lengthen
+    // fragments and would put the head straight back where it came from.
+    return splitHead(merged[0]).concat(merged.slice(1));
   }
   // Exposed so the browser test can assert the split without reimplementing it.
   window.__splitForSpeech = splitForSpeech;
@@ -576,6 +682,10 @@
     if (ended || thinking) return;
     thinking = true;
     state("…");
+    // BEFORE the request, not after it. The whole point is to fill the gap the
+    // request is about to open, so this has to happen while the audio is still
+    // being read off the blob.
+    if (u.ms >= ACK_MIN_UTTERANCE_MS) acknowledge();
     var reader = new FileReader();
     reader.onloadend = function () {
       var b64 = String(reader.result || "").split(",")[1];
@@ -628,6 +738,9 @@
 
   function begin() {
     unlock();                                  // inside the click — the point
+    // Rendered while she is still saying her opening line, so the first one is
+    // ready well before the first time the prospect stops talking.
+    primeAcks();
     body.classList.add("in-call");
     body.classList.remove("ended");
     history = []; ended = false; disposition = "qualifying"; note = "";

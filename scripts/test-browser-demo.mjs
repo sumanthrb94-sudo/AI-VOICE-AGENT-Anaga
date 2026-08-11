@@ -380,6 +380,27 @@ await t('THE TRANSCRIPT COMES BACK AND BECOMES A TURN', async () => {
   assert.match(you, /బెడ్‌రూమ్/, `expected the transcript, got "${you}"`);
 });
 
+await t('SHE MAKES A SOUND WHILE SHE THINKS — the dead air is the machine tell', async () => {
+  // Three vendor calls run in series after you stop talking; measured in
+  // production that is three to five seconds of nothing. A person answers with
+  // SOME noise inside about 200ms. The acknowledgement is rendered once at the
+  // start of the call and played the instant the endpointer closes an
+  // utterance, before the request has even left the phone.
+  await page.waitForFunction(
+    () => window.__acksWanted > 0 && window.__acksReady >= window.__acksWanted,
+    null, { timeout: 12000 },
+  );
+  // Rendered up front, not synthesized in the gap they exist to cover — a
+  // synthesis mid-gap would arrive at exactly the moment the real reply does.
+  assert.ok(await page.evaluate(() => window.__acksReady >= 2),
+    'more than one, or the same noise every turn is its own machine tell');
+  // It must never become a turn: a model shown "okay" as its own previous line
+  // starts treating it as one and answering it.
+  const hers = await page.locator('#log .ln.her').allInnerTexts();
+  assert.ok(!hers.some((h) => /^Anaga\s*(okay|right|mm-hmm|got it)$/i.test(h.trim())),
+    'an acknowledgement is a noise, not a line in the transcript');
+});
+
 await t('A COUGH IS NOT AN UTTERANCE', async () => {
   // Under the minimum speech length nothing is sent. Transcribing a door
   // closing costs money to be told it was a door.
@@ -437,7 +458,17 @@ await t('THE FIRST PHRASE SHIPS WITH THE TURN — one round trip, not two', asyn
   await page.locator('#lang button[data-lang="en-IN"]').click();
   await page.locator('#start').click();
   await page.waitForSelector('#log .ln.her', { timeout: 10000 });
-  await page.waitForTimeout(600);
+  // Let the OPENING finish before measuring the next line. Her opening renders
+  // its own later phrases while the earlier ones play, and the acknowledgements
+  // render once at the start of the call — both land in `synths` and neither
+  // belongs to the turn under test. Waiting on wall-clock made this pass only
+  // as long as nothing before it got slower or longer.
+  await page.waitForFunction(
+    () => !document.body.classList.contains('speaking')
+      && window.__acksWanted > 0 && window.__acksReady >= window.__acksWanted,
+    null, { timeout: 15000 },
+  ).catch(() => {});
+  await page.waitForTimeout(300);
   synths.length = 0;
 
   await page.locator('#say').fill('tell me about it');
@@ -463,7 +494,7 @@ await t('THE FIRST PHRASE SHIPS WITH THE TURN — one round trip, not two', asyn
   const expected = line.slice(turn.speak.text.length).trim();
   while (Date.now() < deadline && rest() !== expected) await page.waitForTimeout(150);
   assert.equal(rest(), expected,
-    'the browser must render the remainder, and only the remainder');
+    `the browser must render the remainder, and only the remainder — got ${JSON.stringify(synths.map((p) => p.text))}`);
   process.env.STUB_LLM_SAY = STUB_SAY;
 });
 

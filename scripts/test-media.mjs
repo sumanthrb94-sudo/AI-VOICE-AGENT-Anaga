@@ -417,6 +417,44 @@ await t('a runt fragment is merged rather than costing its own round trip', () =
   assert.equal(parts.length, 1, `"Sure." is not worth a network round trip, got: ${JSON.stringify(parts)}`);
 });
 
+await t('THE FIRST PHRASE IS CUT SHORT — it is the only one anybody waits for', () => {
+  // Synthesis time tracks length almost linearly (production: 21 chars 908 ms,
+  // 53 chars 2.4 s, 114 chars 4.2 s). Every phrase after the first renders
+  // while earlier audio plays, so its length is free; the first one IS the
+  // wait. Cutting it at the first clause roughly halves time-to-first-word.
+  const parts = splitForSpeech('Are you looking to live in it, or to invest?');
+  assert.equal(parts.length, 2, `expected a head split, got ${JSON.stringify(parts)}`);
+  assert.ok(parts[0].length < 36, `head is ${parts[0].length} chars: ${parts[0]}`);
+  assert.equal(parts.join(' '), 'Are you looking to live in it, or to invest?',
+    'the head split must not lose or reorder a word');
+});
+
+await t('…in Telugu too, where the character floor is the wrong ruler', () => {
+  const parts = splitForSpeech('మీరు ఉండటానికా, లేక పెట్టుబడి కోసమా చూస్తున్నారు?');
+  assert.equal(parts.length, 2);
+  assert.equal(parts.join(' '), 'మీరు ఉండటానికా, లేక పెట్టుబడి కోసమా చూస్తున్నారు?');
+});
+
+await t('a first phrase already short enough is left alone', () => {
+  // Splitting it further would buy nothing and spend a round trip.
+  assert.deepEqual(splitForSpeech('What budget are you working with?'),
+    ['What budget are you working with?']);
+});
+
+await t('a first phrase with no clause boundary is NOT cut mid-word', () => {
+  // Bulbul pronounces a fragment cut mid-word as two separate words. A long
+  // unpunctuated sentence stays whole rather than being butchered for latency.
+  const one = 'I have a three BHK in Gachibowli that fits exactly what you described to me';
+  assert.deepEqual(splitForSpeech(one), [one]);
+});
+
+await t('the head is never a two-syllable runt', () => {
+  // "Sure," alone is a network round trip for nothing, and Bulbul gives a very
+  // short fragment a clipped, falling delivery that reads as a glitch.
+  const parts = splitForSpeech('Sure, I have a three BHK in Gachibowli, with parking, ready in March.');
+  assert.ok(parts[0].length >= 12, `head too short: "${parts[0]}"`);
+});
+
 await t('a long sentence with no full stop still splits, at clauses', () => {
   const long = 'I have a three BHK in Gachibowli with two covered parking spaces, '
     + 'a clubhouse, and possession in March, which is about the budget you mentioned earlier';

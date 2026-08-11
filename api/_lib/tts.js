@@ -796,8 +796,21 @@ async function viaSarvam(text, opts) {
     body.enable_preprocessing = true;      // v3 preprocesses unconditionally
   }
 
+  // 20 SECONDS WAS NOT A DEADLINE, IT WAS A CEILING. Production shows Bulbul
+  // normally answering a first phrase in 1.5–3.5 s and occasionally spiking:
+  // one 26-character line took 16.9 s. Nothing aborted it, so a prospect sat in
+  // silence for seventeen seconds on a function whose own limit is thirty —
+  // and the chain never got a chance to serve a worse voice quickly, which is
+  // the entire reason the chain exists.
+  //
+  // The caller sets the budget, because it differs by an order of magnitude:
+  // the first phrase of a live turn has a person waiting on it, while the call
+  // leg rendering a whole line off the critical path can afford to be patient.
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 20000);
+  const budget = Number(opts.timeoutMs) > 0
+    ? Number(opts.timeoutMs)
+    : Number(process.env.SARVAM_TTS_TIMEOUT_MS || 8000);
+  const timer = setTimeout(() => ctrl.abort(), budget);
   let res;
   try {
     res = await fetch(streaming ? SARVAM_STREAM_URL : SARVAM_URL, {
@@ -806,6 +819,13 @@ async function viaSarvam(text, opts) {
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
+  } catch (err) {
+    // NAME IT. A bare AbortError reaching the chain reads as an unexplained
+    // failure in the log, and "Sarvam was too slow" is a different problem from
+    // "Sarvam rejected the request" — one is capacity, the other is our bug.
+    throw new Error(err && err.name === 'AbortError'
+      ? `sarvam_tts_timeout after ${budget}ms`
+      : `sarvam_tts_unreachable: ${err?.message || 'network error'}`);
   } finally {
     clearTimeout(timer);
   }

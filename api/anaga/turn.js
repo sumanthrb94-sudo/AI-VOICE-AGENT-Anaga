@@ -43,6 +43,32 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const lang = normalizeFlowLang(req.query?.lang);
     const flow = loadFlow();
+
+    // ?backchannel=1 — the acknowledgements, rendered, in ONE request.
+    //
+    // The caller used to fetch these one at a time from /api/tts, which put
+    // four requests per call into a bucket capped at sixty. That is fine for
+    // one person on one line and wrong behind a carrier NAT, where several
+    // prospects share an address and the fourth one gets rate limited into
+    // silence. They are the same handful of strings for every call ever made,
+    // so they are rendered together and served together; the synth cache means
+    // everybody after the first gets them without touching a vendor.
+    //
+    // Metered, unlike the plain opening: that one is a static read of a JSON
+    // file, this one can spend money.
+    if (String(req.query?.backchannel || '') === '1') {
+      if (limited(req, res, { bucket: 'backchannel', limit: Number(process.env.RATE_LIMIT_BACKCHANNEL || 20) })) return;
+      const lines = flow.backchannel[lang] || [];
+      const rendered = (await Promise.all(lines.map(async (text) => {
+        // Never throws: she simply stays quiet through the gap, which is the
+        // behaviour this feature replaced, not a new failure.
+        try {
+          const out = await synth({ text, lang, timeoutMs: Number(process.env.BACKCHANNEL_TIMEOUT_MS || 6000) });
+          return { text, audio: out.audio, mime: out.mime };
+        } catch { return null; }
+      }))).filter(Boolean);
+      return res.status(200).json({ lang, lines: rendered });
+    }
     const dir = loadDirection(req.query?.direction, flow);
     const greet = dir.greet?.[lang] || dir.greet?.['en-IN'] || '';
     const say = fillTemplate(greet, flow);
@@ -53,6 +79,13 @@ export default async function handler(req, res) {
       disposition: 'qualifying',
       lang,
       direction: dir.id,
+      // WHAT SHE SAYS WHILE SHE IS THINKING. Served rather than hardcoded in
+      // the browser for the same reason the greeting is: these are words a
+      // prospect hears, so they are versioned flow data. The caller renders and
+      // caches them itself — they are the same four strings on every call, so
+      // synthesizing them here would put four vendor round trips in front of
+      // the one line that has to be fast.
+      backchannel: flow.backchannel[lang] || [],
       source: 'flow',                 // NOT a generation — say so
       flow: { id: flow.id, version: flow.version },
     });
@@ -261,7 +294,12 @@ async function firstPhrase(text, lang) {
   try {
     const first = splitForSpeech(text)[0];
     if (!first) return null;
-    const out = await synth({ text: first, lang });
+    // A PERSON IS WAITING ON THIS ONE. Past ~4s the fallback voice, arriving
+    // now, beats the good voice arriving eventually — and beyond that the whole
+    // turn risks the function's own 30s limit.
+    const out = await synth({
+      text: first, lang, timeoutMs: Number(process.env.FIRST_PHRASE_TIMEOUT_MS || 4500),
+    });
     return { text: first, audio: out.audio, mime: out.mime, voice: out.voice, ms: out.ms };
   } catch {
     return null;

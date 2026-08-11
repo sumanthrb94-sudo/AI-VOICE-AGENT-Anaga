@@ -43,7 +43,44 @@ export function isRunt(s, minWords = 4, minChars = 16) {
   return wordCount(s) < minWords && s.length < minChars;
 }
 
-export function splitForSpeech(text, { maxChars = 140, minChars = 16, minWords = 4 } = {}) {
+/**
+ * THE FIRST PHRASE IS NOT LIKE THE OTHERS.
+ *
+ * Everything after it renders while earlier audio plays, so its only cost is a
+ * network round trip — which is what `maxChars` and the runt merge are tuned to
+ * avoid. The first phrase has no earlier audio to hide behind: it IS the wait,
+ * and Bulbul's synthesis time tracks length almost linearly. Measured in
+ * production: 21 chars → 908 ms, 53 chars → 2.4 s, 114 chars → 4.2 s.
+ *
+ * So phrase zero is cut at the first clause boundary that clears `minHead`,
+ * rather than at the sentence boundary the rest use. A typical opening drops
+ * from ~53 characters to ~20, and time-to-first-word roughly halves. It costs
+ * one extra round trip on the one phrase where a round trip is worth paying —
+ * exactly the trade the runt rule makes in the other direction for the rest.
+ *
+ * Not below `minHead`: two syllables alone are a round trip for nothing, and
+ * Bulbul gives a very short fragment a falling, clipped delivery that reads as
+ * a glitch rather than as a pause.
+ */
+function splitHead(first, { headChars, minHead }) {
+  if (first.length <= headChars) return [first];
+  let head = '';
+  const rest = [];
+  for (const clause of first.split(CLAUSE_END)) {
+    const c = clause.trim();
+    if (!c) continue;
+    if (head.length >= minHead) rest.push(c);
+    else head = head ? `${head} ${c}` : c;
+  }
+  // No clause boundary inside the budget — leave it whole rather than cutting
+  // mid-word, which Bulbul pronounces as two separate words.
+  if (!rest.length || head.length < minHead) return [first];
+  return [head, rest.join(' ')];
+}
+
+export function splitForSpeech(text, {
+  maxChars = 140, minChars = 16, minWords = 4, headChars = 36, minHead = 12,
+} = {}) {
   const whole = String(text ?? '').trim();
   if (!whole) return [];
   if (isRunt(whole, minWords, minChars)) return [whole];
@@ -80,5 +117,8 @@ export function splitForSpeech(text, { maxChars = 140, minChars = 16, minWords =
     const tail = merged.pop();
     merged[merged.length - 1] = `${merged[merged.length - 1]} ${tail}`;
   }
-  return merged.length ? merged : [whole];
+  if (!merged.length) return [whole];
+  // LAST, so the runt merge cannot undo it — the merge exists to lengthen
+  // fragments and would put the head straight back where it came from.
+  return [...splitHead(merged[0], { headChars, minHead }), ...merged.slice(1)];
 }
