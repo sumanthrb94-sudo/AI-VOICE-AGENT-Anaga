@@ -3,15 +3,6 @@
   "buildCommand": "bash scripts/build-static.sh",
   "outputDirectory": "public",
   "installCommand": "echo 'no install step (static site)'",
-  "_regions": [
-    "MUMBAI, BECAUSE EVERY VENDOR ON THIS PIPELINE IS IN INDIA.",
-    "One turn makes three serial calls to api.sarvam.ai — transcribe, think,",
-    "speak. On the default US region each of those pays a transcontinental",
-    "round trip that no amount of code tuning gets back, and the prospect's",
-    "handset is in India too, so the request crosses the ocean twice more.",
-    "GET /api/integrations/health reports VERCEL_REGION, so this is checkable",
-    "rather than assumed."
-  ],
   "regions": ["bom1"],
   "functions": {
     "api/**/*.js": {

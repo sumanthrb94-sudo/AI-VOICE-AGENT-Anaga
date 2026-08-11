@@ -188,6 +188,35 @@ jobs:
           console.log('OK: the CRM note carries a reference only');
           "
 
+      - name: vercel.json has no keys the platform will reject
+        # vercel.json is validated against a CLOSED schema, and a key it does
+        # not know fails the DEPLOYMENT before the build starts — no build log,
+        # no test output, just ERROR. That is exactly how it failed here: an
+        # explanatory "_regions" array added beside "regions", because the file
+        # is JSON and has nowhere to put a comment.
+        #
+        # The allowlist is deliberately the keys this repo actually uses. Adding
+        # a legitimate new one means adding it here too, which is a second's
+        # work and the only thing standing between a typo and a dead deploy.
+        run: |
+          node -e "
+          const cfg = JSON.parse(require('fs').readFileSync('vercel.json', 'utf8'));
+          const OK = new Set(['\$schema','buildCommand','outputDirectory','installCommand',
+            'functions','regions','cleanUrls','trailingSlash','headers','rewrites',
+            'redirects','crons','framework','github','public','env','build']);
+          const bad = Object.keys(cfg).filter((k) => !OK.has(k));
+          if (bad.length) {
+            console.error('FAIL: vercel.json keys the platform will reject: ' + bad.join(', '));
+            console.error('vercel.json is JSON with a closed schema — it cannot carry comments.');
+            process.exit(1);
+          }
+          const r = cfg.regions || [];
+          if (r.length && r[0] !== 'bom1') {
+            console.error('WARN: functions are not in bom1; every Sarvam call pays a round trip.');
+          }
+          console.log('OK: vercel.json validates, regions=' + (r.join(',') || 'default'));
+          "
+
       - name: Source files must be text
         # A literal control byte in source makes the file BINARY to git and
         # grep: diffs stop rendering, `grep -rn` silently reports "binary file

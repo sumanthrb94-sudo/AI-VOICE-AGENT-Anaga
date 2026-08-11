@@ -68,9 +68,17 @@ export default async function handler(req, res) {
 
   return res.status(200).json({
     ok: true,
-    // WHERE THIS FUNCTION RUNS. Every vendor on this pipeline is in India; if
-    // the function is not, each of the three serial calls pays a transcontinental
-    // round trip that no amount of code tuning gets back.
+    // WHERE THIS FUNCTION RUNS — and it should be bom1 (Mumbai).
+    //
+    // Every vendor on this pipeline is in India, and one turn makes three
+    // SERIAL calls to api.sarvam.ai: transcribe, think, speak. Run the function
+    // in the US and each of those pays a transcontinental round trip, on top of
+    // the prospect's own handset crossing the ocean twice — latency no amount
+    // of code tuning gets back. It was iad1 (Washington DC) until vercel.json
+    // pinned "regions": ["bom1"].
+    //
+    // Reported rather than assumed, because the setting is easy to lose in a
+    // project-settings change and the symptom is just "she feels slow".
     region: process.env.VERCEL_REGION || 'unknown',
     ready: {
       // the demo brain works with just an LLM key
