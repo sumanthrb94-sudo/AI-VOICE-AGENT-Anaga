@@ -455,6 +455,45 @@ await t('the head is never a two-syllable runt', () => {
   assert.ok(parts[0].length >= 12, `head too short: "${parts[0]}"`);
 });
 
+await t('THE STREAMING SCAN AND THE SPLITTER AGREE — on every line', async () => {
+  // The turn hands Bulbul the opening phrase while the model is still writing
+  // the rest, which means guessing where the splitter WILL cut before the text
+  // exists. The browser splits the full line itself and renders phrases 1..n,
+  // so a disagreement repeats or drops a phrase. The server checks and falls
+  // back, but a scan that is usually wrong silently costs the whole saving.
+  const { firstClauseOf } = await import(`${ROOT}/api/_lib/llm.js`);
+  const lines = [
+    'Are you looking to live in it, or to invest?',
+    'What budget are you working with?',
+    'మీరు ఉండటానికా, లేక పెట్టుబడి కోసమా చూస్తున్నారు?',
+    'నమస్కారం, నేను అనగా, వాక్ నుంచి ఒక AI వాయిస్ అసిస్టెంట్.',
+    'नमस्ते, मैं वाक् से अनगा बोल रही हूँ। क्या अभी बात करने का सही समय है?',
+    'Theek hai.',
+    'Sure, I have a three BHK in Gachibowli, ready in March.',
+    'Hello, this is Anaga from Vaak. I have a three BHK in Gachibowli.',
+    'I have a three BHK in Gachibowli that fits exactly what you described to me',
+    'Got it.',
+  ];
+  for (const say of lines) {
+    assert.equal(firstClauseOf(say, true), splitForSpeech(say)[0],
+      `disagreed on: ${say}`);
+  }
+});
+
+await t('…and it decides EARLY, before the line is finished', async () => {
+  // The entire point. If it only ever answered once the text was complete it
+  // would be a correct function that saves nothing.
+  const { firstClauseOf } = await import(`${ROOT}/api/_lib/llm.js`);
+  const full = 'Are you looking to live in it, or to invest?';
+  const head = 'Are you looking to live in it,';
+  // The model has written the comma and four more words — nothing past that
+  // can change where the first phrase ends.
+  assert.equal(firstClauseOf(`${head} or to inv`, false), head);
+  // …but it must NOT answer while the opening could still turn out short.
+  assert.equal(firstClauseOf('Are you looking', false), null);
+  assert.equal(firstClauseOf(full, true), head);
+});
+
 await t('a long sentence with no full stop still splits, at clauses', () => {
   const long = 'I have a three BHK in Gachibowli with two covered parking spaces, '
     + 'a clubhouse, and possession in March, which is about the budget you mentioned earlier';

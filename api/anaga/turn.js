@@ -211,10 +211,29 @@ export default async function handler(req, res) {
 
   const { system, user } = turnPrompt(full, { lang, direction });
 
+  // START SPEAKING BEFORE THE MODEL HAS FINISHED THINKING.
+  //
+  // Synthesis needs the first few words, not the whole line, and a model
+  // writing "Are you looking to live in it, or to invest?" has those words well
+  // before it has the rest. Handing the opening phrase to Bulbul the moment it
+  // appears overlaps the two slowest legs of the turn instead of queueing one
+  // behind the other. The answer is identical either way — only the moment the
+  // audio starts rendering changes.
+  const wantVoice = String(req.query?.voice || '') === '1';
+  let early = null, earlyText = null;
+
   let out;
   const llmStart = Date.now();
   try {
-    out = await generate({ system, user, json: true });
+    out = await generate({
+      system,
+      user,
+      json: true,
+      onFirstClause: wantVoice && ttsAvailable() ? (head) => {
+        earlyText = head;
+        early = firstPhrase(head, lang);        // never throws — see below
+      } : undefined,
+    });
     llmMs = Date.now() - llmStart;
   } catch (err) {
     llmMs = Date.now() - llmStart;
@@ -258,9 +277,22 @@ export default async function handler(req, res) {
   // instant the model answers, and ships it in the reply that was going out
   // anyway. ?voice=1 so a caller that does its own audio is unaffected.
   const ttsStart = Date.now();
-  const speak = String(req.query?.voice || '') === '1'
-    ? await firstPhrase(say, lang)
-    : null;
+  // THE EARLY GUESS ONLY COUNTS IF IT MATCHES. The browser splits the full line
+  // itself and renders phrases 1..n, so a head it does not agree with would
+  // repeat or drop a phrase. Checked against the real splitter; a mismatch just
+  // costs the head start, never the audio.
+  const wanted = wantVoice ? splitForSpeech(say)[0] : null;
+  let speak = null;
+  if (wantVoice) {
+    speak = (early && earlyText === wanted) ? await early : await firstPhrase(say, lang);
+    if (early && earlyText !== wanted) {
+      // Worth knowing about: it means the early scan and the splitter disagree,
+      // and every turn is paying full LLM-then-TTS latency while looking fine.
+      console.warn(JSON.stringify({
+        event: 'early_phrase_missed', guessed: earlyText, wanted,
+      }));
+    }
+  }
   ttsMs = Date.now() - ttsStart;
 
   // THE BUDGET, per leg, on every turn. Server time only — the endpointer's

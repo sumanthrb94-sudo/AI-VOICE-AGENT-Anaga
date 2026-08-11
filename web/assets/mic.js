@@ -57,12 +57,30 @@
     var rec = null, chunks = [], mime = pickMime();
     var running = false, closed = false;
 
-    // Endpointing. Deliberately the same shape as the call leg
-    // (caller-agent/src/media/timings.js): a long-ish silence window because
-    // Indian English and code-mixing pause mid-sentence, and a short minimum
-    // so a cough is not an utterance.
-    var SILENCE_MS = Number(opts.silenceMs || 800);
+    // Endpointing, the same shape as the call leg
+    // (caller-agent/src/media/timings.js), with one difference:
+    //
+    // A SINGLE SILENCE WINDOW IS WRONG IN BOTH DIRECTIONS.
+    //
+    // 800ms is right in the middle of a sentence: Indian English and
+    // code-mixing pause to reach for a word, and cutting somebody off there
+    // sends half an utterance to be transcribed. It is far too long after
+    // "అవును" — a complete answer, obviously finished, and the prospect then
+    // waits 800ms of dead air before the pipeline even starts.
+    //
+    // So the window scales with how long they spoke. A short burst is almost
+    // always a complete short answer; a long one is a sentence that may still
+    // be going. This is a cheap approximation of the semantic endpointing that
+    // dedicated voice stacks use, and it costs nothing.
+    var SILENCE_MS = Number(opts.silenceMs || 800);          // after a long turn
+    var SILENCE_MIN_MS = Number(opts.silenceMinMs || 420);   // after a short one
+    var SHORT_UTTERANCE_MS = 1200;
     var MIN_SPEECH_MS = Number(opts.minSpeechMs || 300);
+
+    /** How long to wait before calling it finished, given what we just heard. */
+    function silenceBudget(spokenMs) {
+      return spokenMs <= SHORT_UTTERANCE_MS ? SILENCE_MIN_MS : SILENCE_MS;
+    }
     var MAX_UTTERANCE_MS = Number(opts.maxUtteranceMs || 15000);
     var ONSET_MS = 140;                 // sustained, before we call it speech
 
@@ -84,7 +102,17 @@
       if (!global.MediaRecorder || !stream) return;
       try {
         chunks = [];
-        rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+        // 24 kbps, NOT the browser default.
+        //
+        // Chrome defaults audio-only capture to about 128 kbps, which produced
+        // 130 KB turns in production — then +33% again for base64 in the JSON
+        // body. On an Indian mobile uplink that is most of a second spent
+        // uploading before the recogniser has seen a byte. Speech is
+        // transparent to STT at 24 kbps and Saaras is trained on telephony,
+        // which is worse than this. Five times less to send, same words back.
+        var conf = { audioBitsPerSecond: Number(opts.bitrate || 24000) };
+        if (mime) conf.mimeType = mime;
+        rec = new MediaRecorder(stream, conf);
         rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
         rec.start();
       } catch (e) { rec = null; }
@@ -139,7 +167,7 @@
 
       speechMs += dt;
       silenceMs = isVoice ? 0 : silenceMs + dt;
-      if (silenceMs >= SILENCE_MS || speechMs >= MAX_UTTERANCE_MS) {
+      if (silenceMs >= silenceBudget(speechMs - silenceMs) || speechMs >= MAX_UTTERANCE_MS) {
         var spoken = speechMs - silenceMs;
         speaking = false; speechMs = 0; silenceMs = 0;
         // Too short to be a sentence: a cough, a knock, a chair.
@@ -210,7 +238,7 @@
         }
         speechMs += d;
         silenceMs = isVoice ? 0 : silenceMs + d;
-        if (silenceMs >= SILENCE_MS || speechMs >= MAX_UTTERANCE_MS) {
+        if (silenceMs >= silenceBudget(speechMs - silenceMs) || speechMs >= MAX_UTTERANCE_MS) {
           var spoken = speechMs - silenceMs;
           speaking = false; speechMs = 0; silenceMs = 0;
           if (spoken >= MIN_SPEECH_MS) finish(spoken);

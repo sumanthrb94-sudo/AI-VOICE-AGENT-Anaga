@@ -505,7 +505,99 @@ await t('the language picked for the call is the language STT is asked for', asy
 });
 
 // ===========================================================================
-section('§5 the backchannel — what she says while she is thinking');
+section('§5 speaking before the model has finished thinking');
+// ===========================================================================
+
+const llm = await import('../api/_lib/llm.js');
+
+/** An SSE body that dribbles a JSON answer out one piece at a time. */
+function sseStream(pieces) {
+  const enc = new TextEncoder();
+  const frames = pieces.map((p) =>
+    `data: ${JSON.stringify({ choices: [{ delta: { content: p } }] })}\n\n`);
+  frames.push('data: [DONE]\n\n');
+  let i = 0;
+  return {
+    ok: true, status: 200,
+    body: {
+      getReader: () => ({
+        read: async () => (i < frames.length
+          ? { value: enc.encode(frames[i++]), done: false }
+          : { value: undefined, done: true }),
+      }),
+    },
+  };
+}
+
+await t('THE OPENING PHRASE ARRIVES BEFORE THE ANSWER DOES', async () => {
+  // Synthesis needs the first few words, not the whole line. Handing them over
+  // as the model writes them overlaps the two slowest legs of the turn instead
+  // of queueing one behind the other.
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  const seen = [];
+  routes.push({
+    match: /chat\/completions/,
+    reply: () => sseStream([
+      '{"say":"Are you look', 'ing to live in it, or to inv',
+      'est?","end":false,"disposition":"qualifying"}',
+    ]),
+  });
+
+  const out = await llm.generate({
+    user: 'go', json: true, onFirstClause: (h) => seen.push(h),
+  });
+  assert.deepEqual(seen, ['Are you looking to live in it,'],
+    'exactly once, and it must be the phrase the splitter would have cut');
+  assert.equal(out.say, 'Are you looking to live in it, or to invest?',
+    'and the full answer is unchanged — this only moves WHEN we learn the start');
+  assert.equal(out.disposition, 'qualifying');
+});
+
+await t('streaming is asked for ONLY when somebody is waiting on it', async () => {
+  // The summary endpoint has no listener and no use for a partial answer.
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({
+    match: /chat\/completions/,
+    reply: () => json({ choices: [{ message: { content: '{"say":"hello","end":false}' } }] }),
+  });
+  await llm.generate({ user: 'go', json: true });
+  assert.equal(JSON.parse(calls[0].init.body).stream, undefined);
+});
+
+await t('a callback that throws never takes the turn down with it', async () => {
+  // Starting a synthesis early is an optimisation. The line still has to come
+  // back, and it does.
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({
+    match: /chat\/completions/,
+    reply: () => sseStream(['{"say":"Okay, that helps a lot here."}']),
+  });
+  const out = await llm.generate({
+    user: 'go', json: true, onFirstClause: () => { throw new Error('boom'); },
+  });
+  assert.equal(out.say, 'Okay, that helps a lot here.');
+});
+
+await t('a stream that never yields a clause still answers', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  const seen = [];
+  routes.push({
+    match: /chat\/completions/,
+    reply: () => sseStream(['{"say":"Yes"', ',"end":true}']),
+  });
+  const out = await llm.generate({
+    user: 'go', json: true, onFirstClause: (h) => seen.push(h),
+  });
+  assert.equal(out.say, 'Yes');
+  assert.deepEqual(seen, ['Yes'], 'the whole short line is its own first phrase');
+});
+
+// ===========================================================================
+section('§6 the backchannel — what she says while she is thinking');
 // ===========================================================================
 
 function get(query = {}) {
@@ -610,7 +702,7 @@ await t('the page renders them ONCE and never writes them into the transcript', 
 });
 
 // ===========================================================================
-section('§6 the browser sends what the server needs to judge');
+section('§7 the browser sends what the server needs to judge');
 // ===========================================================================
 
 await t('the call page reports the measured utterance length with the audio', async () => {

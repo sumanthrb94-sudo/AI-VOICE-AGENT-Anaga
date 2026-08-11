@@ -29,7 +29,74 @@ const DEFAULT_TIMEOUT_MS = 12000;
  * @returns {Promise<string|object>} string, or parsed object when json=true.
  * @throws {Error} when the provider is misconfigured or the upstream call fails.
  */
-export async function generate({ system, user, json = false } = {}) {
+/**
+ * THE FIRST CLAUSE, THE MOMENT THE MODEL HAS WRITTEN IT.
+ *
+ * The pipeline is three vendor calls in series — transcribe, think, speak —
+ * and the third cannot begin until the second has finished. But the third only
+ * needs the FIRST FEW WORDS to begin, and a model writing "Are you looking to
+ * live in it, or to invest?" has those words long before it has the rest.
+ *
+ * So `say` is scanned as it streams and handed over as soon as its first phrase
+ * is complete. Synthesis of that phrase then overlaps the remainder of the
+ * generation instead of queueing behind it. Nothing about the answer changes;
+ * it just stops being the case that every millisecond the model spends on the
+ * back half of a sentence is a millisecond of silence on the call.
+ *
+ * The boundary MUST match shared/speech-split.js, because the caller renders
+ * the remaining phrases itself and a disagreement repeats or drops one. It is
+ * verified against the real splitter once the full text arrives, and a mismatch
+ * simply falls back to synthesizing normally — a wrong guess costs the saving,
+ * never the audio.
+ */
+const HEAD_CHARS = 36, MIN_HEAD = 12, MAX_CHARS = 140;
+const SENTENCE_END = '.!?।॥';
+const CLAUSE_END = ',;:—–';
+
+export function firstClauseOf(saySoFar, done) {
+  const s = String(saySoFar || '');
+  let clause = -1;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (clause < 0 && CLAUSE_END.includes(c) && i + 1 >= MIN_HEAD) clause = i;
+    if (SENTENCE_END.includes(c)) {
+      // A short opening sentence is its own phrase; a long one is cut at the
+      // clause, exactly as splitHead() does — INCLUDING the case where it
+      // cannot cut. "नमस्ते, मैं वाक् से अनगा बोल रही हूँ।" is 37 characters
+      // with its only comma at 7, and splitHead needs a head of at least
+      // MIN_HEAD, so it gives up and keeps the sentence whole. Returning null
+      // here instead was safe but forfeited the head start on every Hindi
+      // opening, which is precisely where the latency hurts most.
+      if (i + 1 > MAX_CHARS) return null;      // the splitter re-cuts at 140
+      if (i + 1 <= HEAD_CHARS || clause < 0) return s.slice(0, i + 1).trim();
+      return s.slice(0, clause + 1).trim();
+    }
+    // Past the budget with a boundary behind us — no need to wait for the
+    // sentence to end, the answer is already decided.
+    if (i + 1 > HEAD_CHARS && clause >= 0) return s.slice(0, clause + 1).trim();
+  }
+  // Nothing conclusive yet. Once the stream is over, whatever there is IS the
+  // whole line, so the splitter's own answer applies.
+  return done ? s.trim() || null : null;
+}
+
+/** Pull `say` out of a JSON object that is still being written. */
+function partialSay(buffer) {
+  const at = buffer.indexOf('"say"');
+  if (at < 0) return null;
+  const open = buffer.indexOf('"', buffer.indexOf(':', at) + 1);
+  if (open < 0) return null;
+  let out = '';
+  for (let i = open + 1; i < buffer.length; i++) {
+    const c = buffer[i];
+    if (c === '\\') { i++; out += buffer[i] === 'n' ? ' ' : (buffer[i] || ''); continue; }
+    if (c === '"') return { text: out, closed: true };
+    out += c;
+  }
+  return { text: out, closed: false };
+}
+
+export async function generate({ system, user, json = false, onFirstClause } = {}) {
   if (typeof user !== 'string' || user.length === 0) {
     throw new Error('generate(): "user" must be a non-empty string');
   }
@@ -56,7 +123,7 @@ export async function generate({ system, user, json = false } = {}) {
   for (const provider of chain) {
     try {
       const out = provider === 'sarvam'
-        ? await generateSarvam({ system, user, json })
+        ? await generateSarvam({ system, user, json, onFirstClause })
         : await generateGemini({ system, user, json });
       // A FALLBACK IS NOT A SUCCESS. Which brain answered changes how she
       // sounds, and a silent switch is how "the premium voice is off" became a
@@ -104,7 +171,7 @@ export function llmStatus() {
 // trade. SARVAM_LLM_MODEL pins either.
 const SARVAM_CHAT_URL = 'https://api.sarvam.ai/v1/chat/completions';
 
-async function generateSarvam({ system, user, json }) {
+async function generateSarvam({ system, user, json, onFirstClause }) {
   const key = process.env.SARVAM_API_KEY;
   if (!key) throw new Error('SARVAM_API_KEY is not configured');
 
@@ -123,6 +190,12 @@ async function generateSarvam({ system, user, json }) {
   // Reasoning is off by default: a phone call cannot afford a thinking pass,
   // and one short qualifying question does not need one.
   if (process.env.SARVAM_LLM_REASONING) body.reasoning_effort = process.env.SARVAM_LLM_REASONING;
+
+  // Only when somebody is waiting on the first words. Streaming costs nothing
+  // here, but it changes how the response is read, and the summary endpoint —
+  // which nobody is listening to — has no use for it.
+  const streaming = Boolean(onFirstClause) && process.env.SARVAM_LLM_STREAM !== '0';
+  if (streaming) body.stream = true;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
@@ -146,12 +219,71 @@ async function generateSarvam({ system, user, json }) {
     throw new Error(`LLM upstream returned ${resp ? resp.status : 'no response'} for sarvam${detail ? `: ${detail}` : ''}`);
   }
 
-  let data;
-  try { data = await resp.json(); } catch { throw new Error('LLM upstream returned malformed JSON'); }
+  let text;
+  if (streaming) {
+    text = await readStream(resp, { json, onFirstClause });
+  } else {
+    let data;
+    try { data = await resp.json(); } catch { throw new Error('LLM upstream returned malformed JSON'); }
+    text = String(data?.choices?.[0]?.message?.content || '').trim();
+  }
 
-  const text = String(data?.choices?.[0]?.message?.content || '').trim();
   if (!text) throw new Error('LLM upstream returned an empty completion');
   return json ? parseJsonLoose(text) : text;
+}
+
+/**
+ * Read an OpenAI-style SSE completion, handing over the first speakable phrase
+ * the moment it exists rather than when the whole answer does.
+ *
+ * The stream is still fully accumulated and parsed exactly as before, so the
+ * ANSWER is unchanged in every case — this only moves when the caller learns
+ * about the beginning of it. If anything about the early scan is wrong, the
+ * caller checks it against the real splitter and discards it.
+ */
+async function readStream(resp, { json, onFirstClause }) {
+  const reader = resp.body?.getReader?.();
+  if (!reader) throw new Error('LLM upstream returned no stream');
+  const dec = new TextDecoder();
+  let sse = '', full = '', fired = false;
+
+  const look = (done) => {
+    if (fired || !onFirstClause) return;
+    // A plain-text completion is its own text; a JSON one has to be dug out of
+    // an object that is still being written.
+    const said = json ? partialSay(full) : { text: full, closed: done };
+    if (!said) return;
+    const head = firstClauseOf(said.text, done || said.closed);
+    if (!head) return;
+    fired = true;
+    // NEVER let a callback take the generation down with it. Starting a
+    // synthesis early is an optimisation; the line still has to come back.
+    try { onFirstClause(head); } catch { /* the caller renders it the slow way */ }
+  };
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    sse += dec.decode(value, { stream: true });
+    // SSE frames are separated by a blank line; a chunk can split one in half.
+    let cut;
+    while ((cut = sse.indexOf('\n\n')) >= 0) {
+      const frame = sse.slice(0, cut);
+      sse = sse.slice(cut + 2);
+      for (const line of frame.split('\n')) {
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        try {
+          const d = JSON.parse(payload);
+          full += d?.choices?.[0]?.delta?.content || '';
+        } catch { /* a frame we cannot read is not a reason to fail the turn */ }
+      }
+      look(false);
+    }
+  }
+  look(true);
+  return full.trim();
 }
 
 // ---------------------------------------------------------------------------
