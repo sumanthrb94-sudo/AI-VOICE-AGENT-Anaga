@@ -89,6 +89,13 @@ export default async function handler(req, res) {
   // and answered it. Capturing through getUserMedia with echoCancellation
   // removes her audio BEFORE anything sees it; that stream has to be sent
   // somewhere to become words, and this is where.
+  // WHERE THE TURN GOES. Three vendor calls run in series and only one of them
+  // was timed, so "she is slow" could not be pointed at anything. Every leg is
+  // measured now and logged together at the end — a per-leg number is the only
+  // way to tell a slow model from a slow region from a long first phrase.
+  const turnStart = Date.now();
+  let sttMs = 0, llmMs = 0, ttsMs = 0;
+
   let heard = null;
   if (typeof body.audio === 'string' && body.audio.length) {
     if (!sttAvailable()) return res.status(503).json({ error: 'stt_unavailable' });
@@ -113,11 +120,16 @@ export default async function handler(req, res) {
       if (tooShort) {
         return res.status(200).json({ heard: '', say: null, ignored: 'too_short' });
       }
+      const t0 = Date.now();
       const out = await transcribe({ audio, mime: body.mime, lang: body.lang });
+      sttMs = Date.now() - t0;
       heard = out.text;
       console.log(JSON.stringify({
         event: 'stt_ok', provider: out.provider, chars: heard.length,
-        bytes: audio.length, detected: out.lang,
+        bytes: audio.length, detected: out.lang, ms: sttMs,
+        // Bytes per second of speech. The recorder's bitrate is the upload cost
+        // on a mobile uplink and nobody was watching it.
+        kbps: body.ms ? Math.round((audio.length * 8) / Number(body.ms)) : undefined,
       }));
     } catch (err) {
       console.error(JSON.stringify({
@@ -167,9 +179,12 @@ export default async function handler(req, res) {
   const { system, user } = turnPrompt(full, { lang, direction });
 
   let out;
+  const llmStart = Date.now();
   try {
     out = await generate({ system, user, json: true });
+    llmMs = Date.now() - llmStart;
   } catch (err) {
+    llmMs = Date.now() - llmStart;
     // LOG the reason. This used to be swallowed entirely, so a brain that was
     // 503-ing on every single call looked identical to one that was merely
     // unconfigured — and the only symptom was Anaga sounding like a script.
@@ -209,9 +224,22 @@ export default async function handler(req, res) {
   // call had already finished. Rendering the first phrase here starts it the
   // instant the model answers, and ships it in the reply that was going out
   // anyway. ?voice=1 so a caller that does its own audio is unaffected.
+  const ttsStart = Date.now();
   const speak = String(req.query?.voice || '') === '1'
     ? await firstPhrase(say, lang)
     : null;
+  ttsMs = Date.now() - ttsStart;
+
+  // THE BUDGET, per leg, on every turn. Server time only — the endpointer's
+  // silence window and the two network hops to the handset sit outside this and
+  // are the rest of what the prospect actually waits through.
+  console.log(JSON.stringify({
+    event: 'turn_ok', region: process.env.VERCEL_REGION || 'unknown',
+    sttMs, llmMs, ttsMs, totalMs: Date.now() - turnStart,
+    // The first phrase is the only thing on the critical path; synthesis time
+    // tracks its LENGTH almost linearly, so the number to watch is this one.
+    firstPhraseChars: speak?.text?.length, sayChars: say.length,
+  }));
 
   return res.status(200).json({
     say, end, disposition, lang, direction,

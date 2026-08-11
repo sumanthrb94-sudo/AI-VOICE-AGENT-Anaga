@@ -68,6 +68,10 @@ export default async function handler(req, res) {
 
   return res.status(200).json({
     ok: true,
+    // WHERE THIS FUNCTION RUNS. Every vendor on this pipeline is in India; if
+    // the function is not, each of the three serial calls pays a transcontinental
+    // round trip that no amount of code tuning gets back.
+    region: process.env.VERCEL_REGION || 'unknown',
     ready: {
       // the demo brain works with just an LLM key
       demo: brain.configured,
