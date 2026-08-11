@@ -11,7 +11,9 @@ import { metaStatus } from '../_lib/integrations/meta.js';
 import { crmStatus } from '../_lib/integrations/crm.js';
 import { complianceStatus } from '../_lib/compliance.js';
 import { queueStatus } from '../_lib/queue.js';
-import { ttsStatus, voiceStudioHealth } from '../_lib/tts.js';
+import { ttsStatus, ttsAvailable, voiceStudioHealth } from '../_lib/tts.js';
+import { sttStatus, sttAvailable } from '../_lib/stt.js';
+import { llmStatus } from '../_lib/llm.js';
 import { recordingStatus } from '../_lib/recording.js';
 import { translateMode } from '../_lib/translate.js';
 import { googleAuthMode } from '../_lib/google.js';
@@ -28,10 +30,18 @@ export default async function handler(req, res) {
   const voiceStudio = await voiceStudioHealth();
   const recording = recordingStatus();
 
-  const brain = {
-    provider: (process.env.LLM_PROVIDER || 'gemini').toLowerCase(),
-    configured: Boolean(process.env.GEMINI_API_KEY || process.env.LLM_API_KEY),
-  };
+  // ASK THE MODULE, don't re-derive it here. This block used to check
+  // GEMINI_API_KEY by hand and call the provider "gemini", both of which went
+  // stale the moment the brain became a chain: a deploy running on Sarvam
+  // reported its brain as unconfigured on the one page you check to find out.
+  const llm = llmStatus();
+  const brain = { ...llm, configured: llm.ready.length > 0 };
+
+  // The browser sends audio now, so a deploy without STT has a mute prospect:
+  // every utterance comes back 503 and the screen just sits there. It fails
+  // closed on purpose, which is right and completely invisible — this is where
+  // you find out which of the two it is.
+  const stt = sttStatus();
 
   // What is still missing before this deploy can legally dial a real number.
   const blockers = [];
@@ -61,10 +71,15 @@ export default async function handler(req, res) {
     ready: {
       // the demo brain works with just an LLM key
       demo: brain.configured,
+      // A LIVE CALL needs all three: something to hear with, something to think
+      // with, something to speak with. Reporting only the brain made a deploy
+      // that could not hear a prospect look ready.
+      call: brain.configured && sttAvailable() && ttsAvailable(),
       // the full Meta/CRM -> call -> writeback loop
       production: blockers.length === 0,
     },
     brain,
+    stt,
     tts: ttsStatus(),
     voiceStudio,
     recording,
