@@ -705,7 +705,17 @@
       }).then(function (res) {
         thinking = false;
         var d = res.d;
-        if (!res.ok || !d) { note = "brain unavailable"; state(""); return; }
+        // NAME THE RIGHT COMPONENT. This said "brain unavailable" for every
+        // failure including a rejected recording, so an STT problem sent an
+        // afternoon into the LLM — which was answering perfectly the whole
+        // time. The server already says which half failed; use it.
+        if (!res.ok || !d) {
+          note = (d && d.error === "stt_unavailable")
+            ? "could not hear that — say it again"
+            : "brain unavailable";
+          state("");
+          return;
+        }
         // Nothing intelligible — a door, a cough, a passing bus. Say nothing.
         if (d.ignored || !d.heard) { state(""); return; }
 

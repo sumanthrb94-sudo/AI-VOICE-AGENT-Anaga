@@ -115,7 +115,40 @@
         rec = new MediaRecorder(stream, conf);
         rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
         rec.start();
+        recStarted = (global.performance && performance.now) ? performance.now() : Date.now();
       } catch (e) { rec = null; }
+    }
+
+    /* THE RECORDER MUST NOT ACCUMULATE THE WHOLE CALL.
+       ---------------------------------------------------------------
+       It used to start once per utterance and run until the NEXT utterance
+       ended — which meant the blob held every second of silence in between and
+       the whole of Anaga's turn as well. Saaras rejects anything over thirty
+       seconds, so a pause while she talked produced HTTP 400, which surfaced in
+       the browser as "brain unavailable" — a message about the one component
+       that was working perfectly.
+
+       It was visible in the logs before it broke anything: a 24 kbps recorder
+       reporting 830 kbps, because the bytes covered far more time than the
+       prospect had spoken.
+
+       So while nobody is talking, the recorder is cycled: stopped and started
+       fresh, discarding what it has. The buffer therefore holds at most
+       IDLE_RESET_MS of run-up plus the utterance itself. The run-up is not
+       waste — it is the pre-roll that catches the first syllable, which the
+       onset detector would otherwise clip. */
+    var IDLE_RESET_MS = 1000;
+    var recStarted = 0;
+
+    var cycles = 0;
+    function cycleIfIdle(now) {
+      if (speaking || !rec || rec.state === "inactive") return;
+      if (now - recStarted < IDLE_RESET_MS) return;
+      var r = rec;
+      rec = null;
+      cycles++;
+      r.onstop = function () { chunks = []; startRecorder(); };
+      try { r.stop(); } catch (e) { startRecorder(); }
     }
 
     /** Close the current utterance and hand it over. */
@@ -155,6 +188,8 @@
       }
       var isVoice = level > Math.max(0.012, floor * 2.2);
       if (!isVoice && !speaking) floor = floor * 0.98 + level * 0.02;
+      // Keep the buffer bounded while the line is quiet — see cycleIfIdle.
+      if (!isVoice) cycleIfIdle(now);
 
       if (!speaking) {
         onsetMs = isVoice ? onsetMs + dt : 0;
@@ -224,6 +259,9 @@
       },
       isOpen: function () { return running; },
       _track: function () { return stream ? stream.getAudioTracks()[0] : null; },
+      // Test seam: how many times the idle buffer has been thrown away. If this
+      // stops growing while the line is quiet, the blob is accumulating again.
+      _cycles: function () { return cycles; },
       // Test seam: drive endpointing without a microphone.
       _feed: function (isVoice, dt) {
         if (!floorReady) { floorReady = true; }

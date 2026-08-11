@@ -473,6 +473,13 @@ await t('THE STREAMING SCAN AND THE SPLITTER AGREE — on every line', async () 
     'Hello, this is Anaga from Vaak. I have a three BHK in Gachibowli.',
     'I have a three BHK in Gachibowli that fits exactly what you described to me',
     'Got it.',
+    // FROM PRODUCTION. Both of these missed: Anaga opens turns with a short
+    // acknowledgement, which the splitter folds into the next sentence, and the
+    // scan was stopping at the full stop. Every such turn paid the full
+    // LLM-then-TTS latency while the logs looked healthy.
+    "That's right. Since you reached out, shall we start with your budget?",
+    'సరే. ముందుగా మీరు ఇల్లు ఉండటానికి చూస్తున్నారు, లేక పెట్టుబడికా?',
+    'Sure. What budget are you working with, roughly?',
   ];
   for (const say of lines) {
     assert.equal(firstClauseOf(say, true), splitForSpeech(say)[0],

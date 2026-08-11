@@ -401,6 +401,20 @@ await t('SHE MAKES A SOUND WHILE SHE THINKS — the dead air is the machine tell
     'an acknowledgement is a noise, not a line in the transcript');
 });
 
+await t('THE RECORDER DOES NOT ACCUMULATE THE WHOLE CALL', async () => {
+  // It used to start once per utterance and run until the NEXT one ended, so
+  // the blob carried every second of silence in between and all of Anaga's
+  // turn. Saaras refuses anything over thirty seconds, and the browser
+  // reported that as "brain unavailable" — about the one component that was
+  // working. While the line is quiet the buffer is thrown away and restarted,
+  // so what gets posted is the utterance plus a second of run-up.
+  const before = await page.evaluate(() => window.__mic._cycles());
+  await page.waitForTimeout(2500);
+  const after = await page.evaluate(() => window.__mic._cycles());
+  assert.ok(after > before,
+    `the idle buffer must be recycled; cycles went ${before} -> ${after}`);
+});
+
 await t('A COUGH IS NOT AN UTTERANCE', async () => {
   // Under the minimum speech length nothing is sent. Transcribing a door
   // closing costs money to be told it was a door.

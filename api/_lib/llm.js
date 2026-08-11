@@ -53,6 +53,11 @@ const HEAD_CHARS = 36, MIN_HEAD = 12, MAX_CHARS = 140;
 const SENTENCE_END = '.!?।॥';
 const CLAUSE_END = ',;:—–';
 
+/** The splitter's runt rule, which decides whether a sentence stands alone. */
+function isRunt(s) {
+  return s.split(/\s+/).filter(Boolean).length < 4 && s.length < 16;
+}
+
 export function firstClauseOf(saySoFar, done) {
   const s = String(saySoFar || '');
   let clause = -1;
@@ -60,19 +65,30 @@ export function firstClauseOf(saySoFar, done) {
     const c = s[i];
     if (clause < 0 && CLAUSE_END.includes(c) && i + 1 >= MIN_HEAD) clause = i;
     if (SENTENCE_END.includes(c)) {
+      const cand = s.slice(0, i + 1).trim();
+      // A RUNT IS NOT A PHRASE — it is merged into what follows.
+      //
+      // This is the case that made the optimisation miss in production: Anaga
+      // opens turns with "That's right." and "సరే.", which are two words and
+      // under sixteen characters, so the splitter folds them into the next
+      // sentence. Stopping at the full stop guessed "That's right." while the
+      // splitter wanted "That's right. Since you reached out," — the server
+      // caught the mismatch and re-synthesized, so every one of those turns
+      // paid the full LLM-then-TTS latency while looking perfectly fine.
+      if (isRunt(cand)) continue;
+      if (cand.length > MAX_CHARS) return null;   // the splitter re-cuts at 140
       // A short opening sentence is its own phrase; a long one is cut at the
       // clause, exactly as splitHead() does — INCLUDING the case where it
       // cannot cut. "नमस्ते, मैं वाक् से अनगा बोल रही हूँ।" is 37 characters
       // with its only comma at 7, and splitHead needs a head of at least
-      // MIN_HEAD, so it gives up and keeps the sentence whole. Returning null
-      // here instead was safe but forfeited the head start on every Hindi
-      // opening, which is precisely where the latency hurts most.
-      if (i + 1 > MAX_CHARS) return null;      // the splitter re-cuts at 140
-      if (i + 1 <= HEAD_CHARS || clause < 0) return s.slice(0, i + 1).trim();
+      // MIN_HEAD, so it gives up and keeps the sentence whole.
+      if (cand.length <= HEAD_CHARS || clause < 0) return cand;
       return s.slice(0, clause + 1).trim();
     }
-    // Past the budget with a boundary behind us — no need to wait for the
-    // sentence to end, the answer is already decided.
+    // Past the budget with a boundary behind us. No non-runt sentence ended
+    // inside the budget — the loop above would have returned — so whatever the
+    // merged first phrase turns out to be, it is longer than HEAD_CHARS and
+    // gets cut here. Nothing later in the line can change that.
     if (i + 1 > HEAD_CHARS && clause >= 0) return s.slice(0, clause + 1).trim();
   }
   // Nothing conclusive yet. Once the stream is over, whatever there is IS the
