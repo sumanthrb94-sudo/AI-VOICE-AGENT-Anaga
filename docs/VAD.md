@@ -194,6 +194,43 @@ Doing 2 before 3 matters: the worklet built for streaming PCM is the same workle
 the suppressor lives in. Building the suppressor first means building that
 plumbing twice.
 
+## 6. Deepgram, and which recogniser to use per language
+
+`api/_lib/stt.js` now has a Deepgram Nova-3 adapter alongside Saaras.
+`STT_PROVIDER` is a chain, so `deepgram,sarvam` tries Deepgram and falls through
+on an outage.
+
+```
+DEEPGRAM_API_KEY=…          # server-side env only, never the repo
+STT_PROVIDER=deepgram,sarvam
+DEEPGRAM_MODEL=nova-3       # optional
+```
+
+**Nova-3 covers the whole product**: Telugu `te`, Hindi `hi`, Indian English
+`en-IN`. Telugu and Tamil landed in January 2026 and got an accuracy pass in
+May 2026.
+
+**But it cannot code-switch into Telugu.** `language=multi` covers English,
+Spanish, French, German, **Hindi**, Russian, Portuguese, Japanese, Italian and
+Dutch — Telugu is not on that list. So a Telugu call must pin `language=te`, and
+a prospect who answers a Telugu call in English gets run through a Telugu model.
+That is completely ordinary behaviour on these calls, and Saaras auto-detects
+across all of them without being told.
+
+Which gives an honest split rather than a global swap:
+
+| call language | recogniser | why |
+|---|---|---|
+| Telugu | **Saaras** | auto-detects when the prospect switches to English mid-call |
+| Hindi | either | Deepgram's `multi` handles Hindi/English code-mixing natively |
+| English | either | both are strong; Deepgram is generally faster |
+
+The reason to reach for Deepgram is **not** the batch endpoint — it is the
+streaming one, which carries interim transcripts and server-side endpointing
+with VAD events, i.e. the fix for both the latency and the false-trigger
+problems. That needs the WebSocket transport in §4, and the same caveat applies:
+a Vercel serverless function cannot hold the connection.
+
 ## References
 
 - arXiv 2601.17270 — *Window Size Versus Accuracy Experiments in Voice Activity

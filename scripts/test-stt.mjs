@@ -62,7 +62,8 @@ function reset() { routes = []; calls = []; tts.clearSynthCache(); }
 const ENV_KEYS = ['STT_PROVIDER', 'SARVAM_API_KEY', 'SARVAM_STT_MODEL', 'SARVAM_STT_MODE',
   'STT_TIMEOUT_MS', 'STT_MIN_MS', 'STT_MIN_BYTES',
   'TTS_PROVIDER', 'LLM_PROVIDER', 'GEMINI_API_KEY', 'RATE_LIMIT_TURN',
-  'SARVAM_STREAM', 'SARVAM_TTS_MODEL', 'RATE_LIMIT_BACKCHANNEL'];
+  'SARVAM_STREAM', 'SARVAM_TTS_MODEL', 'RATE_LIMIT_BACKCHANNEL',
+  'DEEPGRAM_API_KEY', 'DEEPGRAM_MODEL', 'DEEPGRAM_FALLBACK_LANG'];
 function clearEnv() { for (const k of ENV_KEYS) delete process.env[k]; }
 clearEnv();
 
@@ -502,6 +503,115 @@ await t('the language picked for the call is the language STT is asked for', asy
   stubBrain();
   await call({ history: [], lang: 'hi-IN', audio: b64(4096), ms: 900 });
   assert.equal(lastForm().language_code, 'hi-IN');
+});
+
+// ===========================================================================
+section('§4b Deepgram — a second recogniser, and the chain that reaches it');
+// ===========================================================================
+
+const dgOk = (transcript, detected) => json({
+  results: { channels: [{ alternatives: [{ transcript }], ...(detected ? { detected_language: detected } : {}) }] },
+});
+
+await t('THE CHAIN ACTUALLY DISPATCHES ON THE PROVIDER', async () => {
+  // It walked the chain and then called Sarvam every time regardless. Harmless
+  // with one adapter; a silent lie with two — health would report Deepgram
+  // while the audio went to Sarvam.
+  reset(); clearEnv();
+  process.env.STT_PROVIDER = 'deepgram';
+  process.env.DEEPGRAM_API_KEY = 'dg-key';
+  routes.push({ match: /api\.deepgram\.com/, reply: () => dgOk('three bedrooms') });
+
+  const out = await stt.transcribe({ audio: audio(4096), lang: 'en-IN' });
+  assert.equal(out.provider, 'deepgram');
+  assert.equal(out.text, 'three bedrooms');
+  assert.ok(calls.every((c) => !/sarvam/.test(c.url)), 'nothing may reach Sarvam here');
+});
+
+await t('the key travels as an Authorization header, never in the URL', async () => {
+  reset(); clearEnv();
+  process.env.STT_PROVIDER = 'deepgram';
+  process.env.DEEPGRAM_API_KEY = 'dg-secret';
+  routes.push({ match: /api\.deepgram\.com/, reply: () => dgOk('ok') });
+  await stt.transcribe({ audio: audio(4096), mime: 'audio/webm;codecs=opus', lang: 'en-IN' });
+
+  assert.equal(calls[0].init.headers.Authorization, 'Token dg-secret');
+  assert.doesNotMatch(calls[0].url, /dg-secret/, 'a key in the query string lands in every proxy log');
+  // The codec parameter is stripped; the container is not invented.
+  assert.equal(calls[0].init.headers['Content-Type'], 'audio/webm');
+});
+
+await t('TELUGU IS PINNED, because Deepgram cannot code-switch into it', async () => {
+  // `language=multi` covers English and Hindi and NOT Telugu, so a Telugu call
+  // has to name the language. This is the real cost of the swap: Saaras
+  // auto-detects across all three and Deepgram cannot.
+  reset(); clearEnv();
+  process.env.STT_PROVIDER = 'deepgram';
+  process.env.DEEPGRAM_API_KEY = 'k';
+  routes.push({ match: /api\.deepgram\.com/, reply: () => dgOk('సరే') });
+
+  await stt.transcribe({ audio: audio(4096), lang: 'te-IN' });
+  assert.match(calls[0].url, /language=te(&|$)/, `expected language=te, got ${calls[0].url}`);
+  assert.match(calls[0].url, /model=nova-3/);
+});
+
+await t('…and an unknown language asks for code-switching rather than guessing', async () => {
+  // Guessing Telugu wrong produces fluent nonsense rather than an obvious
+  // failure, which is the worst shape a transcription error can take.
+  reset(); clearEnv();
+  process.env.STT_PROVIDER = 'deepgram';
+  process.env.DEEPGRAM_API_KEY = 'k';
+  routes.push({ match: /api\.deepgram\.com/, reply: () => dgOk('hello', 'hi') });
+  const out = await stt.transcribe({ audio: audio(4096) });
+  assert.match(calls[0].url, /language=multi/);
+  assert.equal(out.lang, 'hi', 'what it detected under multi is what comes back');
+});
+
+await t('a pinned language is reported back, not null', async () => {
+  // Deepgram reports detected_language only under multi. The caller uses this
+  // to decide which voice answers, so null would silently change her language.
+  reset(); clearEnv();
+  process.env.STT_PROVIDER = 'deepgram';
+  process.env.DEEPGRAM_API_KEY = 'k';
+  routes.push({ match: /api\.deepgram\.com/, reply: () => dgOk('సరే') });
+  const out = await stt.transcribe({ audio: audio(4096), lang: 'te-IN' });
+  assert.equal(out.lang, 'te-IN');
+});
+
+await t('DEEPGRAM DOWN FALLS THROUGH TO SARVAM, and says so', async () => {
+  // The whole point of a chain. One vendor's outage must not be a dead call.
+  reset(); clearEnv();
+  process.env.STT_PROVIDER = 'deepgram,sarvam';
+  process.env.DEEPGRAM_API_KEY = 'k';
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({ match: /api\.deepgram\.com/, reply: () => json({ err_msg: 'upstream boom' }, 500) });
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'rescued', language_code: 'te-IN' }) });
+
+  const out = await stt.transcribe({ audio: audio(4096), lang: 'te-IN' });
+  assert.equal(out.provider, 'sarvam');
+  assert.equal(out.text, 'rescued');
+});
+
+await t("a Deepgram error carries the vendor's own sentence", async () => {
+  reset(); clearEnv();
+  process.env.STT_PROVIDER = 'deepgram';
+  process.env.DEEPGRAM_API_KEY = 'k';
+  routes.push({ match: /api\.deepgram\.com/, reply: () => json({ err_msg: 'Unknown model nova-9' }, 400) });
+  await assert.rejects(() => stt.transcribe({ audio: audio(4096) }), (err) => {
+    assert.match(String(err.detail), /Unknown model nova-9/);
+    assert.doesNotMatch(String(err.detail), /\[object Object\]/);
+    return true;
+  });
+});
+
+await t('an unconfigured Deepgram is not "ready", and health names the model', () => {
+  clearEnv();
+  assert.equal(stt.sttReady('deepgram'), false);
+  process.env.DEEPGRAM_API_KEY = 'dg-secret';
+  assert.equal(stt.sttReady('deepgram'), true);
+  const s = stt.sttStatus();
+  assert.equal(s.deepgramModel, 'nova-3');
+  assert.doesNotMatch(JSON.stringify(s), /dg-secret/, 'health must never carry the key');
 });
 
 // ===========================================================================

@@ -34,6 +34,7 @@ export function sttChain() {
 
 export function sttReady(provider) {
   if (provider === 'sarvam') return Boolean(process.env.SARVAM_API_KEY);
+  if (provider === 'deepgram') return Boolean(process.env.DEEPGRAM_API_KEY);
   return false;
 }
 
@@ -45,8 +46,11 @@ export function sttStatus() {
     chain,
     ready: chain.filter(sttReady),
     model: process.env.SARVAM_STT_MODEL || 'saaras:v3',
+    deepgramModel: process.env.DEEPGRAM_MODEL || 'nova-3',
   };
 }
+
+const ADAPTERS = { sarvam: viaSarvam, deepgram: viaDeepgram };
 
 /**
  * Transcribe one utterance.
@@ -67,7 +71,14 @@ export async function transcribe({ audio, mime, lang } = {}) {
   const errors = [];
   for (const provider of chain) {
     try {
-      const out = await viaSarvam({ audio, mime, lang });
+      // DISPATCH ON THE PROVIDER. This loop walked the chain and then called
+      // Sarvam every time regardless — harmless while Sarvam was the only
+      // adapter, and a silent lie the moment a second one existed:
+      // STT_PROVIDER=deepgram would have reported Deepgram in health and sent
+      // the audio to Sarvam.
+      const adapter = ADAPTERS[provider];
+      if (!adapter) throw new Error(`no adapter for "${provider}"`);
+      const out = await adapter({ audio, mime, lang });
       if (errors.length) {
         console.error(JSON.stringify({
           event: 'stt_fell_back', served: provider, severity: 'high',
@@ -139,5 +150,93 @@ async function viaSarvam({ audio, mime, lang }) {
     text: String(data?.transcript || '').trim(),
     lang: data?.language_code || null,
     provider: 'sarvam',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Deepgram Nova-3
+// ---------------------------------------------------------------------------
+//
+// ── WHAT IT BUYS ──────────────────────────────────────────────────────────
+// Nova-3 does Telugu (`te`), Hindi (`hi`) and Indian English (`en-IN`), which
+// is the whole product, and its streaming endpoint carries the two things this
+// pipeline is missing: interim transcripts as the prospect speaks, and
+// server-side endpointing with VAD events. That is the answer to both "she is
+// slow" and "it thinks the room is talking" — but only over a WebSocket, which
+// a Vercel serverless function cannot hold. This adapter is the BATCH endpoint;
+// see docs/VAD.md for what the streaming move requires.
+//
+// ── THE CATCH, AND IT MATTERS ─────────────────────────────────────────────
+// Deepgram's code-switching mode (`language=multi`) covers English and Hindi
+// but NOT Telugu. So a Telugu call has to PIN `te`, and a prospect who answers
+// a Telugu call in English — completely ordinary here — is then transcribed by
+// a Telugu model. Saaras auto-detects across all of them and does not have this
+// problem. That is a real trade, not a detail: pick per language, not globally.
+const DEEPGRAM_URL = 'https://api.deepgram.com/v1/listen';
+
+/** Our BCP-47 to Deepgram's codes. Nova-3 wants the bare tag for Indic. */
+const DG_LANG = {
+  'te-IN': 'te', 'hi-IN': 'hi', 'en-IN': 'en-IN', 'ta-IN': 'ta', 'kn-IN': 'kn',
+  'mr-IN': 'mr', 'bn-IN': 'bn', 'gu-IN': 'gu', 'pa-IN': 'pa', 'ur-IN': 'ur',
+};
+
+async function viaDeepgram({ audio, mime, lang }) {
+  const key = process.env.DEEPGRAM_API_KEY;
+  if (!key) throw new Error('deepgram_not_configured');
+
+  const q = new URLSearchParams({
+    model: process.env.DEEPGRAM_MODEL || 'nova-3',
+    // Punctuation and number formatting, for the same reason Saaras runs in
+    // "transcribe" mode: a budget or a phone number has to arrive as digits.
+    smart_format: 'true',
+    punctuate: 'true',
+  });
+  // Pinned when we know the language, `multi` when we do not — and `multi`
+  // deliberately, rather than a guess, because guessing Telugu wrong produces
+  // fluent nonsense rather than an obvious failure.
+  q.set('language', DG_LANG[String(lang)] || process.env.DEEPGRAM_FALLBACK_LANG || 'multi');
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), Number(process.env.STT_TIMEOUT_MS || DEFAULT_TIMEOUT_MS));
+  let res;
+  try {
+    res = await fetch(`${DEEPGRAM_URL}?${q}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Token ${key}`,
+        // The container as the browser produced it. Deepgram sniffs the bytes
+        // too, but a wrong declared type is how "works on my phone" happens.
+        'Content-Type': String(mime || 'audio/webm').split(';')[0],
+      },
+      body: audio,
+      signal: ctrl.signal,
+    });
+  } catch (err) {
+    throw new Error(`deepgram_stt_${err && err.name === 'AbortError' ? 'timeout' : 'network'}`);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!res.ok) {
+    // Carry the vendor's own sentence — see the note in the Sarvam adapter
+    // above, which cost days on the TTS side.
+    let detail = `HTTP ${res.status}`;
+    try {
+      const e = await res.json();
+      const msg = e?.err_msg || e?.message || e?.error || e?.reason;
+      detail += ': ' + (typeof msg === 'string' ? msg : JSON.stringify(e)).slice(0, 300);
+    } catch { /* not JSON; the status stands alone */ }
+    throw new Error(`deepgram_stt_failed: ${detail}`);
+  }
+
+  const data = await res.json();
+  const channel = data?.results?.channels?.[0];
+  return {
+    text: String(channel?.alternatives?.[0]?.transcript || '').trim(),
+    // Deepgram reports what it detected under `multi`; under a pinned language
+    // it reports nothing, so fall back to what we asked for rather than null —
+    // the caller uses this to decide which voice answers.
+    lang: channel?.detected_language || (DG_LANG[String(lang)] ? String(lang) : null),
+    provider: 'deepgram',
   };
 }
