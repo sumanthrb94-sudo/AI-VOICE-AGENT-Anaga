@@ -23,8 +23,12 @@
 import http from 'node:http';
 import { upgrade, isUpgrade } from '../media/ws.js';
 import { createBridge } from './bridge.js';
+import {
+  TWILIO_FORMAT, twiml, validSignature, parseTwilio, mediaFrame, clearFrame,
+} from './twilio.js';
 
 const SAMPLE_RATE = 16000;
+const MAX_BODY = 64 * 1024;
 
 /**
  * @param {object} o
@@ -34,8 +38,39 @@ const SAMPLE_RATE = 16000;
  * @param {function} [o.isOptOut]
  */
 export function createAgentServer(o = {}) {
-  const server = http.createServer((req, res) => {
-    if (req.url === '/health') {
+  const server = http.createServer(async (req, res) => {
+    const path = String(req.url || '').split('?')[0];
+
+    // ── TWILIO ANSWERS HERE ─────────────────────────────────────────────
+    // Twilio POSTs this when a call arrives; the TwiML we return connects the
+    // audio to /twilio. It is form-encoded, not JSON.
+    if (path === '/incoming-call' && req.method === 'POST') {
+      const raw = await readBody(req);
+      const params = Object.fromEntries(new URLSearchParams(raw));
+      const token = process.env.TWILIO_AUTH_TOKEN;
+
+      // FAIL CLOSED. This endpoint answers phone calls and spends Deepgram and
+      // Sarvam minutes, and on this product an unverified caller is also one
+      // the compliance gate never saw. No token configured is not "skip the
+      // check" — it is a refusal, because the alternative is an open endpoint
+      // that looks configured.
+      const proto = req.headers['x-forwarded-proto'] || 'https';
+      const url = `${proto}://${req.headers.host}${req.url}`;
+      if (!validSignature({ url, params, signature: req.headers['x-twilio-signature'], token })) {
+        console.error(JSON.stringify({ event: 'twilio_rejected', reason: token ? 'bad_signature' : 'no_token' }));
+        res.writeHead(403, { 'content-type': 'text/plain' });
+        res.end('forbidden');
+        return;
+      }
+
+      const wsUrl = process.env.TWILIO_STREAM_URL || `wss://${req.headers.host}/twilio`;
+      console.log(JSON.stringify({ event: 'twilio_call', stream: wsUrl }));
+      res.writeHead(200, { 'content-type': 'text/xml' });
+      res.end(twiml(wsUrl));
+      return;
+    }
+
+    if (path === '/health') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({
         ok: true, sampleRate: SAMPLE_RATE,
@@ -50,13 +85,88 @@ export function createAgentServer(o = {}) {
 
   server.on('upgrade', (req, socket, head) => {
     const path = String(req.url || '').split('?')[0];
-    if (path !== '/agent' || !isUpgrade(req)) { socket.destroy(); return; }
-    const ws = upgrade(req, socket, head);
-    if (!ws) return;
-    attach(ws, o);
+    if (!isUpgrade(req)) { socket.destroy(); return; }
+    if (path === '/agent') {
+      const ws = upgrade(req, socket, head);
+      if (ws) attach(ws, o);
+      return;
+    }
+    if (path === '/twilio') {
+      const ws = upgrade(req, socket, head);
+      if (ws) attachTwilio(ws, o);
+      return;
+    }
+    socket.destroy();
   });
 
   return server;
+}
+
+/** Read a bounded request body. An unbounded one is a memory exhaustion. */
+function readBody(req) {
+  return new Promise((resolve) => {
+    let raw = '';
+    req.on('data', (c) => {
+      raw += c;
+      if (raw.length > MAX_BODY) { raw = ''; req.destroy(); resolve(''); }
+    });
+    req.on('end', () => resolve(raw));
+    req.on('error', () => resolve(''));
+  });
+}
+
+/**
+ * The phone leg. The SAME bridge, wearing Twilio's envelope.
+ *
+ * Nothing transcodes: Twilio's 8kHz mulaw goes straight to the recogniser, and
+ * Bulbul is asked for 8kHz mulaw so its bytes go straight back down the line.
+ */
+export function attachTwilio(ws, o = {}) {
+  let bridge = null;
+  let streamSid = '';
+
+  ws.on('message', (data, kind) => {
+    if (kind === 'binary' || Buffer.isBuffer(data)) return;   // Twilio is all JSON
+    const m = parseTwilio(data);
+    if (!m) return;
+
+    if (m.type === 'start') {
+      streamSid = m.streamSid;
+      // A phone call is INBOUND by definition here: they rang us. Consent to
+      // the call is implied by dialling; disclosure is not, and the inbound
+      // flow says so in its first sentence.
+      const lang = String(process.env.TWILIO_CALL_LANG || 'en-IN');
+      try {
+        bridge = createBridge({
+          lang,
+          direction: 'inbound',
+          audio: TWILIO_FORMAT,
+          onAudio: (audio) => ws.send(mediaFrame(streamSid, audio)),
+          onEvent: (e) => {
+            // Twilio holds audio we have already sent, so cancelling on our
+            // side is not enough — without this the prospect interrupts and
+            // Twilio keeps playing the sentence they are talking over.
+            if (e.type === 'clear' && streamSid) ws.send(clearFrame(streamSid));
+            if (e.type === 'ended') { try { ws.close(1000, 'done'); } catch { /* gone */ } }
+          },
+          think: (history) => o.think(history, { lang, direction: 'inbound' }),
+          speak: (text, l, fmt) => o.speak(text, l, fmt),
+          isOptOut: o.isOptOut,
+        });
+      } catch (err) {
+        console.error(JSON.stringify({ event: 'twilio_bridge_failed', reason: String(err?.message || err) }));
+        try { ws.close(1011, 'agent'); } catch { /* gone */ }
+      }
+      return;
+    }
+
+    if (m.type === 'audio' && bridge) { bridge.pushAudio(m.audio); return; }
+    if (m.type === 'stop' && bridge) bridge.end();
+  });
+
+  ws.on('close', () => { if (bridge) bridge.end(); });
+  ws.on('error', () => { if (bridge) bridge.end(); });
+  return { get bridge() { return bridge; }, get streamSid() { return streamSid; } };
 }
 
 /** Wire one client socket to one conversation. Exported for tests. */

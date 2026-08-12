@@ -63,20 +63,26 @@ const server = createAgentServer({
     };
   },
 
-  async speak(text, lang) {
-    // RAW PCM at the socket's rate, because linear16 is what goes on the wire
-    // in both directions. Handing the transport an MP3, or a WAV header framed
-    // as samples, puts a burst of noise in front of every line — this repo has
-    // shipped that once already.
-    const out = await synth({ text, lang, codec: 'linear16', sampleRate: SAMPLE_RATE });
+  async speak(text, lang, format) {
+    // THE TRANSPORT'S OWN FORMAT, asked for by name. A browser wants 16kHz
+    // linear16; a phone wants 8kHz mulaw. Asking Bulbul for what the wire
+    // already speaks means a call transcodes nowhere, and every conversion
+    // skipped is quality kept — telephony audio starts with none to spare.
+    const codec = format?.encoding === 'mulaw' ? 'mulaw' : 'linear16';
+    const rate = Number(format?.sampleRate) || SAMPLE_RATE;
+    const out = await synth({ text, lang, codec, sampleRate: rate });
     const buf = Buffer.from(out.audio, 'base64');
     const mime = String(out.mime || '');
 
     // TRUST THE MIME, NOT THE REQUEST. `codec` only reaches Sarvam's stream
     // endpoint; any other provider in the chain answers in its own format, and
-    // the chain falls back silently by design. Sending those bytes as PCM would
-    // be noise that sounds like a broken microphone rather than a failed
-    // provider, so an unusable format is refused loudly instead.
+    // the chain falls back silently by design. Sending those bytes on as raw
+    // samples would be noise that sounds like a broken microphone rather than a
+    // failed provider, so an unusable format is refused loudly instead.
+    if (codec === 'mulaw') {
+      if (/mulaw|ulaw|pcmu|basic/.test(mime)) return buf;
+      throw new Error(`voice returned ${mime || 'an unknown format'}, which is not mulaw`);
+    }
     if (/wav/.test(mime)) return stripWavHeader(buf);
     if (/l16|linear16|pcm|octet-stream/.test(mime)) return buf;
     throw new Error(`voice returned ${mime || 'an unknown format'}, which is not PCM`);

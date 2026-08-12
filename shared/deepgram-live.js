@@ -44,13 +44,19 @@ export const DG_LANG = {
  * @param {number} [o.sampleRate]  PCM rate we will send
  * @param {string} [o.model]
  */
-export function liveQuery({ lang, sampleRate = 16000, model } = {}) {
+export function liveQuery({ lang, sampleRate = 16000, encoding = 'linear16', model } = {}) {
   const q = new URLSearchParams({
     model: model || process.env.DEEPGRAM_LIVE_MODEL || 'nova-3',
-    // RAW PCM, not a container. The whole point is to send audio as it is
+    // RAW AUDIO, not a container. The whole point is to send it as it is
     // captured; a WebM stream cannot be cut into independently decodable
     // pieces, which is what forced the old code to record whole utterances.
-    encoding: 'linear16',
+    //
+    // The ENCODING is the caller's, and that is what makes the phone leg free:
+    // Twilio speaks 8kHz G.711 mulaw, Deepgram accepts 8kHz mulaw, and Bulbul
+    // can synthesize it. So a call transcodes NOWHERE — every conversion is a
+    // chance to halve the audio quality the recogniser sees, and telephony
+    // audio has none to spare.
+    encoding,
     sample_rate: String(sampleRate),
     channels: '1',
     // INTERIM RESULTS ARE THE LATENCY FIX. Words arrive while the prospect is
@@ -113,20 +119,23 @@ export function parseLiveMessage(raw) {
  * @param {object} o
  * @param {string} [o.lang]
  * @param {number} [o.sampleRate]
+ * @param {string} [o.encoding]  'linear16' (browser) | 'mulaw' (telephony)
  * @param {function} o.onEvent   receives the objects parseLiveMessage returns
  * @param {function} [o.onOpen]
  * @param {function} [o.onClose]
  * @param {function} [o.WebSocketImpl]  test seam
  * @returns {{send: function, finish: function, close: function, isOpen: function}}
  */
-export function openLiveSTT({ lang, sampleRate = 16000, onEvent, onOpen, onClose, WebSocketImpl } = {}) {
+export function openLiveSTT({
+  lang, sampleRate = 16000, encoding = 'linear16', onEvent, onOpen, onClose, WebSocketImpl,
+} = {}) {
   const key = process.env.DEEPGRAM_API_KEY;
   if (!key) throw new Error('deepgram_not_configured');
 
   const WS = WebSocketImpl || globalThis.WebSocket;
   if (!WS) throw new Error('no_websocket_client');
 
-  const url = `${LIVE_URL}?${liveQuery({ lang, sampleRate })}`;
+  const url = `${LIVE_URL}?${liveQuery({ lang, sampleRate, encoding })}`;
   // The key as a subprotocol: a WebSocket handshake carries no custom headers
   // in Node or in a browser, and Deepgram documents this form.
   const ws = new WS(url, ['token', key]);

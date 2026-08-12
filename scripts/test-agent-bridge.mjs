@@ -318,5 +318,153 @@ await t('A TEXT FRAME IS NOT AUDIO', async () => {
   }
 });
 
+// ===========================================================================
+section('§5 the phone leg — Twilio, as an envelope round the same bridge');
+// ===========================================================================
+
+const tw = await import('../caller-agent/src/agent/twilio.js');
+const crypto = await import('node:crypto');
+
+await t('NOTHING TRANSCODES — 8kHz mulaw end to end', () => {
+  // Twilio speaks it, Deepgram accepts it, Bulbul can synthesize it. Every
+  // conversion between mulaw and linear costs quality, and telephony audio
+  // starts with none to spare; resampling to satisfy a hardcoded 16000 would
+  // have made the recogniser's job harder for nothing.
+  assert.deepEqual(tw.TWILIO_FORMAT, { encoding: 'mulaw', sampleRate: 8000 });
+  const q = live.liveQuery({ lang: 'en-IN', ...tw.TWILIO_FORMAT });
+  assert.equal(q.get('encoding'), 'mulaw');
+  assert.equal(q.get('sample_rate'), '8000');
+});
+
+await t('the TwiML CONNECTS the call, it does not fork a copy of it', () => {
+  // <Start><Stream> forks the audio and lets the call continue down the rest
+  // of the TwiML — that is a transcription setup and it cannot talk back.
+  // Only <Connect> hands us the call bidirectionally.
+  const x = tw.twiml('wss://agent.example/twilio');
+  assert.match(x, /<Connect>/);
+  assert.match(x, /<Stream url="wss:\/\/agent\.example\/twilio"/);
+  assert.doesNotMatch(x, /<Start>/);
+});
+
+await t('a stream URL is escaped into the XML', () => {
+  assert.match(tw.twiml('wss://x/y?a=1&b=2'), /a=1&amp;b=2/);
+});
+
+await t('THE WEBHOOK FAILS CLOSED without a token', () => {
+  // This endpoint answers phone calls and spends money, and an unverified
+  // caller is one the compliance gate never saw. "No token configured" must
+  // not mean "skip the check" — that is an open endpoint that looks wired.
+  assert.equal(tw.validSignature({
+    url: 'https://x/incoming-call', params: {}, signature: 'anything', token: '',
+  }), false);
+  assert.equal(tw.validSignature({
+    url: 'https://x/incoming-call', params: {}, signature: '', token: 'tok',
+  }), false);
+});
+
+await t("a real Twilio signature validates, and a tampered one does not", () => {
+  // Their scheme: HMAC-SHA1 over the URL with every param appended in
+  // key-sorted order. Built here the way Twilio builds it, so this asserts our
+  // implementation rather than restating it.
+  const token = 'twilio-auth-token';
+  const url = 'https://agent.example/incoming-call';
+  const params = { CallSid: 'CA123', From: '+919999999999', To: '+911111111111' };
+  let data = url;
+  for (const k of Object.keys(params).sort()) data += k + params[k];
+  const sig = crypto.createHmac('sha1', token).update(Buffer.from(data, 'utf8')).digest('base64');
+
+  assert.equal(tw.validSignature({ url, params, signature: sig, token }), true);
+  assert.equal(tw.validSignature({
+    url, params: { ...params, From: '+910000000000' }, signature: sig, token,
+  }), false, 'changing a parameter must invalidate it');
+  assert.equal(tw.validSignature({ url, params, signature: sig, token: 'wrong' }), false);
+});
+
+await t('OUR OWN VOICE COMING BACK IS NEVER TRANSCRIBED', () => {
+  // With both tracks streamed, the outbound one is Anaga. Feeding that to the
+  // recogniser is the self-answer loop this project shipped three times — and
+  // no echo guard is needed if we simply never listen to ourselves.
+  const inbound = tw.parseTwilio(JSON.stringify({
+    event: 'media', media: { track: 'inbound', payload: Buffer.from([1, 2, 3]).toString('base64') },
+  }));
+  assert.equal(inbound.type, 'audio');
+  assert.equal(tw.parseTwilio(JSON.stringify({
+    event: 'media', media: { track: 'outbound', payload: 'AAAA' },
+  })), null);
+});
+
+await t('start carries the streamSid; stop ends; anything else is ignored', () => {
+  assert.deepEqual(tw.parseTwilio(JSON.stringify({ event: 'start', start: { streamSid: 'MZ1' } })),
+    { type: 'start', streamSid: 'MZ1' });
+  assert.deepEqual(tw.parseTwilio(JSON.stringify({ event: 'stop' })), { type: 'stop' });
+  assert.equal(tw.parseTwilio(JSON.stringify({ event: 'connected' })), null);
+  assert.equal(tw.parseTwilio(JSON.stringify({ event: 'mark' })), null);
+  assert.equal(tw.parseTwilio('not json'), null);
+});
+
+await t('BARGE-IN SENDS A CLEAR — Twilio buffers what we already sent', () => {
+  // Cancelling on our side is not enough. Without this the prospect interrupts,
+  // we stop sending, and Twilio keeps playing the sentence they are talking
+  // over — which on an opt-out is the worst thing this system can do.
+  const c = JSON.parse(tw.clearFrame('MZ1'));
+  assert.deepEqual(c, { event: 'clear', streamSid: 'MZ1' });
+  const f = JSON.parse(tw.mediaFrame('MZ1', Buffer.from([0xff, 0x7f])));
+  assert.equal(f.event, 'media');
+  assert.equal(f.streamSid, 'MZ1');
+  assert.equal(Buffer.from(f.media.payload, 'base64').length, 2, 'audio goes back base64, unconverted');
+});
+
+await t('THE PHONE LEG RUNS THE SAME CONVERSATION', async () => {
+  // The point of the whole shape: one bridge, two envelopes. If this needed
+  // its own turn logic there would be two of them to keep in sync, and the
+  // one that drifts is the one nobody is reading.
+  process.env.DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || 'test-key';
+  const RealWS = globalThis.WebSocket;
+  let fireDG = null;
+  globalThis.WebSocket = function (url, protos) {
+    if (String(url).includes('deepgram')) {
+      const self = { url, send() {}, close() {} };
+      Object.defineProperty(self, 'onmessage', {
+        set(fn) { fireDG = (o) => fn({ data: JSON.stringify(o) }); },
+      });
+      setTimeout(() => self.onopen && self.onopen(), 0);
+      return self;
+    }
+    return new RealWS(url, protos);
+  };
+  const { attachTwilio } = await import('../caller-agent/src/agent/server.js');
+
+  const sent = [];
+  const handlers = {};
+  const fakeSock = {
+    send: (d) => sent.push(d),
+    close() {},
+    on(ev, fn) { handlers[ev] = fn; return this; },
+  };
+  let askedFormat = null;
+  attachTwilio(fakeSock, {
+    think: async () => ({ say: 'Are you looking to live in it, or to invest?', end: false }),
+    speak: async (t2, l, fmt) => { askedFormat = fmt; return Buffer.from([0xff, 0x7f]); },
+  });
+
+  handlers.message(JSON.stringify({ event: 'start', start: { streamSid: 'MZ9' } }), 'text');
+  await new Promise((r) => setTimeout(r, 60));
+  handlers.message(JSON.stringify({
+    event: 'media', media: { track: 'inbound', payload: 'AAAA' },
+  }), 'text');
+  fireDG({
+    type: 'Results', is_final: true,
+    channel: { alternatives: [{ transcript: 'I want a three bedroom' }] },
+  });
+  await new Promise((r) => setTimeout(r, 200));
+
+  const frames = sent.map((s) => JSON.parse(s));
+  assert.ok(frames.some((f) => f.event === 'media' && f.streamSid === 'MZ9'),
+    'her voice must go back down the line');
+  // The voice was asked for the format the WIRE speaks, not a constant.
+  assert.deepEqual(askedFormat, { encoding: 'mulaw', sampleRate: 8000 });
+  globalThis.WebSocket = RealWS;
+});
+
 console.log(`\n═══ ${pass} passed, ${fail} failed ═══\n`);
 if (fail) { failures.forEach((f) => console.log('  FAIL ' + f)); process.exit(1); }

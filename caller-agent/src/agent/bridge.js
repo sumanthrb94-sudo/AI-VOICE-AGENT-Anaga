@@ -41,6 +41,11 @@ export function createBridge(o) {
   const {
     lang, direction = 'outbound', onAudio, onEvent, think, speak,
     isOptOut = () => false, openSTT = openLiveSTT,
+    // The transport's format, carried end to end. The browser sends 16kHz
+    // linear16; a phone sends 8kHz mulaw. Both the recogniser and the voice are
+    // asked for the SAME format the transport speaks, so a call transcodes
+    // nowhere — see caller-agent/src/agent/twilio.js.
+    audio = { encoding: 'linear16', sampleRate: 16000 },
   } = o;
 
   const history = [];
@@ -72,6 +77,8 @@ export function createBridge(o) {
 
   const stt = openSTT({
     lang,
+    encoding: audio.encoding,
+    sampleRate: audio.sampleRate,
     onEvent(e) {
       if (ended) return;
       if (e.type === 'speech_start') {
@@ -139,9 +146,9 @@ export function createBridge(o) {
     emit({ type: 'speaking', value: true });
     for (const phrase of splitForSpeech(text)) {
       if (ended || mine !== turnId) break;
-      let audio;
+      let audio_;
       try {
-        audio = await speak(phrase, lang);
+        audio_ = await speak(phrase, lang, audio);
       } catch (err) {
         emit({ type: 'error', text: `voice: ${err?.message || 'unavailable'}` });
         break;
@@ -149,7 +156,7 @@ export function createBridge(o) {
       // Checked AGAIN after the await: synthesis takes a second or more, and
       // she may have been interrupted while it was happening.
       if (ended || mine !== turnId) break;
-      try { onAudio(audio); } catch { /* the transport is gone */ }
+      try { onAudio(audio_); } catch { /* the transport is gone */ }
     }
     if (mine === turnId) {
       speaking = false;

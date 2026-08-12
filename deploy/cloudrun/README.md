@@ -35,6 +35,37 @@ The browser connects to `wss://<service-url>/agent`. Point the page at it by
 setting `window.VAAK_AGENT_URL` before `live.js` loads — see the top of
 `web/assets/live.js`.
 
+## The phone number
+
+Add `TWILIO_AUTH_TOKEN` (Console → Account Info) to the deploy, then point the
+number at the service:
+
+```
+Twilio Console → Phone Numbers → your number → Voice → A call comes in
+  Webhook   https://<service-url>/incoming-call   HTTP POST
+```
+
+That is the whole setup. `/incoming-call` returns TwiML that connects the call
+to `wss://<service-url>/twilio`, which runs the **same bridge** the browser uses.
+
+Three things worth knowing before the first call:
+
+- **The webhook fails closed.** Without `TWILIO_AUTH_TOKEN` it answers 403 to
+  everything, including Twilio. That is deliberate: this endpoint answers phone
+  calls and spends Deepgram and Sarvam minutes, and an unverified caller is one
+  the compliance gate never saw. If calls are rejected, check the token before
+  anything else — the log line says which of the two it was.
+- **Nothing transcodes.** Twilio speaks 8 kHz G.711 mulaw, Deepgram accepts it,
+  and Bulbul is asked to synthesize it. If you change `TWILIO_FORMAT` you are
+  adding a conversion, and telephony audio has no quality to spare.
+- **`TWILIO_CALL_LANG`** sets the language for inbound calls (default `en-IN`).
+  A caller cannot be asked which language they want before being greeted, so
+  this is a per-number setting — one number per language is the honest shape.
+
+Inbound only, for now. Outbound dialling still goes through the compliance gate
+and the dial queue (`caller-agent/src/server.js`), and that is where it belongs:
+`UserStartedSpeaking` does not know about the DND registry.
+
 ## Running it locally instead
 
 ```bash
