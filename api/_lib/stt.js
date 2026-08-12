@@ -27,9 +27,37 @@ const DEFAULT_TIMEOUT_MS = 12000;
 const LANGS = new Set(['unknown', 'hi-IN', 'bn-IN', 'kn-IN', 'ml-IN', 'mr-IN', 'od-IN',
   'pa-IN', 'ta-IN', 'te-IN', 'en-IN', 'gu-IN', 'as-IN', 'ur-IN']);
 
-export function sttChain() {
-  return String(process.env.STT_PROVIDER || 'sarvam')
-    .split(',').map((p) => p.trim().toLowerCase()).filter(Boolean);
+/**
+ * THE RECOGNISER IS CHOSEN PER LANGUAGE, because the right answer differs.
+ *
+ *   English  — Deepgram first. Nova-3 is strong on Indian English, and its
+ *              `multi` mode code-switches English/Hindi natively, which is what
+ *              an English-language call in India actually sounds like.
+ *   Telugu   — Saaras first, and this is not a preference. Deepgram cannot
+ *              code-switch into Telugu at all (`language=multi` covers Hindi
+ *              and English and not Telugu), so a Telugu call has to pin `te`
+ *              and a prospect who answers in English is then run through a
+ *              Telugu model. Saaras auto-detects across all of them.
+ *   Hindi    — Saaras first, Deepgram behind it. Either is defensible; this
+ *              keeps one vendor holding the Indic languages.
+ *
+ * Every entry is still a CHAIN, so the other vendor catches an outage. Order is
+ * overridable per language (STT_PROVIDER_EN_IN=...) or globally (STT_PROVIDER),
+ * and a provider without its key is filtered out before any of it matters.
+ */
+const DEFAULT_CHAINS = {
+  'en-IN': 'deepgram,sarvam',
+  'te-IN': 'sarvam,deepgram',
+  'hi-IN': 'sarvam,deepgram',
+};
+const FALLBACK_CHAIN = 'sarvam,deepgram';
+
+const parse = (s) => String(s).split(',').map((p) => p.trim().toLowerCase()).filter(Boolean);
+
+export function sttChain(lang) {
+  // Hyphens are not legal in env names, so en-IN reads STT_PROVIDER_EN_IN.
+  const perLang = lang && process.env[`STT_PROVIDER_${String(lang).toUpperCase().replace(/-/g, '_')}`];
+  return parse(perLang || process.env.STT_PROVIDER || DEFAULT_CHAINS[String(lang)] || FALLBACK_CHAIN);
 }
 
 export function sttReady(provider) {
@@ -38,13 +66,25 @@ export function sttReady(provider) {
   return false;
 }
 
-export function sttAvailable() { return sttChain().some(sttReady); }
+export function sttAvailable() {
+  return Object.keys(DEFAULT_CHAINS).some((l) => sttChain(l).some(sttReady));
+}
 
 export function sttStatus() {
   const chain = sttChain();
+  // WHICH VENDOR EACH LANGUAGE ACTUALLY GETS. Routing that is invisible is
+  // routing nobody notices has broken — a missing key silently moves a whole
+  // language to the other provider, and the only symptom is that it sounds
+  // slightly different.
+  const byLang = {};
+  for (const l of Object.keys(DEFAULT_CHAINS)) {
+    const ready = sttChain(l).filter(sttReady);
+    byLang[l] = { chain: sttChain(l), serves: ready[0] || null };
+  }
   return {
     chain,
     ready: chain.filter(sttReady),
+    byLang,
     model: process.env.SARVAM_STT_MODEL || 'saaras:v3',
     deepgramModel: process.env.DEEPGRAM_MODEL || 'nova-3',
   };
@@ -65,7 +105,7 @@ const ADAPTERS = { sarvam: viaSarvam, deepgram: viaDeepgram };
  */
 export async function transcribe({ audio, mime, lang } = {}) {
   if (!audio || !audio.length) throw new Error('stt_audio_required');
-  const chain = sttChain().filter(sttReady);
+  const chain = sttChain(lang).filter(sttReady);
   if (!chain.length) throw new Error('stt_unavailable');
 
   const errors = [];

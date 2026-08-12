@@ -63,7 +63,8 @@ const ENV_KEYS = ['STT_PROVIDER', 'SARVAM_API_KEY', 'SARVAM_STT_MODEL', 'SARVAM_
   'STT_TIMEOUT_MS', 'STT_MIN_MS', 'STT_MIN_BYTES',
   'TTS_PROVIDER', 'LLM_PROVIDER', 'GEMINI_API_KEY', 'RATE_LIMIT_TURN',
   'SARVAM_STREAM', 'SARVAM_TTS_MODEL', 'RATE_LIMIT_BACKCHANNEL',
-  'DEEPGRAM_API_KEY', 'DEEPGRAM_MODEL', 'DEEPGRAM_FALLBACK_LANG'];
+  'DEEPGRAM_API_KEY', 'DEEPGRAM_MODEL', 'DEEPGRAM_FALLBACK_LANG',
+  'STT_PROVIDER_EN_IN', 'STT_PROVIDER_TE_IN', 'STT_PROVIDER_HI_IN'];
 function clearEnv() { for (const k of ENV_KEYS) delete process.env[k]; }
 clearEnv();
 
@@ -118,9 +119,17 @@ await t('sttStatus reports the chain and the model, and no secret', () => {
   clearEnv();
   process.env.SARVAM_API_KEY = 'super-secret';
   const s = stt.sttStatus();
-  assert.deepEqual(s.chain, ['sarvam']);
-  assert.deepEqual(s.ready, ['sarvam']);
+  // The chain NAMES both vendors; only the one with a key is ready. A chain
+  // that hid the unconfigured vendor would make a missing key look like a
+  // design decision.
+  assert.deepEqual(s.chain, ['sarvam', 'deepgram']);
+  assert.deepEqual(s.ready, ['sarvam'], 'no Deepgram key, so it cannot serve');
   assert.equal(s.model, 'saaras:v3');
+  // With Deepgram unconfigured, English falls to Saaras — and health says so
+  // rather than reporting the intended routing as if it were the real one.
+  assert.equal(s.byLang['en-IN'].serves, 'sarvam');
+  assert.deepEqual(s.byLang['en-IN'].chain, ['deepgram', 'sarvam']);
+  assert.equal(s.byLang['te-IN'].serves, 'sarvam');
   assert.doesNotMatch(JSON.stringify(s), /super-secret/, 'health output must never carry the key');
 });
 
@@ -511,6 +520,54 @@ section('§4b Deepgram — a second recogniser, and the chain that reaches it');
 
 const dgOk = (transcript, detected) => json({
   results: { channels: [{ alternatives: [{ transcript }], ...(detected ? { detected_language: detected } : {}) }] },
+});
+
+await t('ENGLISH GOES TO DEEPGRAM, TELUGU DOES NOT — by default', async () => {
+  // Not a preference. Deepgram cannot code-switch into Telugu, so a Telugu
+  // call must pin `te`, and a prospect answering in English is then run
+  // through a Telugu model. Saaras auto-detects. English is the other way
+  // round: Nova-3's `multi` handles English/Hindi mixing natively.
+  reset(); clearEnv();
+  process.env.DEEPGRAM_API_KEY = 'k';
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({ match: /api\.deepgram\.com/, reply: () => dgOk('english please') });
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'తెలుగు', language_code: 'te-IN' }) });
+
+  assert.equal((await stt.transcribe({ audio: audio(4096), lang: 'en-IN' })).provider, 'deepgram');
+  assert.equal((await stt.transcribe({ audio: audio(4096), lang: 'te-IN' })).provider, 'sarvam');
+  assert.equal((await stt.transcribe({ audio: audio(4096), lang: 'hi-IN' })).provider, 'sarvam');
+});
+
+await t('each language is still a CHAIN — one vendor down is not a dead call', async () => {
+  reset(); clearEnv();
+  process.env.DEEPGRAM_API_KEY = 'k';
+  process.env.SARVAM_API_KEY = 'k';
+  routes.push({ match: /api\.deepgram\.com/, reply: () => json({ err_msg: 'down' }, 500) });
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'rescued' }) });
+  const out = await stt.transcribe({ audio: audio(4096), lang: 'en-IN' });
+  assert.equal(out.provider, 'sarvam', 'English must fall through to Saaras');
+});
+
+await t('a language with no Deepgram key quietly routes to the one that works', async () => {
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';        // no DEEPGRAM_API_KEY
+  routes.push({ match: /speech-to-text/, reply: () => json({ transcript: 'ok' }) });
+  const out = await stt.transcribe({ audio: audio(4096), lang: 'en-IN' });
+  assert.equal(out.provider, 'sarvam');
+  // …and health says so, because invisible routing is routing nobody notices
+  // has broken.
+  assert.equal(stt.sttStatus().byLang['en-IN'].serves, 'sarvam');
+});
+
+await t('a per-language override beats the default', async () => {
+  reset(); clearEnv();
+  process.env.DEEPGRAM_API_KEY = 'k';
+  process.env.SARVAM_API_KEY = 'k';
+  process.env.STT_PROVIDER_TE_IN = 'deepgram';
+  routes.push({ match: /api\.deepgram\.com/, reply: () => dgOk('సరే') });
+  const out = await stt.transcribe({ audio: audio(4096), lang: 'te-IN' });
+  assert.equal(out.provider, 'deepgram');
+  delete process.env.STT_PROVIDER_TE_IN;
 });
 
 await t('THE CHAIN ACTUALLY DISPATCHES ON THE PROVIDER', async () => {

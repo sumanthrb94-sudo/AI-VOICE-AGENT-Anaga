@@ -231,6 +231,88 @@ with VAD events, i.e. the fix for both the latency and the false-trigger
 problems. That needs the WebSocket transport in §4, and the same caveat applies:
 a Vercel serverless function cannot hold the connection.
 
+## 7. "Can't we just use one vendor for all three languages?"
+
+Yes. Several could. The question is which trade you are buying, and **it is not
+cost** — see the arithmetic below before optimising for the wrong axis.
+
+### Streaming prices, per minute (checked 2026-08)
+
+| vendor / model | $/min | languages | notes |
+|---|---|---|---|
+| **Deepgram Flux (English)** | 0.0065 | en | **built-in turn detection**, built for voice agents |
+| Deepgram Flux (multilingual) | 0.0078 | multi | same, across languages |
+| Deepgram Nova-3 mono | 0.0048–0.0077 | 45+ incl. `te` `hi` | promo pricing on streaming |
+| Deepgram Nova-3 multilingual | 0.0058–0.0092 | `multi` **excludes Telugu** | auto language detection |
+| **Google Chirp 2** | 0.0048 | **100+** | cheapest broad-coverage option |
+| Google Chirp 3 / STT V2 | 0.016 | 35+ | ~3× Chirp 2 |
+| Groq Whisper-large-v3-turbo | ~0.0006 | 100+ | **batch only, no streaming** |
+| OpenAI gpt-4o-mini-transcribe | 0.003 | 57 | streaming |
+
+Batch is consistently 30–50% cheaper than streaming across every vendor.
+
+### Do the arithmetic before choosing on price
+
+A qualifying call is 3–5 minutes. At **1,000 calls/month × 4 min = 4,000 min**:
+
+| | monthly |
+|---|---|
+| Google Chirp 2 | **$19** |
+| Deepgram Nova-3 streaming | **$22** |
+| Deepgram Flux | **$26** |
+
+**The spread across every serious option is under ten dollars a month.** At this
+volume, price is not a reason to pick anything. Pick on accuracy in Telugu, on
+latency, and on whether the vendor solves the turn-detection problem — those
+differences are worth far more than $7.
+
+### Why Google is not the obvious "one vendor for everything"
+
+Chirp 2 does cover all three languages for less money. Three things count
+against it here:
+
+1. **No native WebSocket.** Google streams over gRPC bidirectional
+   (`StreamingRecognize`). A browser cannot speak that, so you need a relay
+   process in the middle — extra hop, extra latency, extra thing to run.
+   Deepgram exposes `wss://` directly.
+2. **Region.** Chirp 3 is GA only in the US and EU multi-regions; Asia is public
+   preview with no SLA. For a product whose compliance posture is Indian data
+   residency (`docs/COMPLIANCE.md`), routing prospect audio to a US region is a
+   question for a lawyer, not just an engineer.
+3. **Telugu quality is unmeasured by us.** Nobody's published benchmark settles
+   Telugu telephony audio. Sarvam trains specifically on Indic and code-mixed
+   speech; that is the whole reason it is here.
+
+### Is anything faster?
+
+**Yes — Deepgram Flux**, and it is aimed exactly at the two complaints in this
+document. It is conversational ASR for voice agents with **turn detection and
+interruption handling built into the model**, not bolted on. Adopting it would
+delete our endpointer, our VAD and our barge-in heuristic in one move. English
+only at $0.0065/min; multilingual at $0.0078.
+
+Google's answer is `ENDPOINTING_SENSITIVITY_SUPERSHORT` on Chirp 3, which is a
+tuning knob rather than a model that understands turns.
+
+### And local?
+
+- **Groq-hosted Whisper turbo is ~$0.0006/min** — eight times cheaper than
+  anything else — and has **no streaming**, so it cannot be part of a live turn.
+  It is the right tool for post-call transcripts, not for the call.
+- **True on-device** (Whisper or Moonshine compiled to WASM) means a multi-MB
+  download per session, and Indic accuracy well below any of the above. Not
+  viable for Telugu today.
+- What genuinely *should* be local is the part that already is: echo
+  cancellation and endpointing. §2 and §5.
+
+### The recommendation
+
+Keep the per-language split in §6. If you want to consolidate later, the vendor
+to consolidate onto is **Deepgram — but on Flux, not Nova-3**, and only once the
+streaming transport exists, because Flux's whole value is the turn detection and
+that only exists over the WebSocket. Consolidating onto Google saves roughly $3
+a month and costs you a relay server and a data-residency conversation.
+
 ## References
 
 - arXiv 2601.17270 — *Window Size Versus Accuracy Experiments in Voice Activity
