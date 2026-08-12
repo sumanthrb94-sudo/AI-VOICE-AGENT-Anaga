@@ -401,6 +401,68 @@ await t('SHE MAKES A SOUND WHILE SHE THINKS — the dead air is the machine tell
     'an acknowledgement is a noise, not a line in the transcript');
 });
 
+await t('THE NOISE FLOOR NEVER LATCHES — sustained noise closes the gate', async () => {
+  // THE BUG THIS EXISTS FOR. The floor only adapted while the gate was shut,
+  // so the instant ambient noise crossed the threshold the gate opened and the
+  // floor froze below it — permanently "somebody is talking". A fan, a TV,
+  // traffic. Now the floor tracks the room whether the gate is open or not, so
+  // steady noise raises it and shuts the gate by itself.
+  const out = await page.evaluate(() => {
+    const m = window.__mic;
+    let open = 0;
+    // Five seconds of steady, speech-shaped noise at a level that trips a
+    // fixed threshold. Voiced-looking on purpose: this must close on LEVEL,
+    // not be rescued by the spectral test.
+    for (let i = 0; i < 300; i++) open += m._gate(0.05, true, 16) ? 1 : 0;
+    const settled = [];
+    for (let i = 0; i < 60; i++) settled.push(m._gate(0.05, true, 16));
+    return { open, floor: m._floor(), stillOpen: settled.filter(Boolean).length };
+  });
+  assert.ok(out.floor > 0.02,
+    `the floor must rise into the noise, got ${out.floor}`);
+  assert.equal(out.stillOpen, 0,
+    'after seconds of unchanging noise the gate must be shut, not stuck open');
+});
+
+await t('…and a real voice still opens it, over that same noise', async () => {
+  // The floor is now sitting up in the noise. Speech is louder than the room it
+  // happens in, which is the only assumption an energy gate is allowed to make.
+  const opened = await page.evaluate(() => {
+    const m = window.__mic;
+    return m._gate(0.30, true, 16);
+  });
+  assert.ok(opened, 'a voice clearly above the room must still get through');
+});
+
+await t('LOUD IS NOT ENOUGH — it must be shaped like speech to open', async () => {
+  // Energy alone scores 0.11 Matthews correlation against ground truth
+  // (arXiv 2601.17270) — very nearly a coin toss. A slammed door and a fan are
+  // loud; neither has speech's spectrum.
+  const out = await page.evaluate(() => {
+    const m = window.__mic;
+    for (let i = 0; i < 200; i++) m._gate(0.001, false, 16);   // settle quiet
+    return { noise: m._gate(0.4, false, 16), voice: m._gate(0.4, true, 16) };
+  });
+  assert.equal(out.noise, false, 'a loud sound that is not speech-shaped must not open the gate');
+  assert.equal(out.voice, true, 'the same level, shaped like speech, must');
+});
+
+await t('the gate closes at a LOWER bar than it opens — no flapping', async () => {
+  // A level sitting exactly on one threshold would otherwise chatter the gate
+  // open and shut, chopping an utterance into fragments.
+  const out = await page.evaluate(() => {
+    const m = window.__mic;
+    for (let i = 0; i < 200; i++) m._gate(0.001, false, 16);
+    const opened = m._gate(0.05, true, 16);
+    // Now quieter than the opening bar, but above the closing one.
+    const held = m._gate(0.03, false, 16);
+    return { opened, held };
+  });
+  assert.equal(out.opened, true);
+  assert.equal(out.held, true,
+    'once open, a quieter tail — even unvoiced — must keep it open');
+});
+
 await t('THE RECORDER DOES NOT ACCUMULATE THE WHOLE CALL', async () => {
   // It used to start once per utterance and run until the NEXT one ended, so
   // the blob carried every second of silence in between and all of Anaga's
