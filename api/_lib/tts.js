@@ -782,8 +782,13 @@ async function viaSarvam(text, opts) {
     // 22050 was leaving quality on the table: bulbul:v2 accepts up to 48000
     // (probed). The browser plays whatever it is given, so ask for the good one.
     // The CALL leg overrides this to the telephony rate — see caller-agent.
-    speech_sample_rate: Number(process.env.SARVAM_SAMPLE_RATE || 24000),
+    speech_sample_rate: Number(opts.sampleRate || process.env.SARVAM_SAMPLE_RATE || 24000),
   };
+  // RAW PCM for the streaming call leg. The socket carries linear16 in both
+  // directions, and handing it an MP3 or a WAV header framed as samples puts a
+  // burst of noise in front of every line — which this repo has shipped once
+  // already. Only the stream endpoint takes a codec, so ask for it there.
+  if (opts.codec && streaming) body.output_audio_codec = String(opts.codec);
   if (v3) {
     // v3-only. Lower is steadier: at 0.6 the same sentence comes back with
     // audibly different delivery run to run, which reads as an unstable agent

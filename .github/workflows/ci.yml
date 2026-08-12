@@ -84,6 +84,9 @@ jobs:
       - name: STT QA (Saaras adapter, and silence never becomes an invented reply)
         run: node --experimental-detect-module scripts/test-stt.mjs
 
+      - name: Live call QA (the streaming bridge — barge-in as an event, not a guess)
+        run: node --experimental-detect-module scripts/test-agent-bridge.mjs
+
       - name: Self-hosted voice QA (telephony sample rates — the chipmunk bug)
         run: node --experimental-detect-module scripts/test-voicestudio.mjs
 
