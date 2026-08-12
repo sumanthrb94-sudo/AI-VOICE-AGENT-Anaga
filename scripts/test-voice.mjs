@@ -984,11 +984,67 @@ await t('the persona carries a MALE disclosure with correct Hindi agreement', as
     assert.ok(typeof male[lang] === 'string' && male[lang].trim(), `${lang} missing`);
     assert.match(male[lang], /\bAI\b/, `${lang} must still disclose AI`);
   }
-  // Hindi marks the speaker's gender on the verb. "sakti" in a man's voice is
-  // the feminine form and lands as broken Hindi.
-  assert.match(p.disclosure['hi-IN'], /sakti hoon/, 'the default (female) line should stay feminine');
-  assert.match(male['hi-IN'], /sakta hoon/, 'the male line must use the masculine form');
-  assert.doesNotMatch(male['hi-IN'], /sakti hoon/);
+  // Hindi marks the speaker's gender on the verb AND on the possessive. सकती /
+  // की in a man's voice is the feminine form and lands as audibly broken Hindi.
+  assert.match(p.disclosure['hi-IN'], /सकती हूँ/, 'the default (female) line should stay feminine');
+  assert.match(p.disclosure['hi-IN'], /वाक् की/, '…including the possessive');
+  assert.match(male['hi-IN'], /सकता हूँ/, 'the male line must use the masculine form');
+  assert.match(male['hi-IN'], /वाक् का/);
+  assert.doesNotMatch(male['hi-IN'], /सकती हूँ/);
+});
+
+await t('THE DISCLOSURE IS IN NATIVE SCRIPT, not Roman transliteration', async () => {
+  // It was Roman until v1.2.0 — the one thing the flow file's own note warns
+  // against. Bulbul is asked to speak te-IN/hi-IN and reads Latin text as
+  // transliterated English, which is what made the voice sound synthetic. The
+  // flow greets were converted and this file was missed, so the FALLBACK
+  // disclosure was still the bad format and nothing caught it.
+  const fs = await import('node:fs');
+  const p = JSON.parse(fs.readFileSync(new URL('../caller-agent/flows/anaga.persona.json', import.meta.url), 'utf8'));
+  const flow = JSON.parse(fs.readFileSync(new URL('../caller-agent/flows/real-estate-qualify.flow.json', import.meta.url), 'utf8'));
+
+  const TELUGU = /[ఀ-౿]/, DEVANAGARI = /[ऀ-ॿ]/;
+  for (const [set, where] of [[p.disclosure, 'disclosure'], [p.disclosure.male, 'male disclosure']]) {
+    assert.match(set['te-IN'], TELUGU, `${where} te-IN must be in Telugu script`);
+    assert.match(set['hi-IN'], DEVANAGARI, `${where} hi-IN must be in Devanagari`);
+  }
+  for (const dir of ['outbound', 'inbound']) {
+    assert.match(flow.directions[dir].greet['te-IN'], TELUGU, `${dir} te-IN greet`);
+    assert.match(flow.directions[dir].greet['hi-IN'], DEVANAGARI, `${dir} hi-IN greet`);
+  }
+});
+
+await t('SHE CODE-MIXES — the property words stay English, in native script', async () => {
+  // "Too Telugu-ish" was the complaint, and it was right: nobody in Hyderabad
+  // says the pure Telugu word for budget or site visit. They say the English
+  // word inside a Telugu sentence — written in Telugu script, because Latin
+  // text inside an Indic line is what the speech engine mispronounces.
+  const fs = await import('node:fs');
+  const flow = JSON.parse(fs.readFileSync(new URL('../caller-agent/flows/real-estate-qualify.flow.json', import.meta.url), 'utf8'));
+  const te = flow.globals.style.examples['te-IN'].join(' ');
+  const hi = flow.globals.style.examples['hi-IN'].join(' ');
+
+  assert.match(te, /బడ్జెట్/, 'budget stays English, in Telugu script');
+  assert.match(te, /సైట్ విజిట్/, 'site visit stays English');
+  assert.match(te, /ఇన్వెస్ట్‌మెంట్/, 'investment stays English');
+  assert.match(hi, /बजट/);
+  assert.match(hi, /साइट विजिट/);
+  // …and NOT in Latin letters, which is the failure mode this replaces.
+  assert.doesNotMatch(te, /[A-Za-z]/, 'no Latin letters in the Telugu register');
+  assert.doesNotMatch(hi, /[A-Za-z]/, 'no Latin letters in the Hindi register');
+});
+
+await t('the register reaches the PROMPT, not just the flow file', async () => {
+  // Examples nobody shows the model are decoration. The qualification questions
+  // are composed per turn, so this is the only thing standing between the flow
+  // and textbook Telugu.
+  const { sylRules } = await import('../api/_lib/prompts.js');
+  const { loadFlow } = await import('../api/_lib/flow.js');
+  const te = sylRules(loadFlow(), undefined, { lang: 'te-IN', direction: 'outbound' });
+  assert.match(te, /CODE-MIX/, 'the rule must be stated');
+  assert.match(te, /బడ్జెట్/, 'and the examples must actually be in the prompt');
+  const en = sylRules(loadFlow(), undefined, { lang: 'en-IN', direction: 'outbound' });
+  assert.doesNotMatch(en, /బడ్జెట్/, 'an English call must not be shown Telugu examples');
 });
 
 await t('the browser ships the same gendered pair', async () => {

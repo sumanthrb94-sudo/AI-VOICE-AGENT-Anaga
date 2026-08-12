@@ -139,9 +139,13 @@
     for (var i = 0; i < OPT_OUT.length; i++) if (s.indexOf(OPT_OUT[i]) !== -1) return true;
     return false;
   }
+  // Code-mixed, and in NATIVE SCRIPT. The Hindi line here was still Roman
+  // transliteration, which Bulbul reads as transliterated English when it has
+  // been asked to speak hi-IN — the same bug the flow file warns about, left
+  // behind in the client when the flow greets were converted.
   var BYE = {
-    "te-IN": "సరే, అర్థమైంది. మిమ్మల్ని డు-నాట్-కాల్ జాబితాలో చేరుస్తాను. ధన్యవాదాలు.",
-    "hi-IN": "Theek hai, samajh gayi. Main aapka number do-not-call list mein daal deti hoon. Dhanyavaad.",
+    "te-IN": "సరే, అర్థమైంది. మీ నంబర్‌ని డు-నాట్-కాల్ లిస్ట్‌లో యాడ్ చేస్తున్నాను. డిస్టర్బ్ చేసినందుకు సారీ.",
+    "hi-IN": "ठीक है, समझ गयी। मैं आपका नंबर डू-नॉट-कॉल लिस्ट में डाल देती हूँ। डिस्टर्ब करने के लिए सॉरी।",
     "en-IN": "Understood. I'll add your number to our do-not-call list right away. Sorry to disturb you."
   };
 
@@ -374,8 +378,10 @@
   // Only when the brain is down. Deliberately dumb — not a second agent to keep
   // in sync with the flow, just enough that the screen never goes dead.
   var FALLBACK = {
-    "te-IN": ["మీరు ఉండటానికా, పెట్టుబడి కోసమా?", "మీ బడ్జెట్ ఎంత?", "ఎన్ని బెడ్‌రూమ్‌లు?", "సైట్ విజిట్ పెట్టుకుందామా?"],
-    "hi-IN": ["Aap rehne ke liye dekh rahe hain ya investment ke liye?", "Aapka budget kitna hai?", "Kitne bedroom chahiye?", "Site visit rakh lein?"],
+    "te-IN": ["ఉండటానికి చూస్తున్నారా, లేక ఇన్వెస్ట్‌మెంట్ కోసమా?", "బడ్జెట్ ఎంత దాకా ఆలోచిస్తున్నారు?",
+      "టూ బీహెచ్‌కే నా, త్రీ బీహెచ్‌కే నా?", "ఈ వీకెండ్ సైట్ విజిట్ పెట్టుకుందామా?"],
+    "hi-IN": ["रहने के लिए देख रहे हैं या इन्वेस्टमेंट के लिए?", "बजट कितने तक सोच रहे हैं?",
+      "टू बीएचके या थ्री बीएचके?", "इस वीकेंड साइट विजिट रख लें?"],
     "en-IN": ["Are you looking to live in it, or to invest?", "What budget are you working with?", "How many bedrooms?", "Shall we set up a site visit?"]
   };
   function fallback() {

@@ -1,7 +1,7 @@
 {
   "$schema": "../../shared/flow.schema.json",
   "id": "real-estate-qualify",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "persona": "anaga",
   "vertical": "real-estate",
   "project": {
@@ -29,21 +29,46 @@
       "lines": {
         "te-IN": [
           "సరే",
+          "ఓకే",
           "అలాగే",
-          "అవునా",
           "హా, అర్థమైంది"
         ],
         "hi-IN": [
-          "theek hai",
-          "achha",
-          "haan, samajh gayi",
-          "ji"
+          "ठीक है",
+          "ओके",
+          "अच्छा",
+          "जी"
         ],
         "en-IN": [
           "okay",
           "right",
           "mm-hmm",
           "got it"
+        ]
+      }
+    },
+    "style": {
+      "note": "HOW SHE SHOULD SOUND, per language, shown to the model as house style rather than as lines to recite. The qualification questions are not duplicated per language — the model composes them — so without examples it defaults to textbook Telugu and Hindi. These are the register, not the script.",
+      "examples": {
+        "te-IN": [
+          "ఉండటానికి చూస్తున్నారా, లేక ఇన్వెస్ట్‌మెంట్ కోసమా?",
+          "బడ్జెట్ ఎంత దాకా ఆలోచిస్తున్నారు?",
+          "టూ బీహెచ్‌కే నా, త్రీ బీహెచ్‌కే నా?",
+          "ఈ వీకెండ్ సైట్ విజిట్ పెట్టుకుందామా?",
+          "పొజెషన్ వచ్చే ఇయర్ మార్చ్‌లో ఉంది."
+        ],
+        "hi-IN": [
+          "रहने के लिए देख रहे हैं या इन्वेस्टमेंट के लिए?",
+          "बजट कितने तक सोच रहे हैं?",
+          "टू बीएचके या थ्री बीएचके?",
+          "इस वीकेंड साइट विजिट रख लें?",
+          "पजेशन अगले साल मार्च में है।"
+        ],
+        "en-IN": [
+          "Are you looking to live in it, or to invest?",
+          "What budget are you working with?",
+          "Two BHK or three BHK?",
+          "Shall we set up a site visit this weekend?"
         ]
       }
     }
@@ -198,7 +223,7 @@
     }
   ],
   "directions": {
-    "_note": "How the call STARTED. Everything after the opening — the qualification questions, the scoring, the closing, the opt-out — is identical, and is deliberately NOT duplicated here: two copies of a qualification script drift, and the one that drifts is the one nobody is reading. Only the opening and the consent model differ, because only they actually do. {project} and {city} are substituted from `project` above so a greeting cannot name a development this flow is not selling. Every line is reviewed wording, never machine-translated — same rule as the disclosure in anaga.persona.json. SCRIPT: the Hindi and Telugu lines are in NATIVE SCRIPT, not Roman transliteration. Bulbul is asked to speak te-IN/hi-IN and was being handed Latin text, which it pronounces as transliterated English — the single loudest reason the voice sounded synthetic. The em dashes were replaced with commas for the same reason: they are read as an unnatural break. These are transcriptions of the same reviewed wording, not a rewrite, and still want a native speaker's ear before launch.",
+    "_note": "How the call STARTED. Everything after the opening — the qualification questions, the scoring, the closing, the opt-out — is identical, and is deliberately NOT duplicated here: two copies of a qualification script drift, and the one that drifts is the one nobody is reading. Only the opening and the consent model differ, because only they actually do. {project} and {city} are substituted from `project` above so a greeting cannot name a development this flow is not selling. Every line is reviewed wording, never machine-translated — same rule as the disclosure in anaga.persona.json. SCRIPT: the Hindi and Telugu lines are in NATIVE SCRIPT, not Roman transliteration. Bulbul is asked to speak te-IN/hi-IN and was being handed Latin text, which it pronounces as transliterated English — the single loudest reason the voice sounded synthetic. The em dashes were replaced with commas for the same reason: they are read as an unnatural break. These are transcriptions of the same reviewed wording, not a rewrite, and still want a native speaker's ear before launch. REGISTER: the Telugu and Hindi lines are CODE-MIXED, which is what these calls actually sound like in Hyderabad — property vocabulary stays English (enquiry, time, budget, site visit, investment) inside a Telugu or Hindi sentence. Pure literary Telugu reads as a government notice being recited, which is the 'too Telugu-ish' complaint. The English words are written in NATIVE SCRIPT (ఎంక్వైరీ, టైమ్) rather than Latin, for the reason above: Bulbul mispronounces Latin text inside an Indic sentence.",
     "outbound": {
       "label": "We ring a lead who left their number on a Meta or Instagram ad",
       "consent": "explicit",
@@ -209,8 +234,8 @@
       ],
       "greet": {
         "en-IN": "Hi, I'm Anaga, an AI voice assistant from Vaak. You asked about {project} in {city} on Instagram — is now a good time to talk for two minutes?",
-        "hi-IN": "नमस्ते, मैं अनगा हूँ, वाक् की एक AI वॉइस असिस्टेंट। आपने इंस्टाग्राम पर {city} के {project} के बारे में पूछा था। क्या मैं दो मिनट बात कर सकती हूँ?",
-        "te-IN": "నమస్కారం, నేను అనగా, వాక్ నుంచి ఒక AI వాయిస్ అసిస్టెంట్. మీరు ఇన్‌స్టాగ్రామ్‌లో {city}లో ఉన్న {project} గురించి అడిగారు. కొన్ని నిమిషాలు మాట్లాడొచ్చా?"
+        "hi-IN": "नमस्ते, मैं अनगा हूँ, वाक् की AI वॉइस असिस्टेंट। आपने इंस्टाग्राम पर {city} के {project} के बारे में एन्क्वायरी की थी ना। दो मिनट का टाइम है क्या?",
+        "te-IN": "హలో, నేను అనగా, వాక్ నుంచి AI వాయిస్ అసిస్టెంట్‌ని. మీరు ఇన్‌స్టాగ్రామ్‌లో {city}లోని {project} గురించి ఎంక్వైరీ చేశారు కదా. రెండు నిమిషాలు టైమ్ ఉందా?"
       },
       "rules": [
         "They left their number on a Meta or Instagram ad for this project. SAY SO in the opening — that enquiry is the reason this call is permitted at all, and a stranger who cannot place you hangs up.",
@@ -228,8 +253,8 @@
       ],
       "greet": {
         "en-IN": "Thanks for calling Vaak — I'm Anaga, an AI voice assistant. Are you calling about {project}?",
-        "hi-IN": "वाक् में कॉल करने के लिए धन्यवाद। मैं अनगा हूँ, एक AI वॉइस असिस्टेंट। क्या आप {project} के बारे में पूछ रहे हैं?",
-        "te-IN": "వాక్‌కి కాల్ చేసినందుకు ధన్యవాదాలు. నేను అనగా, ఒక AI వాయిస్ అసిస్టెంట్. మీరు {project} గురించి అడుగుతున్నారా?"
+        "hi-IN": "वाक् में कॉल करने के लिए थैंक यू। मैं अनगा हूँ, AI वॉइस असिस्टेंट। क्या आप {project} के बारे में कॉल कर रहे हैं?",
+        "te-IN": "వాక్‌కి కాల్ చేసినందుకు థాంక్యూ. నేను అనగా, AI వాయిస్ అసిస్టెంట్‌ని. మీరు {project} గురించి కాల్ చేస్తున్నారా?"
       },
       "rules": [
         "THEY rang YOU. Do not ask permission to talk and do not apologise for calling — they started this, and asking 'is now a good time?' of someone who just dialled you sounds like a machine reading a script.",

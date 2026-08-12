@@ -68,6 +68,16 @@ function backchannelLines(raw) {
   return out;
 }
 
+/** { lang: [line, …] } — a handful of register examples, per language. */
+function styleExamples(raw) {
+  const out = {};
+  for (const lang of LANGS) {
+    const lines = arr(obj(raw)[lang]).filter(str).map((s) => s.trim()).slice(0, 8);
+    if (lines.length) out[lang] = lines;
+  }
+  return out;
+}
+
 /**
  * The flow, normalized and guaranteed well-shaped. Never throws, never returns
  * a hole — a caller can use every field without checking it first.
@@ -109,6 +119,12 @@ export function loadFlow() {
     // anything long enough to carry a claim does not belong in a line spoken
     // before the model has decided anything.
     backchannel: backchannelLines(obj(obj(f.globals).backchannel).lines),
+    // HOW SHE SHOULD SOUND, per language. The qualification questions are not
+    // written per language — the model composes them — so with nothing to go on
+    // it produces textbook Telugu and Hindi, which is correct and reads as a
+    // government notice being recited. These are register examples, not lines
+    // to recite, and they live in the flow because they are wording.
+    style: styleExamples(obj(obj(f.globals).style).examples),
     directions: loadDirections(f),
     qualification: {
       fields,

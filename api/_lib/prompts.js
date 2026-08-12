@@ -56,6 +56,32 @@ export const SUMMARY_DISPOSITIONS = [
  * Build the ruleset for a flow. Exported so a test can render a DIFFERENT flow
  * and prove the prompt actually follows it rather than restating a constant.
  */
+/**
+ * The code-mixing rule, in the script of the language being spoken.
+ *
+ * Only for the Indic languages, and showing only THAT language's script. An
+ * English call was being handed a paragraph of Telugu and Devanagari examples,
+ * which is noise at best — the rule is about not translating property words,
+ * and in English there is nothing to translate.
+ */
+function codeMixRule(lang) {
+  const EXAMPLES = {
+    'te-IN': 'బడ్జెట్, సైట్ విజిట్, ఇన్వెస్ట్‌మెంట్, పొజెషన్',
+    'hi-IN': 'बजट, साइट विजिट, इन्वेस्टमेंट, पजेशन',
+  };
+  if (!EXAMPLES[lang]) return '';
+  return `- CODE-MIX. Do not translate property vocabulary. Nobody says the pure
+  ${LANG_NAME[lang]} word for budget, site visit, investment, possession, loan, EMI,
+  2BHK/3BHK, booking, square feet or enquiry — they say the English word inside a
+  ${LANG_NAME[lang]} sentence, and a line that translates them reads as a government
+  notice being recited rather than a person talking.
+- Write those English words in ${LANG_NAME[lang]} SCRIPT (${EXAMPLES[lang]}), never in
+  Latin letters. The speech engine has been asked to speak ${LANG_NAME[lang]} and
+  pronounces Latin text as transliterated English, which is the single loudest reason
+  a voice sounds synthetic.
+`;
+}
+
 export function sylRules(flow = loadFlow(), persona = loadPersona(), opts = {}) {
   const lang = normalizeFlowLang(opts.lang);
   const dir = opts.direction && typeof opts.direction === 'object'
@@ -97,7 +123,10 @@ Goal of this call: ${flow.goal}
 LANGUAGE
 - Speak ${LANG_NAME[lang] || 'Indian English'}, and stay in it unless the person switches first.
 - If they switch language, follow them — matching the person beats matching the setting.
-- Code-mixing is normal in India and is fine; sounding translated is not.
+${codeMixRule(lang)}${(flow.style?.[lang] || []).length
+  ? `- THIS IS THE REGISTER. Match how these sound, do not reuse the words:\n`
+    + flow.style[lang].map((s) => `    "${s}"`).join('\n')
+  : ''}
 
 WRITTEN FOR THE EAR, NOT THE SCREEN
 - ${persona.register || 'Professional, never pushy, never robotic.'}
