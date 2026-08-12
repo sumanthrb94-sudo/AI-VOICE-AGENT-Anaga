@@ -21,6 +21,9 @@
 // exactly how caller-agent/src/media/server.js already treats Plivo and Exotel.
 
 import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { upgrade, isUpgrade } from '../media/ws.js';
 import { createBridge } from './bridge.js';
 import {
@@ -29,6 +32,33 @@ import {
 
 const SAMPLE_RATE = 16000;
 const MAX_BODY = 64 * 1024;
+
+// The call page, served from the same origin as the socket. Not a web server
+// ambition — it means the local loop is ONE command and live.js can default to
+// this host instead of asking somebody to type a WebSocket URL on a phone.
+const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'web');
+const MIME = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8', '.json': 'application/json',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon',
+};
+
+/** Serve a static file, or return false so the caller can 404. */
+function serveStatic(pathname, res) {
+  if (process.env.AGENT_SERVE_WEB === '0') return false;
+  const rel = pathname === '/' ? 'live.html' : pathname.replace(/^\//, '');
+  const file = path.resolve(WEB, rel);
+  // CONTAINMENT. `path.resolve` collapses "..", and this is what stops
+  // /../../etc/passwd — the check must be on the RESOLVED path, not the URL.
+  if (!file.startsWith(WEB + path.sep)) return false;
+  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return false;
+  res.writeHead(200, {
+    'content-type': MIME[path.extname(file)] || 'application/octet-stream',
+    'cache-control': 'no-cache',
+  });
+  res.end(fs.readFileSync(file));
+  return true;
+}
 
 /**
  * @param {object} o
@@ -39,12 +69,12 @@ const MAX_BODY = 64 * 1024;
  */
 export function createAgentServer(o = {}) {
   const server = http.createServer(async (req, res) => {
-    const path = String(req.url || '').split('?')[0];
+    const path_ = String(req.url || '').split('?')[0];
 
     // ── TWILIO ANSWERS HERE ─────────────────────────────────────────────
     // Twilio POSTs this when a call arrives; the TwiML we return connects the
     // audio to /twilio. It is form-encoded, not JSON.
-    if (path === '/incoming-call' && req.method === 'POST') {
+    if (path_ === '/incoming-call' && req.method === 'POST') {
       const raw = await readBody(req);
       const params = Object.fromEntries(new URLSearchParams(raw));
       const token = process.env.TWILIO_AUTH_TOKEN;
@@ -70,7 +100,7 @@ export function createAgentServer(o = {}) {
       return;
     }
 
-    if (path === '/health') {
+    if (path_ === '/health') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({
         ok: true, sampleRate: SAMPLE_RATE,
@@ -79,19 +109,21 @@ export function createAgentServer(o = {}) {
       }));
       return;
     }
+    if (req.method === 'GET' && serveStatic(path_, res)) return;
+
     res.writeHead(404, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: 'not_found' }));
   });
 
   server.on('upgrade', (req, socket, head) => {
-    const path = String(req.url || '').split('?')[0];
+    const path_ = String(req.url || '').split('?')[0];
     if (!isUpgrade(req)) { socket.destroy(); return; }
-    if (path === '/agent') {
+    if (path_ === '/agent') {
       const ws = upgrade(req, socket, head);
       if (ws) attach(ws, o);
       return;
     }
-    if (path === '/twilio') {
+    if (path_ === '/twilio') {
       const ws = upgrade(req, socket, head);
       if (ws) attachTwilio(ws, o);
       return;

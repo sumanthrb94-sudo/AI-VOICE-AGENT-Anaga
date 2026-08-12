@@ -87,6 +87,11 @@ jobs:
       - name: Live call QA (the streaming bridge — barge-in as an event, not a guess)
         run: node --experimental-detect-module scripts/test-agent-bridge.mjs
 
+      - name: Streaming page QA (a real browser, a real socket, real PCM)
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers
+        run: node scripts/test-browser-live.mjs
+
       - name: Self-hosted voice QA (telephony sample rates — the chipmunk bug)
         run: node --experimental-detect-module scripts/test-voicestudio.mjs
 

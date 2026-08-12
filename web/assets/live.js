@@ -51,6 +51,7 @@
     function start(lang, direction) {
       if (ws || closed) return Promise.resolve(false);
       if (opts.onState) opts.onState("connecting");
+      global.__micLive = true;
 
       return navigator.mediaDevices.getUserMedia({
         audio: {
@@ -76,9 +77,20 @@
         });
         ctx.createMediaStreamSource(stream).connect(capture);
         playback.connect(ctx.destination);
-        // The capture node produces no output; connecting it to nothing would
-        // let some browsers garbage-collect it mid-call.
-        capture.connect(ctx.createGain());
+
+        // THE CAPTURE NODE MUST REACH THE DESTINATION, THROUGH SILENCE.
+        //
+        // A Web Audio graph only pulls nodes on a path to ctx.destination. The
+        // capture worklet produces no output, so connecting it to a dangling
+        // gain node — which looks tidy — means it is never pulled, process()
+        // never runs, and not one byte is ever captured. The socket opens, she
+        // greets, and the microphone silently does nothing.
+        //
+        // So it is connected all the way through, at zero gain: in the graph,
+        // and inaudible.
+        var mute = ctx.createGain();
+        mute.gain.value = 0;
+        capture.connect(mute).connect(ctx.destination);
 
         return open(lang, direction);
       }).catch(function (err) {
@@ -103,14 +115,21 @@
           // the call connected, and replaying it makes her answer a noise from
           // before she was listening.
           capture.port.onmessage = function (e) {
-            if (ws && ws.readyState === 1) ws.send(e.data);
+            if (ws && ws.readyState === 1) {
+              ws.send(e.data);
+              global.__sentBytes = (global.__sentBytes || 0) + e.data.byteLength;
+            }
           };
           if (opts.onState) opts.onState("live");
           done(true);
         };
 
         ws.onmessage = function (e) {
-          if (typeof e.data !== "string") { playback.port.postMessage(e.data, [e.data]); return; }
+          if (typeof e.data !== "string") {
+            global.__gotAudio = (global.__gotAudio || 0) + e.data.byteLength;
+            playback.port.postMessage(e.data, [e.data]);
+            return;
+          }
           var m;
           try { m = JSON.parse(e.data); } catch (err) { return; }
           // BARGE-IN reaches the speaker before it reaches the UI. Everything
@@ -131,6 +150,7 @@
       try { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "stop" })); } catch (e) {}
       try { if (ws) ws.close(); } catch (e) {}
       if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+      global.__micLive = false;
       if (ctx && ctx.close) { try { ctx.close(); } catch (e) {} }
       ws = null; stream = null; ctx = null; capture = null; playback = null;
     }
