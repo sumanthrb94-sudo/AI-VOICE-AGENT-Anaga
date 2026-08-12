@@ -445,10 +445,16 @@ await t('THE PHONE LEG RUNS THE SAME CONVERSATION', async () => {
   attachTwilio(fakeSock, {
     think: async () => ({ say: 'Are you looking to live in it, or to invest?', end: false }),
     speak: async (t2, l, fmt) => { askedFormat = fmt; return Buffer.from([0xff, 0x7f]); },
+    greeting: async () => 'Thanks for calling Vaak. I am Anaga, an AI voice assistant.',
   });
 
   handlers.message(JSON.stringify({ event: 'start', start: { streamSid: 'MZ9' } }), 'text');
   await new Promise((r) => setTimeout(r, 60));
+  // SHE DISCLOSES ON ANSWER. This was missing, and a simulated call found it:
+  // the socket opened and sat in silence until the caller spoke. Consent to an
+  // inbound call is implied by their dialling; knowing they are talking to an
+  // AI is not — and a caller who hears nothing hangs up anyway.
+  assert.ok(sent.length > 0, 'an answered call must speak first, not wait to be spoken to');
   handlers.message(JSON.stringify({
     event: 'media', media: { track: 'inbound', payload: 'AAAA' },
   }), 'text');

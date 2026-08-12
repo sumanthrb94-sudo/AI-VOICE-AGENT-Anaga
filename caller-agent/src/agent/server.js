@@ -156,6 +156,25 @@ export function attachTwilio(ws, o = {}) {
       } catch (err) {
         console.error(JSON.stringify({ event: 'twilio_bridge_failed', reason: String(err?.message || err) }));
         try { ws.close(1011, 'agent'); } catch { /* gone */ }
+        return;
+      }
+
+      // SHE SPEAKS FIRST, AND THAT IS NOT A NICETY.
+      //
+      // This was missing, and a simulated call found it: the socket opened and
+      // then sat in silence until the caller said something. On an inbound call
+      // the first sentence is the DISCLOSURE — consent to the call is implied
+      // by their dialling, but knowing they are talking to an AI is not, and
+      // the flow's inbound rules say so in as many words.
+      //
+      // A caller who hears nothing also just hangs up.
+      if (o.greeting) {
+        (async () => {
+          try { await bridge.greet(await o.greeting(lang, 'inbound')); }
+          catch (err) {
+            console.error(JSON.stringify({ event: 'twilio_greet_failed', reason: String(err?.message || err) }));
+          }
+        })();
       }
       return;
     }
