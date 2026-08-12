@@ -107,17 +107,59 @@ deploy to cannot hold the connection that would let us use theirs.
 
 Not free, and two of these need a decision rather than an implementation.
 
-**A host for a long-lived process.** Fly.io (Deepgram's own reference uses
-`fly.toml`), Render, Railway, Cloud Run. The Vercel functions stay for the
-webhook/CRM/console surface; only the call leg moves.
+**A host for a long-lived process — decided: Google Cloud Run, `asia-south1`.**
+It holds WebSockets, scales to zero between demos, sits in Mumbai next to every
+vendor on this pipeline, and the project already carries Google credentials for
+TTS and translation. The Vercel functions stay exactly as they are for the
+webhook, CRM, console and health surface; only the call leg moves.
 
-**Telugu, which is the real constraint.** Voice Agent's `speak` providers are
-Deepgram Aura, ElevenLabs, Cartesia, OpenAI and AWS Polly — **Sarvam is not on
-that list**, and Aura is English-first. The settings schema does allow a
-**custom TTS endpoint** (`https`, and `wss` for ElevenLabs only), so pointing
-`speak` at our own endpoint wrapping Bulbul looks possible — **unverified**. If
-it does not work, Telugu keeps the current architecture and only English moves,
-which is a worse outcome than it sounds: two pipelines to maintain.
+**Telugu, which is the real constraint — and the spike came back negative.**
+
+`agent.speak.endpoint` is **not** a generic "point at any TTS service" hook. It
+is an endpoint *override for a provider Deepgram already knows*: you set
+`provider.type: "open_ai"` and then redirect the URL at, say, your Azure OpenAI
+deployment. To put Sarvam Bulbul behind it we would have to make our service
+**impersonate OpenAI's TTS wire protocol** — accept their request shape, return
+their audio shape — and hope Deepgram never changes it.
+
+Worse, `agent.listen.provider.type` documents **"Currently only Deepgram is
+supported"**. So inside the Voice Agent API, Saaras cannot be the recogniser at
+all, and Telugu would run on Deepgram STT pinned to `te` — the exact
+can't-code-switch problem from docs/VAD.md §6.
+
+Adopting the all-in-one agent therefore means: shim OpenAI's TTS protocol to
+keep her voice, shim a BYO LLM endpoint to keep the flow prompt, and give up
+Saaras' auto-detection on the language we sell in hardest. That is three
+workarounds to buy orchestration we can write in an afternoon.
+
+### So: components, not the all-in-one agent
+
+Use Deepgram for the leg it is best at and keep the rest:
+
+```
+   BROWSER ──PCM──►  our WS server (Cloud Run, asia-south1)
+                       │
+                       ├─ audio ──────►  wss://api.deepgram.com/v1/listen
+                       │                 Flux / Nova-3 streaming STT
+                       │  ◄── interim transcripts, speech_start / speech_end,
+                       │      native turn-taking  ── THE VAD AND ENDPOINTER
+                       │
+                       ├─ turn ───────►  Sarvam / Gemini  (our flow prompt)
+                       │
+                       └─ text ───────►  Sarvam Bulbul   (her actual Telugu voice)
+   BROWSER ◄─audio─────┘                 streaming TTS
+```
+
+What this keeps that the all-in-one gives up: **Bulbul's Telugu**, **Saaras as a
+fallback recogniser**, the **versioned flow and persona** as the prompt, and the
+**compliance surface** — the gate, the suppression list, opt-out overriding the
+model. What it gains, which is the entire complaint list: streaming STT,
+server-side neural VAD, real turn-taking, streaming TTS, no base64, no
+serial pipeline.
+
+The Voice Agent API stays the right answer for a *plain English* agent. It is
+the wrong shape for a bilingual product whose voice and compliance are the
+product.
 
 **The compliance surface stays ours regardless.** The gate, the suppression
 list, opt-out overriding the model, the calling window, recording residency —
