@@ -227,6 +227,59 @@ export async function deleteDoc(collection, id) {
   return res.ok ? { ok: true } : { ok: false, error: `firestore_${res.status}` };
 }
 
+/**
+ * Verify real persistence without touching lead, suppression, call, or user
+ * documents. The caller supplies one existing low-risk collection (the event
+ * log), the verifier writes an identifiable ephemeral probe, reads it back, and
+ * deletes it before returning. A credential that can only ping but cannot write
+ * is not production-ready for opt-outs or call records.
+ */
+export async function verifyPersistence(collection) {
+  if (!firestoreConfigured()) return { ok: false, error: 'firestore_not_configured', cleaned: true };
+  const safeCollection = String(collection || '').trim();
+  if (!safeCollection) return { ok: false, error: 'firestore_collection_required', cleaned: true };
+
+  const id = `__vaak_verify_${typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : crypto.randomBytes(16).toString('hex')}`;
+  const marker = `firestore_verify_${Date.now()}`;
+  let written = false;
+  let result = { ok: false, error: 'firestore_probe_not_run', cleaned: true };
+
+  try {
+    const write = await setDoc(safeCollection, id, {
+      type: 'firestore.verify',
+      marker,
+      at: new Date().toISOString(),
+      ephemeral: true,
+    });
+    if (!write.ok) return { ok: false, error: write.error || 'firestore_write_failed', cleaned: true };
+    written = true;
+
+    const read = await getDoc(safeCollection, id);
+    if (!read.ok || !read.found || read.data?.marker !== marker) {
+      result = { ok: false, error: read.error || 'firestore_readback_failed', cleaned: false };
+    } else {
+      result = { ok: true, error: null, cleaned: false };
+    }
+  } catch (err) {
+    result = { ok: false, error: String(err?.message || 'firestore_probe_failed'), cleaned: false };
+  }
+
+  if (!written) return result;
+  const removal = await deleteDoc(safeCollection, id);
+  if (!removal.ok) {
+    return { ok: false, error: removal.error || 'firestore_probe_cleanup_failed', cleaned: false };
+  }
+  // Firestore can acknowledge a delete for a missing document. Read once more
+  // so this endpoint certifies cleanup instead of assuming an HTTP 200 did it.
+  const afterDelete = await getDoc(safeCollection, id);
+  if (!afterDelete.ok || afterDelete.found) {
+    return { ok: false, error: afterDelete.error || 'firestore_probe_cleanup_unverified', cleaned: false };
+  }
+  return { ...result, cleaned: true };
+}
+
 /** Append a document with a server-generated id. */
 export async function addDoc(collection, data) {
   const res = await call(`/${collection}`, { method: 'POST', body: { fields: toFields(data) } });

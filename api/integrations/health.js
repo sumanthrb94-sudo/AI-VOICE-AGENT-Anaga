@@ -109,6 +109,8 @@ export default async function handler(req, res) {
       metaWebhook: '/api/integrations/meta/leads',
       leadIntake: '/api/leads/intake',
       callOutcome: '/api/calls/outcome',
+      // Requires INTEGRATIONS_API_KEY and performs a write-read-delete probe.
+      firestoreVerify: '/api/integrations/firestore-verify',
       turn: '/api/anaga/turn',
       summary: '/api/anaga/summary',
     },

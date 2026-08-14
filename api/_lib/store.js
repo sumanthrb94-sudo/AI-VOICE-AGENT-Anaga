@@ -26,6 +26,7 @@
 
 import {
   firestoreConfigured, getDoc, setDoc, addDoc, createDocIfAbsent, query, ping, projectId,
+  verifyPersistence as verifyFirestorePersistence,
 } from './firestore.js';
 
 /**
@@ -71,6 +72,29 @@ export async function storeStatus() {
     projectId: projectId(),
     reachable: p.ok,
     error: p.ok ? null : p.error,
+  };
+}
+
+/**
+ * A privileged write-read-delete verification for the configured Firestore
+ * account. It uses the existing event collection only and leaves no document
+ * behind; callers must authenticate before invoking it.
+ */
+export async function verifyStorePersistence() {
+  if (!firestoreConfigured()) {
+    return { backend: 'memory', durable: false, verified: false, cleaned: true, error: 'store_not_configured' };
+  }
+  const checked = await safely(
+    () => verifyFirestorePersistence(COL.events),
+    { ok: false, cleaned: false, error: 'firestore_probe_failed' }
+  );
+  return {
+    backend: 'firestore',
+    durable: checked.ok === true,
+    verified: checked.ok === true && checked.cleaned === true,
+    cleaned: checked.cleaned === true,
+    projectId: projectId(),
+    error: checked.ok ? null : (checked.error || 'firestore_probe_failed'),
   };
 }
 

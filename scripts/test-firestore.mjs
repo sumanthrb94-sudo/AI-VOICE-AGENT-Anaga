@@ -185,6 +185,13 @@ if (!CREDENTIAL) {
     assert.ok(s.projectId, 'a project id should be reported');
   });
 
+  await t('the persistence verifier writes, reads, and proves its probe was deleted', async () => {
+    const verified = await store.verifyStorePersistence();
+    assert.equal(verified.backend, 'firestore');
+    assert.equal(verified.verified, true, `persistence was not certified: ${verified.error}`);
+    assert.equal(verified.cleaned, true, 'the verifier must prove its temporary event was removed');
+  });
+
   await t('a suppressed number reads back as suppressed', async () => {
     const phone = wrote('suppression', `+9199000${String(stamp).slice(-5)}`);
     const before = await store.isSuppressed(phone);

@@ -18,6 +18,7 @@ hand warm prospects to human closers — compliant with TRAI/DLT/DND by design.
 | `docs/CLEAN_REBUILD_ADR.md` | **Clean-build decision: runtime boundary, Firebase preservation, and gates** | **Engineering / CEO** |
 | `docs/REPOSITORY_AUDIT_2026-08-14.md` | **End-to-end audit, validation evidence, and production gates** | **Engineering / CEO** |
 | `docs/IMPLEMENTATION_UPDATE_2026-08-14.md` | **Provider metering, deployment readiness, and required production actions** | **Engineering / CEO** |
+| `docs/FIRESTORE_PRODUCTION_RUNBOOK.md` | **Existing Firebase activation and write-read-delete persistence certification** | **Engineering / operations** |
 | `docs/VOICE_AGENT_RESEARCH.md` | Verified Sarvam, Deepgram, Pipecat, and telephony research notes | Engineering |
 | `docs/FINANCIAL_MODEL_NOTES.md` | Unit economics & market assumptions | Investors, founder |
 | `engineering/MULTI_AGENT_SPEC.md` | Production build spec, multi-agent design, work packages | **Engineering — build to this** |
@@ -69,6 +70,7 @@ pnpm test
 node --experimental-detect-module scripts/test-integrations.mjs   # 49
 node --experimental-detect-module scripts/test-media.mjs          # 13
 node --experimental-detect-module scripts/test-media-server.mjs   # 18
+node scripts/test-firestore-verify.mjs                            # 3 (authenticated persistence probe)
 node --experimental-detect-module scripts/test-firestore.mjs      # 6 (+6 live)
 node --experimental-detect-module scripts/test-echo.mjs           # 16
 node --experimental-detect-module scripts/test-voice.mjs          # 42
