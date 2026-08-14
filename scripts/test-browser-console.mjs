@@ -25,7 +25,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert';
-import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
+import { launchChromium } from './playwright.mjs';
 
 const ROOT = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
 const WEB = path.join(ROOT, 'web');
@@ -137,7 +137,7 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, r));
 const BASE = `http://127.0.0.1:${server.address().port}`;
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const browser = await launchChromium();
 const pageErrors = [];
 
 async function openConsole() {

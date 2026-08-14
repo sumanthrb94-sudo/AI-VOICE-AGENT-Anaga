@@ -1,0 +1,20 @@
+{
+  "name": "vaak-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.21.0",
+  "description": "Reproducible local validation tooling for Vaak AI.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test:core": "node scripts/test-firebase-contract.mjs && node --experimental-detect-module scripts/test-integrations.mjs && node --experimental-detect-module scripts/test-auth.mjs && node --experimental-detect-module scripts/test-firestore.mjs && node --experimental-detect-module scripts/test-echo.mjs && node --experimental-detect-module scripts/test-turn-detect.mjs && node --experimental-detect-module scripts/test-media.mjs && node --experimental-detect-module scripts/test-media-server.mjs && node --experimental-detect-module scripts/test-voice.mjs && node --experimental-detect-module scripts/test-stt.mjs && node --experimental-detect-module scripts/test-agent-bridge.mjs && node --experimental-detect-module scripts/test-voicestudio.mjs && node --experimental-detect-module scripts/test-call-tts.mjs && node --experimental-detect-module scripts/test-recording.mjs && node --experimental-detect-module scripts/test-call-record.mjs",
+    "test:browser": "node scripts/test-browser-live.mjs && node scripts/test-browser-demo.mjs && node scripts/test-browser-telugu.mjs && node scripts/test-browser-console.mjs",
+    "test:browser:install": "playwright install chromium",
+    "test": "pnpm run test:core && pnpm run test:browser"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

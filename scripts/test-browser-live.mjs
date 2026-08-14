@@ -14,7 +14,7 @@
 // Run: node scripts/test-browser-live.mjs
 
 import assert from 'node:assert';
-import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
+import { launchChromium } from './playwright.mjs';
 
 process.env.DEEPGRAM_API_KEY = 'test-key';
 
@@ -52,8 +52,7 @@ const server = createAgentServer({
 await new Promise((r) => server.listen(0, r));
 const BASE = `http://127.0.0.1:${server.address().port}`;
 
-const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium',
+const browser = await launchChromium({
   args: ['--autoplay-policy=no-user-gesture-required'],
 });
 const page = await (await browser.newContext({ permissions: ['microphone'] })).newPage();

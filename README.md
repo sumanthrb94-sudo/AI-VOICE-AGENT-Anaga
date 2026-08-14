@@ -15,6 +15,9 @@ hand warm prospects to human closers — compliant with TRAI/DLT/DND by design.
 | `docs/BUSINESS_PLAN.md` | Investment memorandum & business plan | **Investors / CEO — read first** |
 | `docs/COMPLIANCE.md` | India regulatory requirements + enforcement rules | Compliance owner, WP-5 |
 | `docs/INTEGRATIONS.md` | **Runbook: wiring Anaga to Meta Lead Ads + your CRM** | **Whoever connects a customer** |
+| `docs/CLEAN_REBUILD_ADR.md` | **Clean-build decision: runtime boundary, Firebase preservation, and gates** | **Engineering / CEO** |
+| `docs/REPOSITORY_AUDIT_2026-08-14.md` | **End-to-end audit, validation evidence, and production gates** | **Engineering / CEO** |
+| `docs/VOICE_AGENT_RESEARCH.md` | Verified Sarvam, Deepgram, Pipecat, and telephony research notes | Engineering |
 | `docs/FINANCIAL_MODEL_NOTES.md` | Unit economics & market assumptions | Investors, founder |
 | `engineering/MULTI_AGENT_SPEC.md` | Production build spec, multi-agent design, work packages | **Engineering — build to this** |
 | `engineering/LIVEKIT_REFERENCE.md` | What we took from livekit/agents, what we didn't, and why | Engineering |
@@ -53,6 +56,15 @@ turn loop, and reports outcomes back. **Launch readiness — including what is s
 blocking a real call — is in [`LAUNCH.md`](LAUNCH.md). Read it before pitching.**
 
 ```bash
+# One-time local browser-test setup
+corepack enable
+pnpm install
+pnpm run test:browser:install
+
+# Full reproducible validation
+pnpm test
+
+# Individual suites remain available:
 node --experimental-detect-module scripts/test-integrations.mjs   # 49
 node --experimental-detect-module scripts/test-media.mjs          # 13
 node --experimental-detect-module scripts/test-media-server.mjs   # 18

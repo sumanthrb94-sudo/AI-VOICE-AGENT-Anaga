@@ -19,7 +19,7 @@
 // Run: node scripts/test-browser-telugu.mjs
 
 import assert from 'node:assert';
-import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
+import { launchChromium } from './playwright.mjs';
 
 process.env.STUB_VENDORS = '1';
 process.env.SARVAM_API_KEY = process.env.SARVAM_API_KEY || 'test-key';
@@ -45,7 +45,7 @@ const server = createDevServer();
 await new Promise((r) => server.listen(0, r));
 const BASE = `http://127.0.0.1:${server.address().port}`;
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const browser = await launchChromium();
 const ctx = await browser.newContext();
 const page = await ctx.newPage();
 const pageErrors = [];

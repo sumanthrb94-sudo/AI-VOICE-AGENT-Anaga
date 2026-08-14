@@ -19,7 +19,7 @@
 // Run: node scripts/test-browser-demo.mjs
 
 import assert from 'node:assert';
-import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
+import { launchChromium } from './playwright.mjs';
 
 process.env.STUB_VENDORS = '1';
 process.env.SARVAM_API_KEY = process.env.SARVAM_API_KEY || 'test-key';
@@ -45,8 +45,7 @@ const BASE = `http://127.0.0.1:${server.address().port}`;
 // produces real WebM — so the pipeline under test is the one that ships, not a
 // stub of it. Without these flags getUserMedia rejects and the whole audio path
 // is untestable, which is how it went three rounds without one.
-const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium',
+const browser = await launchChromium({
   args: ['--use-fake-device-for-media-capture', '--use-fake-ui-for-media-stream',
     '--autoplay-policy=no-user-gesture-required'],
 });
