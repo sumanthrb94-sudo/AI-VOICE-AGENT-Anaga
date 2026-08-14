@@ -294,7 +294,7 @@ await t('the outcome endpoint drops a playable URL instead of storing it', async
 
 await t('playback requires the operator key', async () => {
   const fs = await import('node:fs');
-  const src = fs.readFileSync(new URL('../api/calls/recording.js', import.meta.url), 'utf8');
+  const src = fs.readFileSync(new URL('../api/calls/transcript.js', import.meta.url), 'utf8');
   assert.match(src, /authorize\(req\)/);
   // The signed URL IS a bearer credential for that object.
   assert.doesNotMatch(src, /log\([^)]*url/i, 'the minted URL must never be logged');

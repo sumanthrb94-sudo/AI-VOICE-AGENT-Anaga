@@ -33,6 +33,10 @@
   ],
   "rewrites": [
     {
+      "source": "/api/calls/recording",
+      "destination": "/api/calls/transcript?action=recording"
+    },
+    {
       "source": "/api/auth/:action",
       "destination": "/api/auth?action=:action"
     }
