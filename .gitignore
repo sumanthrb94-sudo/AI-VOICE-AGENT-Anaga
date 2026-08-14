@@ -58,3 +58,6 @@ obj/
 .swarm/
 deploy/indicf5/voices/*
 !deploy/indicf5/voices/README.md
+
+# AgentOS local development state — database is recreated at runtime.
+agentos/agentos.db
