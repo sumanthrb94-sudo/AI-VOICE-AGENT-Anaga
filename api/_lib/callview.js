@@ -13,11 +13,12 @@
 // takes a separate authenticated call to /api/calls/recording that logs itself.
 
 import { maskPhone } from './integrations/lead.js';
+import { sanitizeCallUsage } from '../../shared/call-usage.js';
 
 /**
  * @param {object} d                stored call document
  * @param {object} [opts]
- * @param {boolean} [opts.transcript]  include the conversation
+ * @param {boolean} [opts.transcript]  include the conversation and safe per-call usage summary
  */
 export function callView(d, { transcript = false } = {}) {
   if (!d || typeof d !== 'object') return null;
@@ -65,6 +66,10 @@ export function callView(d, { transcript = false } = {}) {
     out.transcript = (Array.isArray(d.transcript) ? d.transcript : [])
       .filter((t) => t && typeof t === 'object' && typeof t.text === 'string')
       .map((t) => ({ role: t.role === 'agent' ? 'agent' : 'user', text: t.text }));
+    // Usage is numeric/provider-only and is useful when reviewing why a call
+    // cost more than expected. It remains off the bulk list, just like the
+    // transcript, to minimise routine operator payloads.
+    out.usage = sanitizeCallUsage(d.usage);
   }
   return out;
 }

@@ -33,6 +33,7 @@ import { addToSuppression } from '../_lib/compliance.js';
 import * as crm from '../_lib/integrations/crm.js';
 import { limited, log, requestId } from '../_lib/guard.js';
 import { detectOptOut, transcriptHasOptOut } from '../../shared/optout.js';
+import { sanitizeCallUsage } from '../../shared/call-usage.js';
 
 export default async function handler(req, res) {
   if (!requireMethod(req, res, 'POST')) return;
@@ -52,6 +53,9 @@ export default async function handler(req, res) {
 
   const call = body.call && typeof body.call === 'object' ? body.call : {};
   const history = Array.isArray(body.history) ? body.history.filter(isTurn) : [];
+  // Metering arrives from the trusted caller agent. It is sanitized before any
+  // durable write and deliberately contains no audio, transcript, or lead data.
+  const usage = sanitizeCallUsage(body.usage || call.usage);
 
   const lead = normalizeLead(body.lead || {}, {
     source: body.lead?.source || 'unknown',
@@ -142,6 +146,7 @@ export default async function handler(req, res) {
     recordingRef,
     turns: history.length,
     transcript: history,
+    usage,
     lead: {
       phoneMasked: maskPhone(lead.phone),
       name: lead.name || null,
@@ -177,6 +182,11 @@ export default async function handler(req, res) {
     // recording REFERENCE, so a call can be evidenced without the audio being
     // reachable from the event itself.
     recordingRef,
+    usage: usage ? {
+      currency: usage.currency,
+      amount: usage.estimate?.amount ?? null,
+      complete: usage.estimate?.complete === true,
+    } : null,
   });
 
   return res.status(200).json({
@@ -188,6 +198,12 @@ export default async function handler(req, res) {
     crm: { provider: crm.crmProvider(), logged: written.ok, error: written.error, dncFlagged: dnc ? dnc.ok : null },
     recording: recordingRef ? { stored: true } : { stored: false },
     transcript: { stored: stored.durable === true, turns: history.length },
+    usage: usage ? {
+      recorded: stored.durable === true,
+      currency: usage.currency,
+      estimatedCost: usage.estimate?.amount ?? null,
+      estimateComplete: usage.estimate?.complete === true,
+    } : null,
   });
 }
 

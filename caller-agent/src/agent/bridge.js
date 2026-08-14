@@ -25,6 +25,7 @@
 
 import { openLiveSTT } from '../../../shared/deepgram-live.js';
 import { splitForSpeech } from '../../../shared/speech-split.js';
+import { createCallUsageLedger, audioDurationMs } from '../../../shared/call-usage.js';
 
 /**
  * @param {object} o
@@ -33,7 +34,10 @@ import { splitForSpeech } from '../../../shared/speech-split.js';
  * @param {function} o.onAudio         (Buffer) => void — her voice, to the caller
  * @param {function} o.onEvent         ({type,...}) => void — transcript/state, for the UI
  * @param {function} o.think           (history) => Promise<{say,end,disposition}>
- * @param {function} o.speak           (text, lang) => Promise<Buffer> — TTS
+ * @param {function} o.speak           (text, lang, audio) => Promise<Buffer|{audio: Buffer, provider?: string, cached?: boolean}> — TTS
+ * @param {string}   [o.sttProvider]   configured live recognizer identity, for metering
+ * @param {string}   [o.ttsProvider]   configured synthesis-chain identity, for fallback metering
+ * @param {object}   [o.usageLedger]   call-scoped, non-PII usage collector
  * @param {function} [o.isOptOut]      (text) => boolean — ours, never the model's
  * @param {function} [o.openSTT]       test seam
  */
@@ -41,6 +45,9 @@ export function createBridge(o) {
   const {
     lang, direction = 'outbound', onAudio, onEvent, think, speak,
     isOptOut = () => false, openSTT = openLiveSTT,
+    sttProvider = process.env.LIVE_STT_PROVIDER || 'deepgram',
+    ttsProvider = process.env.TTS_PROVIDER || 'unknown',
+    usageLedger = createCallUsageLedger(),
     // The transport's format, carried end to end. The browser sends 16kHz
     // linear16; a phone sends 8kHz mulaw. Both the recogniser and the voice are
     // asked for the SAME format the transport speaks, so a call transcodes
@@ -121,6 +128,14 @@ export function createBridge(o) {
     let out;
     try {
       out = await think(history);
+      // The composition root can return the provider that actually served the
+      // turn. The bridge accepts "unknown" for test doubles and legacy callers;
+      // unit counts remain useful even when a provider does not expose usage.
+      usageLedger.recordLLM({
+        provider: out?.provider || process.env.LLM_PROVIDER || 'unknown',
+        inputChars: history.reduce((sum, turn) => sum + String(turn.text || '').length, 0),
+        outputChars: String(out?.say || '').length,
+      });
     } catch (err) {
       thinking = false;
       emit({ type: 'error', text: `brain: ${err?.message || 'unavailable'}` });
@@ -148,7 +163,17 @@ export function createBridge(o) {
       if (ended || mine !== turnId) break;
       let audio_;
       try {
-        audio_ = await speak(phrase, lang, audio);
+        const synthesized = await speak(phrase, lang, audio);
+        // Existing transports return a Buffer. The composition root returns the
+        // optional object form so a fallback provider can be counted honestly.
+        audio_ = Buffer.isBuffer(synthesized) ? synthesized : synthesized?.audio;
+        if (!Buffer.isBuffer(audio_)) throw new Error('voice returned no audio buffer');
+        usageLedger.recordTTS({
+          provider: synthesized?.provider || String(ttsProvider).split(',')[0] || 'unknown',
+          chars: String(phrase).length,
+          audioMs: audioDurationMs(audio_.length, audio),
+          cached: synthesized?.cached === true,
+        });
       } catch (err) {
         emit({ type: 'error', text: `voice: ${err?.message || 'unavailable'}` });
         break;
@@ -180,12 +205,21 @@ export function createBridge(o) {
     if (ended) return;
     ended = true;
     try { stt.close(); } catch { /* already gone */ }
+    // Emit numeric-only usage before the final conversation event. It may be
+    // persisted by an authenticated caller-agent, but it never contains audio,
+    // phone numbers, prompts, or transcript text.
+    emit({ type: 'usage', direction, usage: usageLedger.close() });
     emit({ type: 'ended', history });
   }
 
   return {
-    /** Raw 16-bit PCM from the caller, as it arrives. */
-    pushAudio(pcm) { if (!ended) stt.send(pcm); },
+    /** Raw PCM from the caller, as it arrives. Count bytes, never keep them. */
+    pushAudio(pcm) {
+      if (ended) return;
+      const bytes = Buffer.isBuffer(pcm) ? pcm.length : (pcm?.byteLength || 0);
+      usageLedger.recordSTT({ provider: sttProvider, audioMs: audioDurationMs(bytes, audio) });
+      stt.send(pcm);
+    },
     /** Her opening line — outbound calls speak first. */
     async greet(line) {
       if (!line || ended) return;
@@ -198,5 +232,6 @@ export function createBridge(o) {
     // Test seams.
     _history: () => history,
     _state: () => ({ speaking, thinking, turnId, partial, direction }),
+    _usage: () => usageLedger.snapshot(),
   };
 }

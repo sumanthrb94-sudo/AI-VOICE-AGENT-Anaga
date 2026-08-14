@@ -150,7 +150,7 @@ export async function generate({ system, user, json = false, onFirstClause } = {
           failed: errors.map((e) => String(e).slice(0, 160)),
         }));
       }
-      return out;
+      return withServingProvider(out, provider);
     } catch (err) {
       errors.push(`${provider}: ${err?.message || 'failed'}`);
       // Quota is not transient within a request; neither is a bad key. Both
@@ -175,6 +175,22 @@ export function llmStatus() {
   const chain = String(process.env.LLM_PROVIDER || 'sarvam,gemini')
     .split(',').map((p) => p.trim().toLowerCase()).filter(Boolean);
   return { chain, ready: chain.filter(llmReady) };
+}
+
+/**
+ * Attach the provider that actually served an object completion without changing
+ * the public JSON payload. API callers receive only their requested result;
+ * trusted in-process callers such as the Cloud Run bridge can meter fallbacks.
+ */
+function withServingProvider(out, provider) {
+  if (out && typeof out === 'object') {
+    Object.defineProperty(out, '_provider', {
+      value: provider,
+      enumerable: false,
+      configurable: true,
+    });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

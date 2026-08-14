@@ -60,6 +60,10 @@ const server = createAgentServer({
       say,
       end: out.end === true,
       disposition: TURN_DISPOSITIONS.includes(out.disposition) ? out.disposition : 'qualifying',
+      // `_provider` is attached by the shared LLM adapter as a non-enumerable
+      // field, so it never changes public API payloads. The bridge uses it only
+      // for numeric, non-PII call-usage telemetry.
+      provider: out._provider || 'unknown',
     };
   },
 
@@ -79,13 +83,17 @@ const server = createAgentServer({
     // the chain falls back silently by design. Sending those bytes on as raw
     // samples would be noise that sounds like a broken microphone rather than a
     // failed provider, so an unusable format is refused loudly instead.
+    let audio;
     if (codec === 'mulaw') {
-      if (/mulaw|ulaw|pcmu|basic/.test(mime)) return buf;
-      throw new Error(`voice returned ${mime || 'an unknown format'}, which is not mulaw`);
-    }
-    if (/wav/.test(mime)) return stripWavHeader(buf);
-    if (/l16|linear16|pcm|octet-stream/.test(mime)) return buf;
-    throw new Error(`voice returned ${mime || 'an unknown format'}, which is not PCM`);
+      if (/mulaw|ulaw|pcmu|basic/.test(mime)) audio = buf;
+      else throw new Error(`voice returned ${mime || 'an unknown format'}, which is not mulaw`);
+    } else if (/wav/.test(mime)) audio = stripWavHeader(buf);
+    else if (/l16|linear16|pcm|octet-stream/.test(mime)) audio = buf;
+    else throw new Error(`voice returned ${mime || 'an unknown format'}, which is not PCM`);
+
+    // The bridge accepts this object form in addition to a raw Buffer. It lets
+    // cost telemetry attribute a fallback to the provider that actually spoke.
+    return { audio, provider: out.provider || 'unknown', cached: out.cached === true };
   },
 
   async greeting(lang, direction) {

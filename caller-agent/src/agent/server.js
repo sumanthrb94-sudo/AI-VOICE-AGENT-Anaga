@@ -33,6 +33,22 @@ import {
 const SAMPLE_RATE = 16000;
 const MAX_BODY = 64 * 1024;
 
+// Provider usage is operational telemetry, not a transcript. Keep this numeric
+// and provider-only so Cloud Run logs can support unit-cost analysis without
+// becoming another storage location for call content or personal data.
+function logUsage(usage, context = {}) {
+  if (!usage || typeof usage !== 'object') return;
+  console.log(JSON.stringify({
+    event: 'call_usage',
+    direction: context.direction || 'unknown',
+    transport: context.transport || 'unknown',
+    currency: usage.currency || 'INR',
+    durationMs: Number(usage.durationMs) || 0,
+    estimate: usage.estimate || { amount: null, complete: false, unpriced: [] },
+    stages: usage.stages || {},
+  }));
+}
+
 // The call page, served from the same origin as the socket. Not a web server
 // ambition — it means the local loop is ONE command and live.js can default to
 // this host instead of asking somebody to type a WebSocket URL on a phone.
@@ -179,6 +195,7 @@ export function attachTwilio(ws, o = {}) {
             // side is not enough — without this the prospect interrupts and
             // Twilio keeps playing the sentence they are talking over.
             if (e.type === 'clear' && streamSid) ws.send(clearFrame(streamSid));
+            if (e.type === 'usage') logUsage(e.usage, { direction: 'inbound', transport: 'twilio' });
             if (e.type === 'ended') { try { ws.close(1000, 'done'); } catch { /* gone */ } }
           },
           think: (history) => o.think(history, { lang, direction: 'inbound' }),
@@ -225,6 +242,10 @@ export function attach(ws, o = {}) {
   let bridge = null;
 
   const send = (obj) => ws.send(JSON.stringify(obj));
+  const observeAndSend = (event) => {
+    if (event?.type === 'usage') logUsage(event.usage, { direction: event.direction || 'unknown', transport: 'agent_websocket' });
+    send(event);
+  };
 
   ws.on('message', async (data, kind) => {
     // `kind` is the STRING 'text' or 'binary' (media/ws.js:131), not a boolean.
@@ -248,7 +269,7 @@ export function attach(ws, o = {}) {
           lang,
           direction,
           onAudio: (pcm) => ws.send(pcm),
-          onEvent: send,
+          onEvent: observeAndSend,
           think: (history) => o.think(history, { lang, direction }),
           speak: (text, l) => o.speak(text, l),
           isOptOut: o.isOptOut,

@@ -17,6 +17,7 @@ hand warm prospects to human closers — compliant with TRAI/DLT/DND by design.
 | `docs/INTEGRATIONS.md` | **Runbook: wiring Anaga to Meta Lead Ads + your CRM** | **Whoever connects a customer** |
 | `docs/CLEAN_REBUILD_ADR.md` | **Clean-build decision: runtime boundary, Firebase preservation, and gates** | **Engineering / CEO** |
 | `docs/REPOSITORY_AUDIT_2026-08-14.md` | **End-to-end audit, validation evidence, and production gates** | **Engineering / CEO** |
+| `docs/IMPLEMENTATION_UPDATE_2026-08-14.md` | **Provider metering, deployment readiness, and required production actions** | **Engineering / CEO** |
 | `docs/VOICE_AGENT_RESEARCH.md` | Verified Sarvam, Deepgram, Pipecat, and telephony research notes | Engineering |
 | `docs/FINANCIAL_MODEL_NOTES.md` | Unit economics & market assumptions | Investors, founder |
 | `engineering/MULTI_AGENT_SPEC.md` | Production build spec, multi-agent design, work packages | **Engineering — build to this** |

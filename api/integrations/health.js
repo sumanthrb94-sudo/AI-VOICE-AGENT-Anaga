@@ -18,6 +18,7 @@ import { recordingStatus } from '../_lib/recording.js';
 import { translateMode } from '../_lib/translate.js';
 import { googleAuthMode } from '../_lib/google.js';
 import { storeStatus } from '../_lib/store.js';
+import { callUsageStatus } from '../../shared/call-usage.js';
 
 export default async function handler(req, res) {
   if (!requireMethod(req, res, 'GET')) return;
@@ -96,6 +97,9 @@ export default async function handler(req, res) {
     voiceStudio,
     recording,
     translate: { mode: translateMode(), auth: googleAuthMode() },
+    // Boolean/configuration names only. The commercial rates themselves never
+    // leave the server through this public wiring endpoint.
+    usage: callUsageStatus(),
     store,
     meta,
     crm,

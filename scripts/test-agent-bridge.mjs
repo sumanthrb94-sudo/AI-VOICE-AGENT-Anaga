@@ -240,6 +240,25 @@ await t('ending the call closes the recogniser', async () => {
   assert.equal(stt.sent.length, 0, 'and nothing is sent after the end');
 });
 
+await t('a finished call emits numeric-only provider usage', async () => {
+  const { bridge, stt, of } = build({
+    think: async () => ({ say: 'One qualified reply.', end: false, disposition: 'qualifying', provider: 'sarvam' }),
+    speak: async () => ({ audio: Buffer.alloc(640), provider: 'sarvam' }),
+  });
+  bridge.pushAudio(Buffer.alloc(640)); // 20ms at the bridge's 16kHz linear16 wire rate
+  stt.fire({ type: 'transcript', text: 'I need a home', final: true });
+  await settle();
+  bridge.end();
+
+  const usage = of('usage')[0]?.usage;
+  assert.ok(usage, 'completion must carry a usage snapshot');
+  assert.equal(usage.stages.stt[0].provider, 'deepgram');
+  assert.equal(usage.stages.stt[0].audioMs, 20);
+  assert.equal(usage.stages.tts[0].provider, 'sarvam');
+  assert.equal(usage.stages.llm[0].provider, 'sarvam');
+  assert.doesNotMatch(JSON.stringify(usage), /I need a home|qualified reply|transcript/i);
+});
+
 await t('OUTBOUND SPEAKS FIRST, from approved wording', async () => {
   const { bridge, audio, of } = build();
   await bridge.greet('హలో, నేను అనగా, వాక్ నుంచి AI వాయిస్ అసిస్టెంట్‌ని.');

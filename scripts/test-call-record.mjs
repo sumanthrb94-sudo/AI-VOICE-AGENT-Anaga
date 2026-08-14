@@ -398,7 +398,7 @@ const CONVERSATION = [
   { role: 'user', text: 'Saturday works.' },
 ];
 
-async function reportCall(callId, { history = CONVERSATION, review, disposition = 'booked' } = {}) {
+async function reportCall(callId, { history = CONVERSATION, review, disposition = 'booked', usage } = {}) {
   const res = mkRes();
   await outcomeHandler({
     method: 'POST', headers: AUTH, query: {},
@@ -406,6 +406,7 @@ async function reportCall(callId, { history = CONVERSATION, review, disposition 
       call: { id: callId, startedAt: '2026-08-09T10:00:00.000Z', durationSec: 96, disposition },
       lead: { phone: '+919812345678', name: 'Test Lead', source: 'meta', sourceId: 'lead_1', crmRecordId: 'crm_1' },
       history,
+      usage,
       review: review || {
         interested: true, disposition, summary: 'Qualified end-user, booked Saturday.',
         nextAction: 'Assign a closer.', comment: 'Serious buyer.',
@@ -429,6 +430,29 @@ await t('THE REGRESSION: a finished call persists its transcript', async () => {
   assert.equal(out.statusCode, 200);
   assert.equal(out.body.transcript.stored, true, 'the transcript must be written');
   assert.equal(out.body.transcript.turns, CONVERSATION.length);
+});
+
+await t('provider usage is persisted without any call content', async () => {
+  const usage = {
+    version: 1, currency: 'INR', durationMs: 96_000,
+    phone: '+919812345678', transcript: 'must not be stored here',
+    stages: {
+      stt: [{ provider: 'deepgram', audioMs: 40_000, billableUnits: 2 / 3 }],
+      tts: [{ provider: 'sarvam', chars: 900, audioMs: 10_000, billableUnits: 0.9 }],
+      llm: [{ provider: 'sarvam', inputChars: 1_000, outputChars: 400, billableUnits: 1.4 }],
+      telephony: { durationMs: 96_000, billableUnits: 1.6, unit: 'MINUTE' },
+    },
+    estimate: { amount: 4.2, complete: false, unpriced: ['sarvam:1K_CHARS'] },
+  };
+  const out = await reportCall('call_usage', { usage });
+  assert.equal(out.statusCode, 200);
+  assert.equal(out.body.usage.estimatedCost, 4.2);
+  assert.equal(out.body.usage.estimateComplete, false);
+  const { call } = (await readCall({ callId: 'call_usage' })).body;
+  assert.equal(call.usage.currency, 'INR');
+  assert.equal(call.usage.stages.stt[0].provider, 'deepgram');
+  assert.equal(call.usage.estimate.amount, 4.2);
+  assert.doesNotMatch(JSON.stringify(call.usage), /9812345678|transcript|must not be stored/i);
 });
 
 await t('and it can be read back, turn for turn', async () => {
@@ -520,6 +544,7 @@ await t('the list view does NOT hand out transcripts in bulk', async () => {
   assert.equal(res.statusCode, 200);
   for (const c of res.body.calls || []) {
     assert.ok(!('transcript' in c), 'fifty conversations in one response is an exfiltration shape');
+    assert.ok(!('usage' in c), 'per-call cost details belong only to a protected single-call review');
   }
 });
 
