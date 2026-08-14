@@ -31,7 +31,7 @@
   // Bumped by hand on every change to this file. "Still the same" and "you are
   // running last week's bundle" look identical from a phone, and I have spent
   // two rounds unable to tell them apart.
-  var BUILD = "2026-08-10.5-sarvam-stt";
+  var BUILD = "2026-08-14.1-approved-script";
 
   var $ = function (id) { return document.getElementById(id); };
   var body = document.body;
@@ -162,6 +162,9 @@
      bill a synthesis for every crawler that finds the URL. */
   var opening = null;     // { key, text, src, textReady } for the armed combo
   var audioWanted = false;
+  // Exact human-reviewed English qualification lines returned by the opening
+  // endpoint. Each next line is rendered while the current line is audible.
+  var approvedScript = [], scriptAudio = Object.create(null);
 
   /* ---------------- the backchannel ----------------
 
@@ -204,9 +207,11 @@
     if (opening && opening.key === want) return maybePrewarmAudio(opening);
 
     var mine = { key: want, text: null, src: null };
+    approvedScript = []; scriptAudio = Object.create(null);
     opening = mine;
     mine.textReady = fetch("/api/anaga/turn?lang=" + encodeURIComponent(lang)
         + "&direction=" + encodeURIComponent(direction)
+        + "&script=1"
         + (audioWanted ? "&voice=1" : ""))
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
@@ -215,6 +220,12 @@
         // Versioned flow data, not invented here. Held until the call starts —
         // rendering them costs a synthesis each.
         if (d.backchannel && d.backchannel.length) ackLines = d.backchannel;
+        if (d.approvedScript && d.approvedScript.length) {
+          approvedScript = d.approvedScript;
+          primeScriptAudio();
+        } else {
+          approvedScript = [];
+        }
         // Rendered server-side alongside the text when we asked for it — one
         // request instead of two, before the call has even started.
         if (d.speak && d.speak.audio) {
@@ -244,6 +255,32 @@
       mine.src = "data:" + (a.mime || "audio/mpeg") + ";base64," + a.audio;
       window.__openingReady = true;      // test introspection
     }).catch(function () { /* a prewarm that fails costs the latency it saved */ });
+  }
+
+  function nextApprovedScriptLine() {
+    if (lang !== "en-IN" || !approvedScript.length) return null;
+    // The opening is agent turn one. The next reviewed line is indexed from it.
+    var agentTurns = history.filter(function (turn) { return turn.role === "agent"; }).length;
+    return approvedScript[Math.max(0, agentTurns - 1)] || null;
+  }
+
+  function cachedScriptAudio(text) {
+    var cached = scriptAudio[text];
+    return cached && cached.src ? cached.src : null;
+  }
+
+  function primeScriptAudio() {
+    if (!audioWanted) return;
+    var step = nextApprovedScriptLine();
+    if (!step || !step.say || scriptAudio[step.say]) return;
+    scriptAudio[step.say] = { loading: true };
+    fetch("/api/tts", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: splitForSpeech(step.say)[0], lang: lang })
+    }).then(function (r) { return r.ok ? r.json() : null; }).then(function (a) {
+      if (!a || !a.audio) { delete scriptAudio[step.say]; return; }
+      scriptAudio[step.say] = { src: "data:" + (a.mime || "audio/mpeg") + ";base64," + a.audio };
+    }).catch(function () { delete scriptAudio[step.say]; });
   }
 
   /** Render the acknowledgements once, in the background, after the call starts.
@@ -294,6 +331,7 @@
     document.addEventListener(ev, function armOnce() {
       audioWanted = true;
       if (opening) maybePrewarmAudio(opening);
+      primeScriptAudio();
       ["pointerdown", "keydown", "touchstart"].forEach(function (e2) {
         document.removeEventListener(e2, armOnce);
       });
@@ -343,7 +381,11 @@
     // done.
     return fetch("/api/anaga/turn?voice=1", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ history: history, lang: lang, direction: direction })
+      body: JSON.stringify({
+        history: history, lang: lang, direction: direction,
+        scripted: lang === "en-IN" && approvedScript.length > 0,
+        scriptAudioReady: Boolean((nextApprovedScriptLine() || {}).say && cachedScriptAudio(nextApprovedScriptLine().say))
+      })
     }).then(function (r) {
       return r.json().catch(function () { return null; })
         .then(function (d) { return { ok: r.ok, d: d }; });
@@ -352,9 +394,9 @@
         var d = res.d;
         if (res.ok && d && d.say) {
           note = "";
-          var pre = d.speak && d.speak.audio
+          var pre = cachedScriptAudio(d.say) || (d.speak && d.speak.audio
             ? "data:" + (d.speak.mime || "audio/mpeg") + ";base64," + d.speak.audio
-            : null;
+            : null);
           return reply(d.say, d.end === true, d.disposition, pre);
         }
         degraded(d);
@@ -396,6 +438,9 @@
     disposition = disp || disposition;
     history.push({ role: "agent", text: text });
     bubble("agent", text);                  // written first, spoken second
+    // Rendering the next fixed line overlaps with the current one. It is a
+    // cache warm-up only; a missing cache still uses the server's normal path.
+    if (!isEnd) primeScriptAudio();
     if (!t0) { t0 = Date.now(); clock(); tick = setInterval(clock, 1000); }
     if (isEnd) ended = true;
     speak(text, prerendered).then(function () {
@@ -703,7 +748,9 @@
           // How long they actually spoke, as the endpointer measured it. The
           // server cannot infer this from the bytes — a compressed container's
           // size tracks loudness, not length.
-          audio: b64, mime: u.mime, ms: u.ms
+          audio: b64, mime: u.mime, ms: u.ms,
+          scripted: lang === "en-IN" && approvedScript.length > 0,
+          scriptAudioReady: Boolean((nextApprovedScriptLine() || {}).say && cachedScriptAudio(nextApprovedScriptLine().say))
         })
       }).then(function (r) {
         return r.json().catch(function () { return null; })
@@ -731,9 +778,9 @@
         if (!d.say) { state(""); return; }
 
         note = "";
-        var pre = d.speak && d.speak.audio
+        var pre = cachedScriptAudio(d.say) || (d.speak && d.speak.audio
           ? "data:" + (d.speak.mime || "audio/mpeg") + ";base64," + d.speak.audio
-          : null;
+          : null);
         reply(d.say, d.end === true, d.disposition, pre);
       }).catch(function () {
         thinking = false;

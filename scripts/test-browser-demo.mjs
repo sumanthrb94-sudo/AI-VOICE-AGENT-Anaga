@@ -551,25 +551,33 @@ await t('THE FIRST PHRASE SHIPS WITH THE TURN — one round trip, not two', asyn
   await page.waitForFunction(() => document.querySelectorAll('#log .ln.her').length >= 2,
     null, { timeout: 10000 });
 
-  // The reply carries its own first phrase, rendered server-side the instant
-  // the model answered. Asking for it separately meant a second
-  // handset-to-server hop on a mobile network after the slow part was over.
+  // English browser-script mode uses the exact reviewed line already rendered
+  // while the opening played. It neither waits for an LLM nor re-synthesizes
+  // that current line; the one request after the reply is for the NEXT line.
+  const posted = turns[turns.length - 1];
+  assert.equal(posted.scripted, true, 'reviewed English browser turns must request script mode');
+  assert.equal(posted.scriptAudioReady, true, 'the current reviewed line should be in the local audio cache');
+  const replied = await page.locator('#log .ln.her').last().innerText();
+  assert.match(
+    replied,
+    /Are you looking for a home to live in, or more as an investment\?/,
+    `the browser must render the reviewed purpose line, got ${JSON.stringify(replied)}`,
+  );
+  const requested = synths.map((p) => p.text);
+  assert.ok(!requested.some((text) => /Are you looking for a home to live in/.test(text)),
+    `the current reviewed line must not be synthesized twice — got ${JSON.stringify(requested)}`);
+  assert.ok(requested.some((text) => /What budget range are you considering/.test(text)),
+    `the next reviewed line should be synthesized while this one plays — got ${JSON.stringify(requested)}`);
+
+  // The non-scripted model path still receives and returns a first phrase in
+  // the same HTTP response for callers that need an open-ended conversation.
   const turn = await page.evaluate((h) => fetch('/api/anaga/turn?voice=1', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ history: h, lang: 'en-IN', direction: 'outbound' }),
   }).then((r) => r.json()), [{ role: 'user', text: 'tell me about it' }]);
-  assert.ok(turn.speak, 'the turn must carry audio');
-  assert.ok(turn.speak.audio, '…with actual bytes in it');
+  assert.ok(turn.speak && turn.speak.audio, 'the non-scripted turn must still carry first-phrase audio');
   assert.equal(turn.speak.text, 'Namaste, this is Anaga from Vaak.',
-    'and it must be the FIRST phrase, not the whole line');
-
-  // The browser then renders only what is left — no duplicate of phrase one.
-  const deadline = Date.now() + 15000;
-  const rest = () => synths.map((p) => p.text).join(' ').replace(/\s+/g, ' ').trim();
-  const expected = line.slice(turn.speak.text.length).trim();
-  while (Date.now() < deadline && rest() !== expected) await page.waitForTimeout(150);
-  assert.equal(rest(), expected,
-    `the browser must render the remainder, and only the remainder — got ${JSON.stringify(synths.map((p) => p.text))}`);
+    'the model pathway must still return the first phrase, not the whole line');
   process.env.STUB_LLM_SAY = STUB_SAY;
 });
 

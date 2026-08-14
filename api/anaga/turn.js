@@ -25,6 +25,7 @@ import { generate } from '../_lib/llm.js';
 import { limited } from '../_lib/guard.js';
 import { turnPrompt, TURN_DISPOSITIONS } from '../_lib/prompts.js';
 import { LANGS, loadFlow, loadDirection, fillTemplate, normalizeFlowLang } from '../_lib/flow.js';
+import { approvedScriptAvailable, approvedScriptLines, approvedScriptTurn } from '../_lib/approved-script.js';
 import { synth, ttsAvailable } from '../_lib/tts.js';
 import { transcribe, sttAvailable } from '../_lib/stt.js';
 import { splitForSpeech } from '../../shared/speech-split.js';
@@ -72,6 +73,12 @@ export default async function handler(req, res) {
     const dir = loadDirection(req.query?.direction, flow);
     const greet = dir.greet?.[lang] || dir.greet?.['en-IN'] || '';
     const say = fillTemplate(greet, flow);
+    // The browser requests these only for languages whose step wording has been
+    // human-reviewed. It can synthesize the next fixed qualification line while
+    // the current line plays, so a normal answer does not wait for a model turn.
+    const approvedScript = String(req.query?.script || '') === '1'
+      ? approvedScriptLines(lang)
+      : [];
     return res.status(200).json({
       say,
       ...(String(req.query?.voice || '') === '1' ? { speak: await firstPhrase(say, lang) } : {}),
@@ -88,6 +95,7 @@ export default async function handler(req, res) {
       backchannel: flow.backchannel[lang] || [],
       source: 'flow',                 // NOT a generation — say so
       flow: { id: flow.id, version: flow.version },
+      ...(approvedScript.length ? { approvedScript } : {}),
     });
   }
 
@@ -209,6 +217,37 @@ export default async function handler(req, res) {
   // WITHOUT it (it did not know the words yet), so it is appended here.
   const full = heard ? history.concat([{ role: 'user', text: heard }]) : history;
 
+  // Both the deterministic and model paths can return first-phrase audio.
+  const wantVoice = String(req.query?.voice || '') === '1';
+
+  // Browser script mode is deliberately narrow: it is enabled only when the
+  // selected language has exact reviewed step wording in the versioned flow.
+  // This removes one LLM request and makes the transcript, returned text and
+  // spoken line identical to that approved wording. Audio transcription still
+  // happens first, so the prospect's actual words remain the transcript.
+  const scripted = body.scripted === true && approvedScriptAvailable(lang);
+  if (scripted) {
+    const approved = approvedScriptTurn(full, { lang });
+    if (approved) {
+      const ttsStart = Date.now();
+      const speak = wantVoice && body.scriptAudioReady !== true
+        ? await firstPhrase(approved.say, lang)
+        : null;
+      ttsMs = Date.now() - ttsStart;
+      console.log(JSON.stringify({
+        event: 'turn_ok', source: 'approved_script', region: process.env.VERCEL_REGION || 'unknown',
+        sttMs, llmMs: 0, ttsMs, totalMs: Date.now() - turnStart,
+        firstPhraseChars: speak?.text?.length, sayChars: approved.say.length,
+      }));
+      return res.status(200).json({
+        ...approved, lang, direction,
+        ...(heard !== null ? { heard } : {}),
+        ...(speak ? { speak } : {}),
+        source: 'approved_script',
+      });
+    }
+  }
+
   const { system, user } = turnPrompt(full, { lang, direction });
 
   // START SPEAKING BEFORE THE MODEL HAS FINISHED THINKING.
@@ -219,7 +258,6 @@ export default async function handler(req, res) {
   // appears overlaps the two slowest legs of the turn instead of queueing one
   // behind the other. The answer is identical either way — only the moment the
   // audio starts rendering changes.
-  const wantVoice = String(req.query?.voice || '') === '1';
   let early = null, earlyText = null;
 
   let out;
