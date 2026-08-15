@@ -1,0 +1,22 @@
+# The image is built from an explicit COPY list in deploy/cloudrun/Dockerfile,
+# so this is belt and braces — it keeps a stray `COPY . .` from ever shipping
+# credentials, and keeps the build context small.
+.git
+.github
+node_modules
+.next
+out
+public
+app
+components
+lib
+design-system
+docs
+engineering
+scripts
+graphify-out
+.secrets
+*.env
+.env*
+*-adminsdk-*.json
+*serviceAccount*.json

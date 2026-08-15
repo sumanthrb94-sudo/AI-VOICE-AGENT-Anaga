@@ -150,6 +150,13 @@ jobs:
         # even recorded. That window is exactly when people interrupt.
         run: node --experimental-detect-module scripts/test-bridge-failures.mjs
 
+      - name: The Cloud Run image contains everything the service imports
+        # An explicit COPY list is a list that goes stale, and the failure is
+        # nasty: the build succeeds, the container starts, /health says fine,
+        # and the first import dies at runtime. It already had one hole — web/
+        # was not copied, so the service 404'd the one page it exists to serve.
+        run: node --experimental-detect-module scripts/test-container-contents.mjs
+
       - name: Audio format verification (the bug that played her slow)
         # The call leg used to strip a WAV header and discard the format tag
         # and the SAMPLE RATE. 24kHz samples on an 8kHz line do not fail — they

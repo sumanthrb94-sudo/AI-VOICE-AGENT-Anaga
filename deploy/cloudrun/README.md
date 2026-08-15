@@ -4,19 +4,55 @@ Cloud Run, `asia-south1` (Mumbai) — beside Sarvam and Deepgram. See
 `docs/ARCHITECTURE.md` for why this is not on Vercel.
 
 ```bash
-gcloud run deploy anaga-agent \
-  --source . \
-  --region asia-south1 \
-  --allow-unauthenticated \
-  --min-instances 0 \
-  --timeout 3600 \
-  --set-env-vars "LLM_PROVIDER=sarvam,gemini" \
-  --set-secrets "SARVAM_API_KEY=sarvam-key:latest,DEEPGRAM_API_KEY=deepgram-key:latest,GEMINI_API_KEY=gemini-key:latest"
+bash deploy/cloudrun/deploy.sh
 ```
 
-Cloud Run builds `Dockerfile` at the repo root by default; point it at this one
-with a `--dockerfile` flag if your `gcloud` supports it, or copy it to the root
-before deploying.
+That is the whole thing. It builds, pushes and deploys, and refuses to start if
+something it needs is missing rather than half-deploying.
+
+## Once, before the first run
+
+```bash
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+
+# Keys go in Secret Manager, never in --set-env-vars: env vars are readable by
+# anyone with console read access, and one of these dials phones.
+printf %s "YOUR_SARVAM_KEY"   | gcloud secrets create sarvam-key       --data-file=-
+printf %s "YOUR_DEEPGRAM_KEY" | gcloud secrets create deepgram-key     --data-file=-
+printf %s "YOUR_TWILIO_TOKEN" | gcloud secrets create twilio-auth-token --data-file=-   # optional
+printf %s "YOUR_GEMINI_KEY"   | gcloud secrets create gemini-key       --data-file=-   # optional
+```
+
+The script enables the APIs and creates the Artifact Registry repository itself.
+
+Overridable by environment variable: `SERVICE`, `REGION` (default
+`asia-south1`), `REPO`, `MIN_INSTANCES`, `PROJECT`.
+
+## Why not `gcloud run deploy --source .`
+
+Because it does not deploy this service. `--source .` builds a `Dockerfile` at
+the REPO ROOT, and ours is at `deploy/cloudrun/Dockerfile`. With no root
+Dockerfile, Cloud Build falls back to a buildpack, which reads `package.json`,
+finds Next.js, and deploys the **frontend** as the call service — a failure that
+looks like a successful deploy right up until the first call.
+
+`deploy/cloudrun/cloudbuild.yaml` names the Dockerfile explicitly, so there is
+nothing to guess.
+
+## What you get
+
+```
+  Service   https://anaga-agent-xxxx.a.run.app
+  Health    /health                ← check this before dialling anything
+  Call page /live.html             ← open it and talk to her
+  Socket    wss://…/agent
+  Twilio    /incoming-call         ← the number's Voice webhook (POST)
+```
+
+`GET /health` reports the region and whether the recogniser is configured. If
+`stt` is false, every call connects to silence — check it first, because a
+missing key otherwise shows up as a call that just does not respond.
 
 Four things that are easy to get wrong:
 
@@ -24,16 +60,34 @@ Four things that are easy to get wrong:
   WebSocket *is* one request. Leave it at the default and every call is cut off
   mid-sentence at five minutes, which looks like a bug in the agent.
 - **`--min-instances 0`** costs nothing between demos, at the price of a cold
-  start on the first call. Raise it to 1 before showing this to anyone.
+  start on the first call — several seconds of nothing before she speaks. Run
+  `MIN_INSTANCES=1 bash deploy/cloudrun/deploy.sh` before showing this to
+  anyone.
+- **`/agent` is UNAUTHENTICATED and spends money.** `--allow-unauthenticated` is
+  required for a browser or Twilio to reach the service at all, and `/agent` has
+  no signature to check the way `/twilio` and `/incoming-call` do — a browser
+  has no shared secret to sign with. So anyone who finds the URL can open a
+  socket and burn Sarvam and Deepgram credits. Mitigations, in order of
+  effectiveness: do not publish the URL, watch the vendor spend, and keep
+  `--max-instances` low (the script sets 10) so abuse hits a ceiling rather
+  than a bill.
 - **Secret Manager, not `--set-env-vars`,** for keys. Env vars are visible to
   anyone with console read access.
 - **`GET /health` before you dial.** It reports the region and whether the
   recogniser is configured, so a missing key shows up as a boolean rather than
   as silence during a call.
 
-The browser connects to `wss://<service-url>/agent`. Point the page at it by
-setting `window.ANAGA_AGENT_URL` before `live.js` loads — see the top of
-`web/assets/live.js`.
+The service serves its own call page at `/live.html`, so after deploying you
+can just open the service URL and talk — the page defaults to the host that
+served it. To drive it from a page hosted elsewhere (the Vercel site), set
+`window.ANAGA_AGENT_URL` to `wss://<service-url>/agent` before `live.js` loads,
+or paste it into the field on the page.
+
+`web/` is copied into the image for exactly this reason. It was not, at first,
+and the result was a container that started, reported healthy, and 404'd the one
+page it exists to serve. `scripts/test-container-contents.mjs` now walks the
+service's real import graph and asserts every file it reaches is inside a
+`COPY` line.
 
 ## Before you spend a trial minute: simulate the call
 

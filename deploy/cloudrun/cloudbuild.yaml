@@ -1,0 +1,25 @@
+# Build the live-call image from deploy/cloudrun/Dockerfile.
+#
+# This file exists to remove one specific ambiguity. `gcloud run deploy
+# --source .` builds a Dockerfile at the REPO ROOT; ours is not there, so that
+# command either fails or falls back to a buildpack, which reads package.json,
+# finds Next.js, and cheerfully deploys the FRONTEND as the call service.
+#
+# `--config` takes an explicit path, so there is nothing to guess.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --file=deploy/cloudrun/Dockerfile
+      - --tag=${_IMAGE}:latest
+      # Tagged with the commit as well, so a rollback names a revision rather
+      # than "the one before the bad one".
+      - --tag=${_IMAGE}:${SHORT_SHA}
+      - .
+
+images:
+  - ${_IMAGE}:latest
+  - ${_IMAGE}:${SHORT_SHA}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
