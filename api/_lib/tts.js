@@ -296,6 +296,28 @@ export function ttsStatus({ all = false, lang } = {}) {
     available: chain.some(providerReady),
     chain,
     ready: chain.filter(providerReady),
+    // ── ON A PHONE CALL THIS "CHAIN" IS NOT A CHAIN ──────────────────────
+    //
+    // The live call leg needs raw PCM or mulaw at the transport's sample rate:
+    // caller-agent/src/agent/main.js accepts WAV or linear16/mulaw and throws
+    // on anything else. Only Sarvam's stream endpoint honours a requested
+    // codec — viaGoogle, viaGoogleTranslate and viaVoiceStudio all return
+    // audio/mpeg regardless.
+    //
+    // So on a real call the fallback providers do not produce a worse voice,
+    // they produce SILENCE: synth() returns 200, main.js refuses the mime,
+    // bridge.js catches it and breaks the phrase loop. Reporting `ready` alone
+    // made a Sarvam-only deployment look like it had three levels of
+    // redundancy on the leg that matters most.
+    //
+    // Fixing this properly needs MP3->PCM transcoding, which needs a
+    // dependency this repo does not have. Until then it is at least SAID, so
+    // nobody plans around redundancy that is not there.
+    callLeg: {
+      capable: chain.filter((p) => p === 'sarvam' && providerReady(p)),
+      note: 'Only Sarvam can serve raw PCM/mulaw. Other providers return MP3, '
+          + 'which the call leg refuses — a fallback there is silence, not a worse voice.',
+    },
     // Whether ANY provider in the chain can genuinely speak as a man. Saying so
     // up front beats shipping a "male" preset that quietly returns a woman.
     maleCapable: chain.some((p) => genderReady(p, 'male')),

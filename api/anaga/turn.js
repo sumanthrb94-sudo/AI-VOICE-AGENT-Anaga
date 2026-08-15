@@ -332,8 +332,39 @@ async function firstPhrase(text, lang) {
     const out = await synth({
       text: first, lang, timeoutMs: Number(process.env.FIRST_PHRASE_TIMEOUT_MS || 4500),
     });
-    return { text: first, audio: out.audio, mime: out.mime, voice: out.voice, ms: out.ms };
-  } catch {
+
+    // A FALLBACK IS NOT A SUCCESS, AND THIS PATH WAS THE ONE THAT NEVER SAID SO.
+    //
+    // synth() attaches `fellBackFrom` when the chain's first choice failed, and
+    // /api/tts logs it at ERROR — but that endpoint is barely used. THIS is the
+    // path every ?voice=1 turn takes, and it discarded the field entirely, with
+    // a bare `catch { return null; }` below that logged nothing at all.
+    //
+    // So an expired or throttled Sarvam key produced: a 200, the free Google
+    // Translate voice, and zero log lines. Anaga's voice quietly changed in
+    // production and the only symptom was somebody saying she sounded off.
+    // stt.js and llm.js both log their fallbacks; this now matches them.
+    if (out.fellBackFrom) {
+      console.error(JSON.stringify({
+        at: new Date().toISOString(), svc: 'anaga-api', event: 'tts_fell_back',
+        severity: 'high', endpoint: 'turn', lang,
+        from: out.fellBackFrom, served: out.provider || 'unknown', voice: out.voice,
+      }));
+    }
+    return {
+      text: first, audio: out.audio, mime: out.mime, voice: out.voice, ms: out.ms,
+      // Carried to the client so the call screen can report the voice that
+      // ACTUALLY spoke, rather than the providers that merely have env vars set.
+      provider: out.provider || null,
+      fellBackFrom: out.fellBackFrom || null,
+    };
+  } catch (err) {
+    // Was `catch { return null; }`. Silence here meant a voice that never
+    // rendered looked identical to a turn that did not ask for one.
+    console.error(JSON.stringify({
+      at: new Date().toISOString(), svc: 'anaga-api', event: 'first_phrase_failed',
+      endpoint: 'turn', lang, reason: String(err?.message || 'unknown'),
+    }));
     return null;
   }
 }
