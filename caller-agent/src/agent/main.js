@@ -19,6 +19,7 @@ import { generate } from '../../../api/_lib/llm.js';
 import { synth } from '../../../api/_lib/tts.js';
 import { turnPrompt, TURN_DISPOSITIONS } from '../../../api/_lib/prompts.js';
 import { loadFlow, loadDirection, fillTemplate, normalizeFlowLang } from '../../../api/_lib/flow.js';
+import { unwrapFor } from '../../../shared/wav.js';
 
 const PORT = Number(process.env.PORT || 8080);
 const SAMPLE_RATE = 16000;
@@ -30,17 +31,10 @@ const SAMPLE_RATE = 16000;
  * or fact chunk has a longer header, and the extra bytes are then played as
  * audio — a click at the start of every phrase.
  */
-function stripWavHeader(buf) {
-  if (buf.length < 12 || buf.toString('ascii', 0, 4) !== 'RIFF') return buf;
-  let at = 12;
-  while (at + 8 <= buf.length) {
-    const id = buf.toString('ascii', at, at + 4);
-    const size = buf.readUInt32LE(at + 4);
-    if (id === 'data') return buf.subarray(at + 8, Math.min(buf.length, at + 8 + size));
-    at += 8 + size + (size % 2);
-  }
-  return buf;
-}
+// Header handling moved to shared/wav.js. The version that lived here threw
+// away the format tag and the SAMPLE RATE, which are the two fields that decide
+// whether the bytes will play correctly — so 24kHz audio on an 8kHz line was
+// accepted silently and played three times too slow.
 
 /** The opt-out triggers, from the flow. Ours, never the model's. */
 const flow = loadFlow();
@@ -83,13 +77,12 @@ const server = createAgentServer({
     // the chain falls back silently by design. Sending those bytes on as raw
     // samples would be noise that sounds like a broken microphone rather than a
     // failed provider, so an unusable format is refused loudly instead.
-    let audio;
-    if (codec === 'mulaw') {
-      if (/mulaw|ulaw|pcmu|basic/.test(mime)) audio = buf;
-      else throw new Error(`voice returned ${mime || 'an unknown format'}, which is not mulaw`);
-    } else if (/wav/.test(mime)) audio = stripWavHeader(buf);
-    else if (/l16|linear16|pcm|octet-stream/.test(mime)) audio = buf;
-    else throw new Error(`voice returned ${mime || 'an unknown format'}, which is not PCM`);
+    // VERIFY, DO NOT ASSUME. unwrapFor() reads the WAV header where there is
+    // one and refuses anything that would play wrong on this wire — the wrong
+    // codec, the wrong bit depth, stereo, or the wrong SAMPLE RATE. That last
+    // one is the quiet killer: it does not sound like a failed provider, it
+    // sounds like a worse agent.
+    const audio = unwrapFor(buf, mime, { encoding: codec, sampleRate: rate });
 
     // The bridge accepts this object form in addition to a raw Buffer. It lets
     // cost telemetry attribute a fallback to the provider that actually spoke.

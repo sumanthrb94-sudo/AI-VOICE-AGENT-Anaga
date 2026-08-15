@@ -26,6 +26,7 @@
 import { openLiveSTT } from '../../../shared/deepgram-live.js';
 import { splitForSpeech } from '../../../shared/speech-split.js';
 import { createCallUsageLedger, audioDurationMs } from '../../../shared/call-usage.js';
+import { createTurnTimer } from '../../../shared/latency.js';
 
 /**
  * @param {object} o
@@ -56,6 +57,10 @@ export function createBridge(o) {
   } = o;
 
   const history = [];
+  // THE STREAMING PATH HAD NO CLOCK IN IT — not one Date.now(). Whatever it
+  // costs a prospect to wait was unobservable, which is why the latency claim
+  // on the marketing page had to be retracted rather than defended.
+  const timer = createTurnTimer();
   let ended = false;
   let speaking = false;
   // Bumped every time she is interrupted. Audio rendered for an older turn is
@@ -97,8 +102,13 @@ export function createBridge(o) {
         return;
       }
       if (e.type === 'transcript') {
-        if (!e.final) { partial = e.text; emit({ type: 'partial', text: e.text }); return; }
+        // An interim transcript means they are still talking. The last one
+        // before the final is the closest observable moment to "they stopped",
+        // which is what separates ttfa from what the prospect experiences.
+        if (!e.final) { partial = e.text; timer.voice(); emit({ type: 'partial', text: e.text }); return; }
         partial = '';
+        // The recogniser has settled: from here the wait is ours.
+        timer.turnStart();
         emit({ type: 'heard', text: e.text });
         void answer(e.text);
         return;
@@ -172,8 +182,10 @@ export function createBridge(o) {
     history.push({ role: 'user', text: heard });
 
     let out;
+    const thinkAt = Date.now();
     try {
       out = await think(history);
+      timer.leg('llm', Date.now() - thinkAt);
       // The composition root can return the provider that actually served the
       // turn. The bridge accepts "unknown" for test doubles and legacy callers;
       // unit counts remain useful even when a provider does not expose usage.
@@ -197,6 +209,10 @@ export function createBridge(o) {
     // Only amend if this turn is still current — a barge-in is already
     // recorded by cutOff() and must not be relabelled a voice failure.
     if (mine === turnId) markIfUndelivered(said);
+    const timing = timer.turnEnd();
+    // A turn that made no audio yields NO sample rather than a zero. Counting
+    // silence as a fast turn is how a broken run flatters an average.
+    if (timing) emit({ type: 'turn_timing', ...timing });
     if (out.end === true && mine === turnId) finish();
   }
 
@@ -220,8 +236,13 @@ export function createBridge(o) {
     for (const phrase of phrases) {
       if (ended || mine !== turnId) break;
       let audio_;
+      const speakAt = Date.now();
       try {
         const synthesized = await speak(phrase, lang, audio);
+        // Only the FIRST phrase counts: everything after it renders while
+        // earlier audio is already playing, so adding them together would
+        // describe a wait nobody experiences.
+        if (delivered === 0) timer.leg('tts', Date.now() - speakAt);
         // Existing transports return a Buffer. The composition root returns the
         // optional object form so a fallback provider can be counted honestly.
         audio_ = Buffer.isBuffer(synthesized) ? synthesized : synthesized?.audio;
@@ -240,6 +261,9 @@ export function createBridge(o) {
       // Checked AGAIN after the await: synthesis takes a second or more, and
       // she may have been interrupted while it was happening.
       if (ended || mine !== turnId) break;
+      // The first byte of her reply reaching the wire IS time-to-first-audio.
+      timer.firstAudio();
+      timer.phrase();
       try { onAudio(audio_); } catch { /* the transport is gone */ }
       delivered++;
     }

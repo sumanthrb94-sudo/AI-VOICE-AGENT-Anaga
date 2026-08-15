@@ -68,6 +68,11 @@ const GOOGLE_TTS_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const GOOGLE_VOICES_URL = 'https://texttospeech.googleapis.com/v1/voices';
 const GTRANSLATE_TTS_URL = 'https://translate.googleapis.com/translate_tts';
 
+// Providers that can answer in the codec a phone or a browser transport
+// speaks. gtranslate is MP3-only by construction; voicestudio and indicf5
+// return WAV, which shared/wav.js unwraps and rate-checks.
+const CALL_LEG_CAPABLE = new Set(['sarvam', 'google', 'voicestudio', 'indicf5']);
+
 // SARVAM SPEAKERS, PER MODEL. These are Sarvam's OWN names, from their docs —
 // not presets we invented. The app used to show seven made-up names (Aria,
 // Kiara, Meher…) mapped onto v2 speakers, which made it impossible for anyone
@@ -313,10 +318,17 @@ export function ttsStatus({ all = false, lang } = {}) {
     // Fixing this properly needs MP3->PCM transcoding, which needs a
     // dependency this repo does not have. Until then it is at least SAID, so
     // nobody plans around redundancy that is not there.
+    // Which providers can serve the LIVE CALL leg, which needs raw PCM or
+    // mu-law at the wire's own rate rather than MP3. Sarvam's stream endpoint
+    // and Google Cloud TTS both can; gtranslate is MP3-only by construction,
+    // so it remains a browser-only floor. Reported separately because `ready`
+    // answers "is the env var set", which is a different question and the one
+    // that made a Sarvam-only deployment look redundant on the leg that
+    // matters most.
     callLeg: {
-      capable: chain.filter((p) => p === 'sarvam' && providerReady(p)),
-      note: 'Only Sarvam can serve raw PCM/mulaw. Other providers return MP3, '
-          + 'which the call leg refuses — a fallback there is silence, not a worse voice.',
+      capable: chain.filter((p) => CALL_LEG_CAPABLE.has(p) && providerReady(p)),
+      note: 'Needs raw PCM or mu-law at the line rate. gtranslate is MP3-only '
+          + 'and cannot serve a call; a fallback to it would be silence.',
     },
     // Whether ANY provider in the chain can genuinely speak as a man. Saying so
     // up front beats shipping a "male" preset that quietly returns a woman.
@@ -539,7 +551,13 @@ async function viaIndicF5(text, opts) {
         text: text.slice(0, 2000),
         language: shortLang(opts.lang),
         voice,
-        sample_rate: Number(process.env.INDICF5_SAMPLE_RATE || 24000),
+        // THE TRANSPORT'S RATE FIRST. This was hardcoded to 24000 and never
+        // read opts.sampleRate, so any fallback to IndicF5 on a call handed
+        // 24kHz samples to a 16kHz browser or an 8kHz phone line. That does
+        // not fail — it plays her slow and pitched down, which sounds like a
+        // broken agent rather than a failed provider. shared/wav.js now
+        // refuses the mismatch as well, so this is belt and braces.
+        sample_rate: Number(opts.sampleRate || process.env.INDICF5_SAMPLE_RATE || 24000),
       }),
       signal: ctrl.signal,
     });
@@ -673,21 +691,42 @@ async function viaGoogle(text, opts) {
       input: { text: text.slice(0, 4500) },
       voice,
       audioConfig: {
-        audioEncoding: 'MP3',
+        // ── THE CALL LEG'S CODEC, WHEN ONE IS ASKED FOR ─────────────────
+        //
+        // Google Cloud TTS has supported LINEAR16 and MULAW all along; this
+        // adapter simply always said MP3. That single word is why the phone
+        // leg's provider "chain" could not fall back at ALL: caller-agent's
+        // composition root needs raw PCM or mu-law and refuses MP3, so a
+        // Sarvam hiccup produced silence rather than a second-choice voice,
+        // and the transcript still recorded the line as spoken.
+        //
+        // Google returns LINEAR16 and MULAW inside a WAV container, which is
+        // why the mime below is audio/wav for both and shared/wav.js reads
+        // the header to confirm what is actually in it.
+        audioEncoding: opts.codec === 'mulaw' ? 'MULAW'
+          : opts.codec === 'linear16' ? 'LINEAR16'
+          : 'MP3',
         // Our normalized scales -> Google's. pitch is semitones (-20..20);
         // speakingRate is a multiplier; volumeGainDb is decibels.
         pitch: clamp(Number(opts.pitch || 0) * 8, -20, 20, 0),
         speakingRate: clamp(opts.pace, 0.25, 4, 1),
         volumeGainDb: clamp(20 * Math.log10(clamp(opts.loudness, 0.1, 3, 1)), -96, 16, 0),
-        sampleRateHertz: 24000,
+        // THE LINE'S RATE, not a constant. 24000 was hardcoded, so even once
+        // the codec above was right the samples would have arrived at the
+        // wrong speed for an 8kHz phone leg.
+        sampleRateHertz: Number(opts.sampleRate) || 24000,
       },
     },
   });
 
   if (!data?.audioContent) throw new Error('google_tts_empty');
+  // TELL THE TRUTH ABOUT THE CONTAINER. Google wraps LINEAR16 and MULAW in a
+  // WAV header; only MP3 comes back bare. Reporting audio/mpeg for all three
+  // is what made the call leg refuse perfectly good audio.
+  const wrapped = opts.codec === 'mulaw' || opts.codec === 'linear16';
   return {
     audio: data.audioContent,
-    mime: 'audio/mpeg',
+    mime: wrapped ? 'audio/wav' : 'audio/mpeg',
     provider: 'google',
     voice: name || `${languageCode}/${ssmlGender}`,
     gender: wantMale ? 'male' : 'female',

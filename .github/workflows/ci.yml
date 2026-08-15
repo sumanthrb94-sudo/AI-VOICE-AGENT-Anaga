@@ -150,6 +150,26 @@ jobs:
         # even recorded. That window is exactly when people interrupt.
         run: node --experimental-detect-module scripts/test-bridge-failures.mjs
 
+      - name: Audio format verification (the bug that played her slow)
+        # The call leg used to strip a WAV header and discard the format tag
+        # and the SAMPLE RATE. 24kHz samples on an 8kHz line do not fail — they
+        # play three times too slow and pitched down, which sounds like a broken
+        # agent rather than a failed provider, and nothing reported it.
+        run: node --experimental-detect-module scripts/test-wav.mjs
+
+      - name: Latency measurement (the harness itself)
+        # Every failure mode here is a way of turning a bad run into a
+        # good-looking number: a silent turn counted as fast, a p95 over four
+        # samples, the endpointer's 900ms quietly left out of what the prospect
+        # experienced.
+        run: node --experimental-detect-module scripts/test-latency.mjs
+
+      - name: Latency harness runs end to end
+        # Stub vendors, so this measures the orchestration overhead this repo is
+        # actually responsible for rather than benchmarking a vendor from a CI
+        # runner's network. Fails if no turn produced audio at all.
+        run: node --experimental-detect-module scripts/measure-latency.mjs --turns 20
+
       - name: The two phrase splitters agree
         # The server pre-renders phrase 0 and ships the audio; the browser
         # splits the same line itself and speaks the rest. They disagreed on
