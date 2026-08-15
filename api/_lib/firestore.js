@@ -239,7 +239,7 @@ export async function verifyPersistence(collection) {
   const safeCollection = String(collection || '').trim();
   if (!safeCollection) return { ok: false, error: 'firestore_collection_required', cleaned: true };
 
-  const id = `__vaak_verify_${typeof crypto.randomUUID === 'function'
+  const id = `__anaga_verify_${typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : crypto.randomBytes(16).toString('hex')}`;
   const marker = `firestore_verify_${Date.now()}`;

@@ -1,10 +1,10 @@
 {
-  "name": "vaak-ai",
+  "name": "anaga-ai",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.21.0",
-  "description": "Reproducible local validation tooling for Vaak AI.",
+  "description": "Reproducible local validation tooling for Anaga.",
   "engines": {
     "node": ">=22"
   },

@@ -2,7 +2,7 @@
 
 **Status:** Accepted for the foundation phase  
 **Date:** 2026-08-14  
-**Owner:** Vaak AI Engineering
+**Owner:** Anaga Engineering
 
 ## Context
 

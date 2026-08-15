@@ -65,7 +65,7 @@ PORT=3000 node --experimental-detect-module scripts/dev-server.mjs
 You should see:
 
 ```text
-vaak dev server  http://localhost:3000
+anaga dev server  http://localhost:3000
   13 api routes ...
   vendors: live (needs real keys + egress)
 ```

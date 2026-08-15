@@ -1,4 +1,4 @@
-# Vaak AI Production Configuration Runbook
+# Anaga Production Configuration Runbook
 
 **Purpose.** This is the ordered, operator-facing configuration sequence for the remaining live-production gates. It preserves the deployed Firebase contract exactly: **do not change** `FIREBASE_SERVICE_ACCOUNT`, `FIRESTORE_DATABASE_ID`, or any existing Firestore collection names.
 
@@ -89,7 +89,7 @@ Use an AWS S3 bucket in **Asia Pacific (Mumbai), `ap-south-1`**. Hyderabad, `ap-
 ### 3.1 Create and harden the bucket
 
 1. Sign in to the AWS account that will own call recordings and select **Asia Pacific (Mumbai) `ap-south-1`** in the region selector.
-2. Open **S3 → Create bucket**. Use a globally unique, non-identifying name such as `vaak-call-recordings-ap-south-1-<account-suffix>`.
+2. Open **S3 → Create bucket**. Use a globally unique, non-identifying name such as `anaga-call-recordings-ap-south-1-<account-suffix>`.
 3. Keep **Block all public access** enabled. Do not turn off any public-access block and do not add a public-read policy.
 4. Keep **Object Ownership: Bucket owner enforced**. This disables ACL-based access control, which AWS recommends for most modern S3 usage. [5]
 5. Keep default server-side encryption enabled. The application writes every recording with the `AES256` server-side-encryption header; S3 also encrypts new uploads at rest by default. [5]
@@ -110,7 +110,7 @@ The application reports only its requested retention duration. The **bucket life
 
 ### 3.3 Create a least-privilege upload identity
 
-Create a dedicated IAM user or machine identity named, for example, `vaak-call-recording-prod`. Create an access key only for this purpose and store it in the approved secret manager. AWS generally recommends temporary IAM roles where the hosting platform supports them; this Vercel/Cloud Run configuration requires a restricted S3-compatible access-key pair. [5]
+Create a dedicated IAM user or machine identity named, for example, `anaga-call-recording-prod`. Create an access key only for this purpose and store it in the approved secret manager. AWS generally recommends temporary IAM roles where the hosting platform supports them; this Vercel/Cloud Run configuration requires a restricted S3-compatible access-key pair. [5]
 
 Attach an **identity policy** equivalent to the following, replacing the bucket name. The application needs only `PutObject`, `GetObject` for short-lived signed playback, and `DeleteObject` for an approved erasure request. It does not need blanket account or bucket-list permissions.
 
@@ -119,7 +119,7 @@ Attach an **identity policy** equivalent to the following, replacing the bucket 
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "VaakCallRecordingObjectsOnly",
+      "Sid": "AnagaCallRecordingObjectsOnly",
       "Effect": "Allow",
       "Action": [
         "s3:PutObject",
@@ -264,7 +264,7 @@ CALLING_WINDOW_START_IST=9
 CALLING_WINDOW_END_IST=21
 ```
 
-The receiver verifies `X-Vaak-Signature-256`, rejects unsigned or stale jobs, and independently rechecks the calling window. Keep the endpoint public only if it remains protected by this HMAC and is not discoverable as a general-purpose call API; do not add an unauthenticated alternate dial endpoint.
+The receiver verifies `X-Anaga-Signature-256`, rejects unsigned or stale jobs, and independently rechecks the calling window. Keep the endpoint public only if it remains protected by this HMAC and is not discoverable as a general-purpose call API; do not add an unauthenticated alternate dial endpoint.
 
 Test the receiver without a live dial by submitting a deliberately invalid or unsigned request and confirming HTTP 403. Only perform the signed, real telephony test after DND and caller-ID onboarding are complete.
 

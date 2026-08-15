@@ -935,8 +935,28 @@ if (demoEl) {
 
   /* which brain decides the next turn:
      null = not yet detected, "live" = backend LLM, "offline" = on-device rule engine.
-     Detect-once: after the first failed /turn we stay offline for the rest of the call. */
+
+     OFFLINE IS A SETBACK, NOT A VERDICT.
+     This used to be detect-once: the first failed /turn set brainMode="offline"
+     and nothing ever set it back, so ONE transient failure — a cold start, a
+     dropped packet, a single 503 — condemned the whole call to the rule engine.
+     The rule engine walks purpose→budget→config→timeline on a fixed path, so
+     what that actually sounds like is Anaga asking the same four questions
+     regardless of anything the caller says. The symptom is a scripted agent;
+     the cause was one bad request three turns ago.
+
+     So the live brain is retried. Not every turn — a genuinely dead backend
+     would then add a failed round trip to every single reply — but on a
+     backoff, and a tighter one when the failure is the kind that heals:
+
+       upstream_error / network   likely transient   retry every 2nd turn
+       quota_exceeded             a billing fix      retry every 5th turn
+
+     The probe carries its own short deadline (PROBE_MS). A person is waiting
+     on this, and a retry that hangs is worse than one that fails. */
   let brainMode = null;
+  let offlineTurns = 0;           // turns spent offline since the last attempt
+  let offlineReason = null;       // why we fell back, from the 503 body
   let micAllowed = false;         // whether getUserMedia granted
   let micCapable = false;         // recog supported AND mic granted → can actually listen
 
@@ -1326,7 +1346,7 @@ if (demoEl) {
        LLM see English; the displayed bubble keeps the original language. */
     const advance = (englishText) => {
       history.push({ role: "user", text: englishText });
-      if (brainMode === "offline") { setTimeout(nextOfflineTurn, 350); return; }
+      if (brainMode === "offline" && !dueForRetry()) { setTimeout(nextOfflineTurn, 350); return; }
       nextLiveTurn();
     };
     const toEnglishThenAdvance = () => {
@@ -1371,6 +1391,25 @@ if (demoEl) {
      On any non-200 / throw we flip to the offline engine for the rest of the call. */
   /* fetch the next turn from the best available brain:
      your own Gemini key (BYOK, in-browser) → server /api → (caller handles offline). */
+  /* How long a RETRY of a known-bad backend may take before we give the turn
+     to the rule engine. The first attempt of a call gets no deadline — the
+     backend has to cold-start, transcribe, think and synthesize — but once we
+     already know it failed, a caller sitting in silence is the expensive
+     outcome, not one more dead request. */
+  const PROBE_MS = 2500;
+
+  /* Is this turn the one where we try the live brain again? Called ONCE per
+     offline turn, because it counts. */
+  function dueForRetry() {
+    offlineTurns += 1;
+    /* A quota does not come back mid-call, so probing it every other turn just
+       spends the caller's time. A 503 from a cold start does come back. */
+    const every = offlineReason === "quota_exceeded" ? 5 : 2;
+    if (offlineTurns < every) return false;
+    offlineTurns = 0;
+    return true;
+  }
+
   function fetchTurn() {
     if (window.AnagaBrain && AnagaBrain.hasKey()) {
       return AnagaBrain.turn({ history }).then(d => ({ data: d, src: "your key" }));
@@ -1380,7 +1419,11 @@ if (demoEl) {
     return fetch(TURN_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lang: CALL_LANG, history })
+      body: JSON.stringify({ lang: CALL_LANG, history }),
+      /* Only a retry is deadlined — see PROBE_MS. AbortSignal.timeout is not
+         in older Safari, so its absence must not throw the whole request. */
+      signal: (brainMode === "offline" && typeof AbortSignal !== "undefined"
+        && AbortSignal.timeout) ? AbortSignal.timeout(PROBE_MS) : undefined
     }).then(res => {
       if (!res.ok) {
         /* Read the body: a 503 carries `reason` — "quota_exceeded" means the
@@ -1410,12 +1453,14 @@ if (demoEl) {
           if (!active || spoke || !sayText) return;
           spoke = true;
           if (brainMode !== "live") { brainMode = "live"; setBrain("live", "your key"); }
+          offlineTurns = 0; offlineReason = null;
           deliver(String(sayText), () => pendingEnd);
         }
       })
         .then((d) => {
           if (!active) return;
           if (brainMode !== "live") { brainMode = "live"; setBrain("live", "your key"); }
+          offlineTurns = 0; offlineReason = null;
           if (d && d.disposition) lastDisposition = d.disposition;
           const endInfo = (d && d.end)
             ? { reason: d.disposition === "opt-out" ? "Opt-out recorded · call ended" : "Call ended",
@@ -1426,7 +1471,7 @@ if (demoEl) {
         })
         .catch(() => {
           if (!active) return;
-          if (brainMode !== "offline") { brainMode = "offline"; setBrain("offline"); }
+          if (brainMode !== "offline") { brainMode = "offline"; offlineTurns = 0; setBrain("offline"); }
           nextOfflineTurn();
         });
       return;
@@ -1436,7 +1481,12 @@ if (demoEl) {
     fetchTurn()
       .then(({ data, src }) => {
         if (!active) return;
+        /* RECOVERED. The badge goes back to "live AI" and the counters reset,
+           so a second wobble later in the call gets the full backoff again
+           rather than inheriting the first one's. */
         if (brainMode !== "live") { brainMode = "live"; setBrain("live", src); }
+        offlineTurns = 0;
+        offlineReason = null;
         const line = (data && data.say) ? String(data.say) : "Sorry, could you say that again?";
         if (data && data.disposition) lastDisposition = data.disposition;
         const endInfo = (data && data.end)
@@ -1447,10 +1497,14 @@ if (demoEl) {
       })
       .catch(err => {
         if (!active) return;
-        /* detect-once: remember offline so we don't spam failed fetches every turn */
+        /* Remember WHY, because it sets the retry interval — and re-read it on
+           every failure, since a backend that was merely down can come back up
+           and then be out of quota. */
+        offlineReason = (err && err.anagaReason) || offlineReason;
         if (brainMode !== "offline") {
           brainMode = "offline";
-          setBrain("offline", null, err && err.anagaReason);
+          offlineTurns = 0;
+          setBrain("offline", null, offlineReason);
         }
         nextOfflineTurn();
       });

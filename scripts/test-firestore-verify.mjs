@@ -28,8 +28,8 @@ const { privateKey } = crypto.generateKeyPairSync('rsa', {
 });
 process.env.FIREBASE_SERVICE_ACCOUNT = JSON.stringify({
   type: 'service_account',
-  project_id: 'vaak-persistence-verify-test',
-  client_email: 'verify@vaak-persistence-verify-test.iam.gserviceaccount.com',
+  project_id: 'anaga-persistence-verify-test',
+  client_email: 'verify@anaga-persistence-verify-test.iam.gserviceaccount.com',
   private_key: privateKey,
 });
 process.env.INTEGRATIONS_API_KEY = 'firestore-verify-test-key-00000000';
