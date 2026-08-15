@@ -69,7 +69,10 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       ref={ref}
       className={cn(
-        'h-11 w-full rounded-[var(--radius-md)] border border-[var(--color-line)]',
+        // line-strong, not line: WCAG 1.4.11 wants 3:1 on a control boundary,
+        // and the decorative line is 1.24:1 — you could not see where the
+        // field ended.
+        'h-11 w-full rounded-[var(--radius-md)] border border-[var(--color-line-strong)]',
         'bg-[var(--color-elevated)] px-3.5 text-[length:var(--text-sm)] text-[var(--color-text)]',
         'placeholder:text-[var(--color-text-faint)]',
         'transition-colors duration-200 focus:border-[var(--color-accent)]',

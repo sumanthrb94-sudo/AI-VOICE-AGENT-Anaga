@@ -24,8 +24,11 @@ const button = cva(
       variant: {
         primary:
           'bg-[var(--color-accent-fill)] text-[var(--color-on-accent)] hover:bg-[var(--color-brand-400)]',
+        // A secondary button is only a button because of its edge, so that
+        // edge is held to the 3:1 control-boundary bar rather than the
+        // decorative one.
         secondary:
-          'bg-[var(--color-elevated)] text-[var(--color-text)] border border-[var(--color-line)] hover:border-[var(--color-ink-500)]',
+          'bg-[var(--color-elevated)] text-[var(--color-text)] border border-[var(--color-line-strong)] hover:border-[var(--color-ink-300)]',
         ghost:
           'text-[var(--color-text-dim)] hover:text-[var(--color-text)] hover:bg-[var(--color-elevated)]',
         danger:

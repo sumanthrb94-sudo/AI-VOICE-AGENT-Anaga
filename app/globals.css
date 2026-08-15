@@ -107,16 +107,28 @@
   --color-bg:        var(--color-ink-950);
   --color-surface:   var(--color-ink-900);
   --color-elevated:  var(--color-ink-850);
-  --color-line:      var(--color-ink-700);
+  --color-line:      var(--color-ink-700);  /* 1.24:1 — DECORATIVE ONLY */
   --color-line-soft: var(--color-ink-800);
+  /* The edge of a control the user must find and click. WCAG 1.4.11 asks for
+     3:1 on non-text UI boundaries, and the decorative line above is 1.24:1 —
+     fine for separating two cards, not for telling somebody where an input
+     ends. Inputs, secondary buttons and focusable tiles use this. */
+  --color-line-strong: var(--color-ink-400); /* 3.19:1 on surface */
 
-  --color-text:      var(--color-ink-50);   /* 17.4:1 on bg */
-  --color-text-dim:  var(--color-ink-300);  /*  7.1:1 on bg — body-safe */
-  --color-text-faint:var(--color-ink-400);  /*  4.6:1 on bg — labels only */
+  /* Ratios below are MEASURED by scripts/test-contrast.mjs, which fails the
+     build if a comment and the colour ever disagree. The first hand-written
+     set of these was wrong on all six pairs, and text-faint was documented at
+     4.6:1 while actually measuring 3.31:1 — i.e. failing the floor declared at
+     the top of this file. Do not edit a number here by hand; run the test. */
+  --color-text:      var(--color-ink-50);   /* 18.07:1 on bg */
+  --color-text-dim:  var(--color-ink-300);  /*  5.83:1 on bg — body-safe */
+  /* NOT ink-400. That step is 3.04:1 on --color-elevated, which is the
+     lightest surface this sits on, so it failed where it was used most. */
+  --color-text-faint: #7d8598;              /*  5.38:1 on bg, 4.94:1 on elevated */
 
   --color-accent:    var(--color-brand-400);
   --color-accent-fill: var(--color-brand-500);
-  --color-on-accent: #1a0f02;               /* 11.2:1 on brand-500 */
+  --color-on-accent: #1a0f02;               /* 6.31:1 on brand-500 */
 
   --color-ok:   var(--color-ok-400);
   --color-warn: #eab308;
@@ -131,18 +143,19 @@
   --color-bg:        var(--color-ink-0);
   --color-surface:   var(--color-ink-50);
   --color-elevated:  var(--color-ink-0);
-  --color-line:      var(--color-ink-100);
+  --color-line:      var(--color-ink-100);  /* 1.27:1 — DECORATIVE ONLY */
   --color-line-soft: var(--color-ink-50);
+  --color-line-strong: var(--color-ink-300); /* 3.10:1 on surface */
 
-  --color-text:      var(--color-ink-900);  /* 16.8:1 on white */
-  --color-text-dim:  var(--color-ink-500);  /*  8.9:1 */
-  --color-text-faint:var(--color-ink-400);  /*  4.9:1 */
+  --color-text:      var(--color-ink-900);  /* 19.16:1 on white */
+  --color-text-dim:  var(--color-ink-500);  /*  9.75:1 on white */
+  --color-text-faint:var(--color-ink-400);  /*  6.01:1 on white */
 
   /* The amber that works on near-black fails on white — 2.1:1. Light mode
      needs the dark end of the same ramp, not the same step. */
-  --color-accent:    var(--color-brand-700); /* 7.4:1 on white */
+  --color-accent:    var(--color-brand-700); /* 8.16:1 on white */
   --color-accent-fill: var(--color-brand-600);
-  --color-on-accent: #ffffff;                /* 4.8:1 on brand-600 */
+  --color-on-accent: #ffffff;                /* 4.69:1 on brand-600 */
 
   --color-ok:   #17794a;
   --color-warn: #8a5a06;

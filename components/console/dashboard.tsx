@@ -109,7 +109,7 @@ export function Dashboard({ user }: { user: SessionUser }) {
               it is the one thing announced. */}
           <p
             aria-live="polite"
-            className="flex items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--color-text-faint)]"
+            className="flex items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--color-text-dim)]"
           >
             <Dot tone={status === 'error' ? 'bad' : status === 'ready' ? 'ok' : 'neutral'} />
             <span className="tabular">{freshness}</span>
@@ -117,17 +117,21 @@ export function Dashboard({ user }: { user: SessionUser }) {
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <span className="flex min-w-0 items-center gap-2 text-[length:var(--text-xs)]">
-              <UserRound aria-hidden className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-faint)]" />
+              <UserRound aria-hidden className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-dim)]" />
               <span className="min-w-0">
                 <span className="block truncate text-[var(--color-text)]">{user.name || user.email}</span>
-                <span className="block truncate text-[var(--color-text-faint)]">{user.email}</span>
+                {/* The address is confirmation, not identity — it is the first
+                    thing to go when the header has to wrap on a phone. */}
+                <span className="hidden truncate text-[var(--color-text-dim)] sm:block">{user.email}</span>
               </span>
               <Badge tone={user.role === 'owner' ? 'brand' : 'neutral'}>{user.role}</Badge>
             </span>
 
+            {/* 44px, not the 36px table size: these are tapped on a phone. */}
             <Button
               variant="secondary"
-              size="sm"
+              size="md"
+              className="px-3"
               onClick={() => void load()}
               loading={status === 'refreshing' || status === 'loading'}
               aria-label="Refresh the console"
@@ -138,7 +142,8 @@ export function Dashboard({ user }: { user: SessionUser }) {
 
             <Button
               variant="ghost"
-              size="sm"
+              size="md"
+              className="px-3"
               loading={signingOut}
               onClick={() => {
                 setSigningOut(true);
@@ -203,7 +208,7 @@ export function Dashboard({ user }: { user: SessionUser }) {
           </div>
         </div>
 
-        <p className="pb-4 text-pretty text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-faint)]">
+        <p className="pb-4 text-pretty text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-dim)]">
           Anaga qualifies leads and books site visits. She does not close — every booked visit is
           handed to a human. Phone numbers are masked by the API and are never unmasked in this
           console.

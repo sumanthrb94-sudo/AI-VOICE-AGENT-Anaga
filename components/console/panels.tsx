@@ -49,16 +49,16 @@ export function PanelHead({
     <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--color-line-soft)] px-5 py-4">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <Icon aria-hidden className="h-4 w-4 shrink-0 text-[var(--color-text-faint)]" />
+          <Icon aria-hidden className="h-4 w-4 shrink-0 text-[var(--color-text-dim)]" />
           <h2 id={id} className="text-[length:var(--text-sm)] font-semibold tracking-[-0.01em]">
             {title}
           </h2>
           {count ? (
-            <span className="tabular text-[length:var(--text-xs)] text-[var(--color-text-faint)]">{count}</span>
+            <span className="tabular text-[length:var(--text-xs)] text-[var(--color-text-dim)]">{count}</span>
           ) : null}
         </div>
         {hint ? (
-          <p className="mt-1 text-pretty text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-faint)]">
+          <p className="mt-1 text-pretty text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-dim)]">
             {hint}
           </p>
         ) : null}
@@ -94,7 +94,7 @@ export function Note({
   }[tone];
 
   const accent = {
-    neutral: 'text-[var(--color-text-faint)]',
+    neutral: 'text-[var(--color-text-dim)]',
     ok: 'text-[var(--color-ok)]',
     warn: 'text-[var(--color-warn)]',
     bad: 'text-[var(--color-bad)]',
@@ -130,10 +130,10 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center gap-2 px-5 py-10 text-center">
-      <Icon aria-hidden className="h-5 w-5 text-[var(--color-text-faint)]" />
+      <Icon aria-hidden className="h-5 w-5 text-[var(--color-text-dim)]" />
       <p className="text-[length:var(--text-sm)] font-medium text-[var(--color-text)]">{title}</p>
       {children ? (
-        <p className="max-w-sm text-pretty text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-faint)]">
+        <p className="max-w-sm text-pretty text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-dim)]">
           {children}
         </p>
       ) : null}
@@ -168,19 +168,19 @@ export function Stat({
 }) {
   return (
     <div className="rounded-[var(--radius-md)] border border-[var(--color-line-soft)] bg-[var(--color-elevated)] p-4">
-      <p className="text-[length:var(--text-xs)] font-medium uppercase tracking-[0.08em] text-[var(--color-text-faint)]">
+      <p className="text-[length:var(--text-xs)] font-medium uppercase tracking-[0.08em] text-[var(--color-text-dim)]">
         {label}
       </p>
       <p
         className={cn(
           'tabular mt-1.5 text-[length:var(--text-xl)] font-semibold leading-none',
-          muted ? 'text-[var(--color-text-faint)]' : 'text-[var(--color-text)]',
+          muted ? 'text-[var(--color-text-dim)]' : 'text-[var(--color-text)]',
         )}
       >
         {value}
       </p>
       {foot ? (
-        <p className="mt-1.5 text-pretty text-[length:var(--text-xs)] leading-snug text-[var(--color-text-faint)]">
+        <p className="mt-1.5 text-pretty text-[length:var(--text-xs)] leading-snug text-[var(--color-text-dim)]">
           {foot}
         </p>
       ) : null}
@@ -203,7 +203,7 @@ export function StatusRow({
       <span className="shrink-0">{state}</span>
       <span className="text-[length:var(--text-sm)] text-[var(--color-text)]">{name}</span>
       {detail ? (
-        <span className="ml-auto text-[length:var(--text-xs)] text-[var(--color-text-faint)]">{detail}</span>
+        <span className="ml-auto text-[length:var(--text-xs)] text-[var(--color-text-dim)]">{detail}</span>
       ) : null}
     </li>
   );

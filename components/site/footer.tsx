@@ -30,8 +30,10 @@ const columns: { heading: string; links: { href: string; label: string }[] }[] =
   },
 ];
 
+// min-h-11 is 44px. A footer link is not a primary action, but it is still
+// something someone taps with a thumb at the bottom of a long page.
 const linkClass = cn(
-  'inline-flex min-h-9 cursor-pointer items-center rounded-[var(--radius-sm)]',
+  'inline-flex min-h-11 cursor-pointer items-center rounded-[var(--radius-sm)]',
   'text-[length:var(--text-sm)] text-[var(--color-text-dim)]',
   'transition-colors duration-200 hover:text-[var(--color-text)]',
 );
@@ -51,7 +53,7 @@ export function SiteFooter() {
 
           {columns.map((col) => (
             <div key={col.heading}>
-              <h2 className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-faint)]">
+              <h2 className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-dim)]">
                 {col.heading}
               </h2>
               <ul className="mt-3 flex flex-col gap-0.5">
@@ -74,12 +76,12 @@ export function SiteFooter() {
         </div>
 
         <div className="mt-12 flex flex-col gap-3 border-t border-[var(--color-line-soft)] pt-6 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+          <p className="text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
             &copy; {new Date().getFullYear()} Modcon Builders, Hyderabad.
           </p>
           {/* Worth repeating at the bottom of the page as well as in her first
               sentence: this is the thing the product is legally built around. */}
-          <p className="text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+          <p className="text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
             Anaga says she is an AI in the first sentence of every call, in every language.
           </p>
         </div>

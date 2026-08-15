@@ -202,14 +202,18 @@ export default function LoginPage() {
               </p>
             </div>
 
-            {/* The async area. min-h reserves the height of the ready state so
-                the card does not jump when the health check lands. */}
-            <div className="min-h-[8.5rem]">
+            {/* The async area reserves EXACTLY the ready state's height — one
+                button box — so the overwhelmingly common path (everything is
+                configured) lands with nothing moving. Reserving the tallest
+                state instead would leave a hole under the button on every
+                healthy deployment, which is the same bug pointing the other
+                way. The blocker list is longer and does grow the card; that is
+                a real content change on a path you hit once. */}
+            <div className="min-h-12">
               {session === 'checking' ? (
-                <div aria-live="polite" aria-busy="true" className="space-y-3">
+                <div aria-live="polite" aria-busy="true">
                   <span className="sr-only">Checking whether you are already signed in…</span>
                   <Skeleton className="h-12 w-full" />
-                  <Skeleton className="h-4 w-3/4" />
                 </div>
               ) : session === 'signed-in' ? (
                 <p
@@ -245,10 +249,9 @@ export default function LoginPage() {
 function HealthArea({ state, onRetry }: { state: HealthState; onRetry: () => void }) {
   if (state.phase === 'checking') {
     return (
-      <div aria-live="polite" aria-busy="true" className="space-y-3">
+      <div aria-live="polite" aria-busy="true">
         <span className="sr-only">Checking whether this deployment can sign anybody in…</span>
         <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-4 w-3/4" />
       </div>
     );
   }

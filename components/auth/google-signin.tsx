@@ -392,8 +392,13 @@ export function GoogleSignIn({
 
   const busy = phase === 'submitting' || phase === 'done';
 
+  // NOTE the margins are per-child rather than a `space-y` on the parent: the
+  // live region below is always mounted (a region present before its content
+  // changes is announced far more reliably than one inserted with the message
+  // already inside it), and a parent gap would give that empty div 12px of
+  // height — a visible shift on every load, to reserve nothing.
   return (
-    <div className="space-y-3">
+    <div>
       {/* min-h reserves the button's exact box, so nothing below it moves when
           Google's markup lands. */}
       <div ref={wrapRef} className="relative min-h-12">
@@ -419,7 +424,7 @@ export function GoogleSignIn({
       </div>
 
       {busy ? (
-        <p aria-live="polite" className="flex items-center justify-center gap-2 text-[length:var(--text-sm)] text-[var(--color-text-dim)]">
+        <p aria-live="polite" className="mt-3 flex items-center justify-center gap-2 text-[length:var(--text-sm)] text-[var(--color-text-dim)]">
           <span
             aria-hidden
             className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
@@ -430,7 +435,7 @@ export function GoogleSignIn({
 
       {/* One live region for sign-in failures. assertive because the person is
           waiting on this exact answer. */}
-      <div role="alert" aria-live="assertive">
+      <div role="alert" aria-live="assertive" className={error ? 'mt-3' : undefined}>
         {error ? (
           <div className="flex gap-2.5 rounded-[var(--radius-md)] border border-[var(--color-bad-500)]/40 bg-[var(--color-bad-500)]/10 p-3.5">
             <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-bad)]" aria-hidden />

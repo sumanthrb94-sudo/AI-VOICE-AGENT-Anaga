@@ -86,7 +86,7 @@ export function EventsPanel({ events }: { events: PipelineEvent[] | null }) {
                   <th
                     key={h}
                     scope="col"
-                    className="px-4 py-2.5 text-[length:var(--text-xs)] font-medium uppercase tracking-[0.06em] text-[var(--color-text-faint)]"
+                    className="px-4 py-2.5 text-[length:var(--text-xs)] font-medium uppercase tracking-[0.06em] text-[var(--color-text-dim)]"
                   >
                     {h}
                   </th>
@@ -101,7 +101,7 @@ export function EventsPanel({ events }: { events: PipelineEvent[] | null }) {
                     key={`${e.at}-${e.type}-${i}`}
                     className="border-b border-[var(--color-line-soft)] last:border-b-0"
                   >
-                    <td className="tabular whitespace-nowrap px-4 py-2.5 text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+                    <td className="tabular whitespace-nowrap px-4 py-2.5 text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
                       {formatClock(e.at)}
                     </td>
                     <td className="px-4 py-2.5">

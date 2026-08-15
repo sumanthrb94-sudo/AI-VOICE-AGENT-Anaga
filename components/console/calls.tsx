@@ -77,7 +77,7 @@ export function CallsPanel({
                   <th
                     key={h}
                     scope="col"
-                    className="px-4 py-2.5 text-[length:var(--text-xs)] font-medium uppercase tracking-[0.06em] text-[var(--color-text-faint)]"
+                    className="px-4 py-2.5 text-[length:var(--text-xs)] font-medium uppercase tracking-[0.06em] text-[var(--color-text-dim)]"
                   >
                     {h === 'Transcript' ? <span className="sr-only">{h}</span> : h}
                   </th>
@@ -108,7 +108,7 @@ export function CallsPanel({
                             opt-out
                           </Badge>
                           {c.disposition && c.disposition !== 'opt-out' ? (
-                            <p className="text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+                            <p className="text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
                               agent said &ldquo;{c.disposition}&rdquo; — overridden
                             </p>
                           ) : null}
@@ -121,7 +121,7 @@ export function CallsPanel({
                     <td className="px-4 py-3 text-[length:var(--text-sm)] text-[var(--color-text)]">
                       {c.lead.name || '—'}
                       {c.lead.source ? (
-                        <span className="block text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+                        <span className="block text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
                           {c.lead.source}
                         </span>
                       ) : null}
@@ -134,7 +134,7 @@ export function CallsPanel({
 
                     <td className="px-4 py-3">
                       {c.score == null ? (
-                        <span className="text-[length:var(--text-sm)] text-[var(--color-text-faint)]">—</span>
+                        <span className="text-[length:var(--text-sm)] text-[var(--color-text-dim)]">—</span>
                       ) : (
                         <div className="space-y-1">
                           <Badge tone={optOut ? 'bad' : bandTone(c.band)}>
@@ -142,7 +142,7 @@ export function CallsPanel({
                             {c.band ? ` ${c.band}` : ''}
                           </Badge>
                           {c.scoring && c.scoring.of ? (
-                            <p className="tabular text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+                            <p className="tabular text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
                               {c.scoring.answered} of {c.scoring.of} answered
                             </p>
                           ) : null}
@@ -153,7 +153,7 @@ export function CallsPanel({
                     <td className="tabular whitespace-nowrap px-4 py-3 text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
                       {formatDuration(c.durationSec)}
                       {c.recordingRef ? (
-                        <span className="mt-1 flex items-center gap-1 text-[var(--color-text-faint)]">
+                        <span className="mt-1 flex items-center gap-1 text-[var(--color-text-dim)]">
                           <Mic aria-hidden className="h-3 w-3" />
                           recorded
                         </span>
@@ -161,9 +161,12 @@ export function CallsPanel({
                     </td>
 
                     <td className="px-4 py-3">
+                      {/* 44px even in a dense table. A transcript is the one
+                          thing on this page somebody opens from a phone. */}
                       <Button
                         variant="secondary"
-                        size="sm"
+                        size="md"
+                        className="px-3"
                         disabled={!c.callId}
                         onClick={(e) => {
                           returnTo.current = e.currentTarget;
@@ -202,14 +205,43 @@ function TranscriptDialog({ call, onClose }: { call: CallView; onClose: () => vo
   const [full, setFull] = React.useState<CallView | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const closeRef = React.useRef<HTMLButtonElement | null>(null);
+  const panelRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
     closeRef.current?.focus();
+
+    // Esc closes, and Tab cycles WITHIN the dialog. `aria-modal` is a promise
+    // to assistive tech that the rest of the page is inert; letting Tab walk
+    // out into the console behind it breaks that promise silently.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab' || !panelRef.current) return;
+      const focusable = panelRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+
+    // The page behind a bottom sheet must not scroll under the thumb.
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previous;
+    };
   }, [onClose]);
 
   React.useEffect(() => {
@@ -249,6 +281,7 @@ function TranscriptDialog({ call, onClose }: { call: CallView; onClose: () => vo
       }}
     >
       <motion.div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="transcript-h"
@@ -262,7 +295,7 @@ function TranscriptDialog({ call, onClose }: { call: CallView; onClose: () => vo
             <h2 id="transcript-h" className="text-[length:var(--text-sm)] font-semibold">
               Call transcript
             </h2>
-            <p className="tabular mt-0.5 font-mono text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+            <p className="tabular mt-0.5 font-mono text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
               {call.lead.phoneMasked || 'number withheld'} · {formatStamp(call.startedAt || call.at)} ·{' '}
               {formatDuration(call.durationSec)}
             </p>
@@ -306,7 +339,7 @@ function TranscriptDialog({ call, onClose }: { call: CallView; onClose: () => vo
                             <th
                               key={h}
                               scope="col"
-                              className="px-3 py-2 text-[length:var(--text-xs)] font-medium uppercase tracking-[0.06em] text-[var(--color-text-faint)]"
+                              className="px-3 py-2 text-[length:var(--text-xs)] font-medium uppercase tracking-[0.06em] text-[var(--color-text-dim)]"
                             >
                               {h}
                             </th>
@@ -322,7 +355,7 @@ function TranscriptDialog({ call, onClose }: { call: CallView; onClose: () => vo
                             <td className="px-3 py-2 text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
                               {f.answered ? f.bucket : 'not answered'}
                             </td>
-                            <td className="tabular px-3 py-2 text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+                            <td className="tabular px-3 py-2 text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
                               {f.weight}
                             </td>
                             <td className="tabular px-3 py-2 text-[length:var(--text-xs)] text-[var(--color-text)]">
@@ -342,7 +375,7 @@ function TranscriptDialog({ call, onClose }: { call: CallView; onClose: () => vo
                 ) : null}
                 {full.nextAction ? (
                   <p className="text-[length:var(--text-sm)] text-[var(--color-text-dim)]">
-                    <span className="text-[var(--color-text-faint)]">Next:</span> {full.nextAction}
+                    <span className="text-[var(--color-text-dim)]">Next:</span> {full.nextAction}
                   </p>
                 ) : null}
 
@@ -357,7 +390,7 @@ function TranscriptDialog({ call, onClose }: { call: CallView; onClose: () => vo
                             : 'rounded-[var(--radius-sm)] border border-[var(--color-line)] px-3 py-2'
                         }
                       >
-                        <p className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.06em] text-[var(--color-text-faint)]">
+                        <p className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.06em] text-[var(--color-text-dim)]">
                           {t.role === 'agent' ? 'Anaga' : 'Prospect'}
                         </p>
                         {/* React escapes this. It is speech transcribed from a
@@ -375,7 +408,7 @@ function TranscriptDialog({ call, onClose }: { call: CallView; onClose: () => vo
                 )}
 
                 {full.recordingRef ? (
-                  <p className="text-pretty text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-faint)]">
+                  <p className="text-pretty text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-dim)]">
                     A recording exists for this call. It is not reachable from here — playback is a
                     separate authenticated read against <Code>/api/calls/recording</Code> that logs
                     itself.

@@ -116,10 +116,10 @@ export function FunnelPanel({ funnel }: { funnel: Funnel | null }) {
                         <span className="tabular text-[length:var(--text-sm)] font-semibold text-[var(--color-text)]">
                           {s.n}
                         </span>
-                        <span className="tabular text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+                        <span className="tabular text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
                           {pct}%
                         </span>
-                        <span className="ml-auto text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+                        <span className="ml-auto text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
                           {s.note}
                         </span>
                       </div>
@@ -140,7 +140,7 @@ export function FunnelPanel({ funnel }: { funnel: Funnel | null }) {
             )}
 
             {funnel.counts.received > 0 && funnel.counts.completed === 0 ? (
-              <p className="text-pretty text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-faint)]">
+              <p className="text-pretty text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-dim)]">
                 Nothing has reported back yet. A finished call arrives at{' '}
                 <Code>POST /api/calls/outcome</Code> and lands in the calls table below.
               </p>

@@ -119,13 +119,13 @@ export function ReadinessPanel({ wiring }: { wiring: Wiring | null }) {
                   </p>
                   {b.env.length ? (
                     <p className="mt-2 flex flex-wrap items-center gap-1.5">
-                      <span className="text-[length:var(--text-xs)] text-[var(--color-text-faint)]">Set</span>
+                      <span className="text-[length:var(--text-xs)] text-[var(--color-text-dim)]">Set</span>
                       {b.env.map((e) => (
                         <Code key={e}>{e}</Code>
                       ))}
                     </p>
                   ) : null}
-                  <p className="mt-2 text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+                  <p className="mt-2 text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
                     Reported as <Code>{code}</Code>
                   </p>
                 </li>

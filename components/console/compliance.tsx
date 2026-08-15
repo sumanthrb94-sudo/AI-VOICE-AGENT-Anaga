@@ -119,7 +119,7 @@ export function CompliancePanel({
 
             {/* Why the gate said no. */}
             <div>
-              <h3 className="mb-2 text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-faint)]">
+              <h3 className="mb-2 text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-dim)]">
                 Why dials were refused
               </h3>
               {reasons.length === 0 ? (
@@ -142,7 +142,7 @@ export function CompliancePanel({
                         <span className="text-[length:var(--text-sm)] text-[var(--color-text)]">
                           {humanReason(reason)}
                         </span>
-                        <span className="ml-auto text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+                        <span className="ml-auto text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
                           {terminal ? 'the person’s choice' : 'failed closed'}
                         </span>
                       </li>
@@ -154,11 +154,11 @@ export function CompliancePanel({
 
             {/* Opt-outs on record, from the durable call list. */}
             <div>
-              <h3 className="mb-2 text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-faint)]">
+              <h3 className="mb-2 text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.08em] text-[var(--color-text-dim)]">
                 Opt-outs on finished calls
               </h3>
               {optOutCalls.length === 0 ? (
-                <p className="text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-faint)]">
+                <p className="text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-dim)]">
                   {store && !store.durable
                     ? 'No finished calls are being kept on this deployment, so an opt-out taken mid-call cannot be evidenced here.'
                     : 'No call in the stored history ended in an opt-out.'}
@@ -179,7 +179,7 @@ export function CompliancePanel({
                         do not call
                       </span>
                       {c.disposition && c.disposition !== 'opt-out' ? (
-                        <span className="text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+                        <span className="text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
                           agent reported &ldquo;{c.disposition}&rdquo; — overridden
                         </span>
                       ) : null}
@@ -192,30 +192,30 @@ export function CompliancePanel({
             {/* The standing rules, stated rather than assumed. */}
             <dl className="grid gap-2 border-t border-[var(--color-line-soft)] pt-4 text-[length:var(--text-xs)] sm:grid-cols-2">
               <div className="flex items-center gap-2">
-                <Clock aria-hidden className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-faint)]" />
-                <dt className="text-[var(--color-text-faint)]">Calling window</dt>
+                <Clock aria-hidden className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-dim)]" />
+                <dt className="text-[var(--color-text-dim)]">Calling window</dt>
                 <dd className="tabular text-[var(--color-text)]">{wiring.compliance.callingWindowIST} IST</dd>
               </div>
               <div className="flex items-center gap-2">
-                <Clock aria-hidden className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-faint)]" />
-                <dt className="text-[var(--color-text-faint)]">Consent valid for</dt>
+                <Clock aria-hidden className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-dim)]" />
+                <dt className="text-[var(--color-text-dim)]">Consent valid for</dt>
                 <dd className="tabular text-[var(--color-text)]">{wiring.compliance.consentWindowDays} days</dd>
               </div>
               <div className="flex items-center gap-2">
-                <Ban aria-hidden className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-faint)]" />
-                <dt className="text-[var(--color-text-faint)]">DND scrub</dt>
+                <Ban aria-hidden className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-dim)]" />
+                <dt className="text-[var(--color-text-dim)]">DND scrub</dt>
                 <dd className="text-[var(--color-text)]">
                   {wiring.compliance.dndScrub ? 'configured' : 'not configured'}
                 </dd>
               </div>
               <div className="flex items-center gap-2">
-                <Ban aria-hidden className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-faint)]" />
-                <dt className="text-[var(--color-text-faint)]">Register backend</dt>
+                <Ban aria-hidden className="h-3.5 w-3.5 shrink-0 text-[var(--color-text-dim)]" />
+                <dt className="text-[var(--color-text-dim)]">Register backend</dt>
                 <dd className="text-[var(--color-text)]">{wiring.compliance.suppressionBackend}</dd>
               </div>
             </dl>
 
-            <p className="text-pretty text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-faint)]">
+            <p className="text-pretty text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-dim)]">
               This panel shows opt-out <em>activity</em>, not the register&rsquo;s contents —{' '}
               <Code>/api/console/summary</Code> does not return the list, and numbers stay masked
               everywhere they appear.

@@ -86,6 +86,13 @@ jobs:
       - name: Console read auth (a session OR the machine key, never an escalation)
         run: node --experimental-detect-module scripts/test-console-auth.mjs
 
+      - name: Contrast (the design system's own annotations must be true)
+        # app/globals.css documents a ratio beside every colour pair. The first
+        # hand-computed set was wrong on all six, and --color-text-faint was
+        # annotated 4.6:1 while measuring 3.31:1 — failing the floor declared at
+        # the top of the same file. A comment claiming a number is not a check.
+        run: node scripts/test-contrast.mjs
+
       - name: Firestore durability QA (offline half — no credentials in CI)
         # The live half is skipped without FIREBASE_SERVICE_ACCOUNT_LIVE. The
         # offline half still runs the assertion that matters most: an

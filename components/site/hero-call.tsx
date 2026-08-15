@@ -40,15 +40,41 @@ export function Reveal({
 }) {
   const reduced = useReducedMotion();
   const Tag = as === 'li' ? motion.li : motion.div;
+
+  // A DEAD MAN'S SWITCH ON THE REVEAL.
+  //
+  // whileInView hides the content until an IntersectionObserver says it is
+  // visible. That is the standard pattern and it is one observer away from a
+  // blank page: it did not fire for 16 of 27 blocks under programmatic
+  // scrolling, and it does not fire at all when the page is printed, rendered
+  // headless, or captured by a screenshot tool — every one of which showed
+  // large empty sections where the content actually was.
+  //
+  // So the reveal gets a deadline. If nothing has revealed a block within
+  // 1.2s of mount, it is shown regardless. Motion is allowed to be an
+  // enhancement; it is not allowed to be the thing that decides whether words
+  // exist on the page.
+  const [expired, setExpired] = React.useState(false);
+  React.useEffect(() => {
+    const id = setTimeout(() => setExpired(true), 1200);
+    return () => clearTimeout(id);
+  }, []);
+
+  const shown = { opacity: 1, y: 0 };
   return (
     <Tag
       // The <noscript> rule in app/page.tsx keys off this attribute, so the
-      // content is visible even if the bundle never arrives.
+      // content is visible even if the bundle never arrives at all.
       data-reveal
       className={className}
-      initial={{ opacity: 0, y: 10 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, amount: 0.1 }}
+      // Reduced motion never gets the hidden state in the first place —
+      // collapsing the duration to zero still leaves the content invisible
+      // until the observer fires, which is the wrong side of the trade for
+      // somebody who asked for less movement.
+      initial={reduced ? shown : { opacity: 0, y: 10 }}
+      whileInView={shown}
+      animate={expired ? shown : undefined}
+      viewport={{ once: true, amount: 0 }}
       transition={reduced ? { duration: 0 } : { duration: 0.28, delay, ease: EASE }}
     >
       {children}
@@ -112,12 +138,12 @@ export function HeroCall({ className }: { className?: string }) {
         <span className="text-[length:var(--text-xs)] font-medium text-[var(--color-text)]">
           Outbound · connected
         </span>
-        <span className="text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+        <span className="text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
           Instagram lead
         </span>
         {/* Numbers are masked here for the same reason they are masked in the
             logs and in every API response. */}
-        <span className="tabular ml-auto text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+        <span className="tabular ml-auto text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
           +91 98•••••10
         </span>
       </div>
@@ -132,7 +158,7 @@ export function HeroCall({ className }: { className?: string }) {
             transition={reduced ? { duration: 0 } : { duration: 0.24, delay: 0.12 + i * 0.14, ease: EASE }}
             className={cn('flex flex-col gap-1.5', t.who === 'prospect' && 'items-end text-right')}
           >
-            <span className="text-[length:var(--text-xs)] font-medium uppercase tracking-[0.1em] text-[var(--color-text-faint)]">
+            <span className="text-[length:var(--text-xs)] font-medium uppercase tracking-[0.1em] text-[var(--color-text-dim)]">
               {t.who === 'anaga' ? 'Anaga' : 'Prospect'}
             </span>
 
@@ -153,7 +179,7 @@ export function HeroCall({ className }: { className?: string }) {
             </p>
 
             {t.tag && (
-              <p className="inline-flex items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+              <p className="inline-flex items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
                 <ShieldCheck aria-hidden size={13} strokeWidth={1.75} />
                 {t.tag}
               </p>
@@ -172,7 +198,7 @@ export function HeroCall({ className }: { className?: string }) {
           <PhoneOff aria-hidden size={13} strokeWidth={1.75} />
           Opt-out checked on every utterance
         </span>
-        <span className="ml-auto text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+        <span className="ml-auto text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
           Illustration
         </span>
       </figcaption>
