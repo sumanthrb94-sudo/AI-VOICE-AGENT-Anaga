@@ -1047,6 +1047,52 @@ await t('the register reaches the PROMPT, not just the flow file', async () => {
   assert.doesNotMatch(en, /బడ్జెట్/, 'an English call must not be shown Telugu examples');
 });
 
+await t('NO STYLE EXAMPLE STATES A PROJECT FACT', async () => {
+  const { loadFlow } = await import('../api/_lib/flow.js');
+  // A style example teaches REGISTER — how she should sound. It is injected
+  // verbatim into every te-IN/hi-IN system prompt.
+  //
+  // Two of them used to read "possession is next March" / "పొజెషన్ వచ్చే ఇయర్
+  // మార్చ్‌లో ఉంది." Anaga has never been given a possession date; there is no
+  // possession field anywhere in this repository. So the model was shown a
+  // worked example of stating a project fact from nowhere, on every Telugu and
+  // Hindi call, directly under a prompt line telling it not to.
+  //
+  // The rule is the same one the backchannel note already states: an example
+  // may carry register, never a claim. Digits and month names are the cheap
+  // proxy for "this is a claim", and they catch the whole class rather than
+  // these two instances.
+  const flow = loadFlow();
+  // loadFlow() normalises globals.style -> flow.style (see api/_lib/flow.js).
+  const examples = flow?.style || {};
+  assert.ok(Object.keys(examples).length >= 3, 'style examples must exist for all three languages');
+
+  const MONTHS = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i;
+  // Devanagari and Telugu digits as well as ASCII — "possession is in ३/౩" is
+  // the same claim in a different script.
+  const DIGITS = /[0-9\u0966-\u096F\u0C66-\u0C6F]/;
+  const offenders = [];
+  for (const [lang, lines] of Object.entries(examples)) {
+    for (const line of lines || []) {
+      if (DIGITS.test(line)) offenders.push(`${lang}: contains a digit — "${line}"`);
+      else if (MONTHS.test(line)) offenders.push(`${lang}: names a month — "${line}"`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    `\n       a style example must not carry a fact:\n       ${offenders.join('\n       ')}`);
+});
+
+await t('the deferral is what she is shown instead', async () => {
+  const { loadFlow } = await import('../api/_lib/flow.js');
+  // Replacing the invented claim with nothing would have been worse: the model
+  // needs an example of the behaviour we DO want when a fact is not in hand.
+  const flow = loadFlow();
+  const te = (flow.style['te-IN'] || []).join(' ');
+  const hi = (flow.style['hi-IN'] || []).join(' ');
+  assert.match(te, /సేల్స్ మేనేజర్/, 'Telugu needs an example of deferring to a human');
+  assert.match(hi, /सेल्स मैनेजर/, 'Hindi needs an example of deferring to a human');
+});
+
 await t('the browser ships the same gendered pair', async () => {
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../web/assets/app.js', import.meta.url), 'utf8');

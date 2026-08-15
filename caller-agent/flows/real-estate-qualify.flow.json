@@ -1,7 +1,7 @@
 {
   "$schema": "../../shared/flow.schema.json",
   "id": "real-estate-qualify",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "persona": "anaga",
   "vertical": "real-estate",
   "project": {
@@ -48,21 +48,21 @@
       }
     },
     "style": {
-      "note": "HOW SHE SHOULD SOUND, per language, shown to the model as house style rather than as lines to recite. The qualification questions are not duplicated per language — the model composes them — so without examples it defaults to textbook Telugu and Hindi. These are the register, not the script.",
+      "note": "HOW SHE SHOULD SOUND, per language, shown to the model as house style rather than as lines to recite. The qualification questions are not duplicated per language — the model composes them — so without examples it defaults to textbook Telugu and Hindi. These are the register, not the script. AN EXAMPLE MAY CARRY REGISTER, NEVER A CLAIM. Two of these used to read 'possession is next March' — a possession date this agent has never been given, shown to the model as a worked example of stating a project fact from nowhere, on every single Telugu and Hindi call. They are now examples of the DEFERRAL instead, which is the behaviour we actually want when a fact is not in hand. scripts/test-voice.mjs asserts no example contains a digit or a month name; the whole class is caught rather than these two instances.",
       "examples": {
         "te-IN": [
           "ఉండటానికి చూస్తున్నారా, లేక ఇన్వెస్ట్‌మెంట్ కోసమా?",
           "బడ్జెట్ ఎంత దాకా ఆలోచిస్తున్నారు?",
           "టూ బీహెచ్‌కే నా, త్రీ బీహెచ్‌కే నా?",
           "ఈ వీకెండ్ సైట్ విజిట్ పెట్టుకుందామా?",
-          "పొజెషన్ వచ్చే ఇయర్ మార్చ్‌లో ఉంది."
+          "ఆ డీటెయిల్ మా సేల్స్ మేనేజర్ కన్‌ఫర్మ్ చేస్తారు."
         ],
         "hi-IN": [
           "रहने के लिए देख रहे हैं या इन्वेस्टमेंट के लिए?",
           "बजट कितने तक सोच रहे हैं?",
           "टू बीएचके या थ्री बीएचके?",
           "इस वीकेंड साइट विजिट रख लें?",
-          "पजेशन अगले साल मार्च में है।"
+          "वो डिटेल हमारे सेल्स मैनेजर कन्फर्म कर देंगे।"
         ],
         "en-IN": [
           "Are you looking to live in it, or to invest?",
