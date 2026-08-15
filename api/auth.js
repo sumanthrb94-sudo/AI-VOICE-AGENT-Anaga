@@ -21,12 +21,16 @@ import loginHandler from './_lib/routes/auth-login.js';
 import logoutHandler from './_lib/routes/auth-logout.js';
 import meHandler from './_lib/routes/auth-me.js';
 import bootstrapHandler from './_lib/routes/auth-bootstrap.js';
+import googleHandler from './_lib/routes/auth-google.js';
 
 const ROUTES = {
   login: loginHandler,
   logout: logoutHandler,
   me: meHandler,
   bootstrap: bootstrapHandler,
+  // A second front door, not a second auth system: it mints the same session
+  // the password route does, so nothing downstream can tell them apart.
+  google: googleHandler,
 };
 
 export default async function handler(req, res) {

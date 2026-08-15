@@ -17,6 +17,8 @@ import { llmStatus } from '../_lib/llm.js';
 import { recordingStatus } from '../_lib/recording.js';
 import { translateMode } from '../_lib/translate.js';
 import { googleAuthMode } from '../_lib/google.js';
+import { authConfigured } from '../_lib/auth.js';
+import { googleSignInConfigured } from '../_lib/google-identity.js';
 import { storeStatus } from '../_lib/store.js';
 import { callUsageStatus } from '../../shared/call-usage.js';
 
@@ -97,6 +99,23 @@ export default async function handler(req, res) {
     voiceStudio,
     recording,
     translate: { mode: translateMode(), auth: googleAuthMode() },
+    // WHO CAN SIGN IN. All three have to be true before anybody can reach the
+    // dashboard, and each fails in a way that looks like a different problem
+    // from the login screen — a blank Google button, a 503, or a 403 — so the
+    // three are reported separately rather than as one "auth: ok".
+    //
+    // clientId is PUBLIC by design (Google restricts it by origin, not by
+    // secrecy), so the browser reads it from here rather than needing it baked
+    // into the page at build time. The allowlist is a COUNT, never addresses:
+    // this endpoint is unauthenticated, and a list of who the admins are is a
+    // phishing target.
+    signIn: {
+      session: authConfigured(),
+      google: googleSignInConfigured(),
+      clientId: process.env.GOOGLE_CLIENT_ID || null,
+      admins: String(process.env.ADMIN_EMAILS || '').split(',').filter((s) => s.trim()).length,
+      store: store.backend === 'firestore',
+    },
     // Boolean/configuration names only. The commercial rates themselves never
     // leave the server through this public wiring endpoint.
     usage: callUsageStatus(),

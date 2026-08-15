@@ -139,7 +139,19 @@ site — no extra config. To enable the **live Gemini** brain, add `GEMINI_API_K
 dashboard (Settings → Environment Variables). Without it, the call demo runs on the rule-engine
 fallback. The functions have no npm dependencies (they use the Node global `fetch`).
 
-> ⚠️ **Confidential docs go public.** `build-static.sh` copies `BUSINESS_PLAN.md` and
-> `FINANCIAL_MODEL_NOTES.md` into the deploy so the nav links resolve — these are marked
-> *Confidential*. To keep them off a public URL, comment out those two `cp` lines in
-> `scripts/build-static.sh` (the nav links will then 404, or remove the links in `index.html`).
+> ✅ **Fixed.** `build-static.sh` publishes only the documents named in its
+> `PUBLIC_DOCS` array (COMPLIANCE.md, INTEGRATIONS.md), and fails the build if
+> anything reaching `public/` declares itself confidential. This file is no
+> longer published either — developer docs are not part of the site.
+>
+> The warning it replaces read:
+>
+> ⚠️ ~~The build copies `BUSINESS_PLAN.md` and `FINANCIAL_MODEL_NOTES.md` into
+> the deploy so the nav links resolve. To keep them off a public URL, comment
+> out those two `cp` lines.~~
+>
+> That was the bug: it read as an option rather than a rule, the lines were
+> never commented out, and both documents were served at a public URL. A
+> commented-out `cp` is the wrong shape for a security boundary — it is one
+> keystroke from being undone by someone who did not read the sentence above
+> it. The allowlist plus the build-failing guard replaced it.
