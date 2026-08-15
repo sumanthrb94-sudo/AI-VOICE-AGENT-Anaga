@@ -9,7 +9,7 @@
 // recording route here with `action=recording`, so the two protected call-read
 // surfaces share one function without changing either public URL or its auth.
 
-import { requireMethod, authorize } from '../_lib/integrations/http.js';
+import { requireMethod, authorizeRead } from '../_lib/integrations/http.js';
 import { limited, log, requestId } from '../_lib/guard.js';
 import { getCall, recentCalls, storeBackend } from '../_lib/store.js';
 import { callView } from '../_lib/callview.js';
@@ -29,7 +29,9 @@ export default async function handler(req, res) {
 async function transcriptHandler(req, res) {
   if (!requireMethod(req, res, 'GET')) return;
 
-  const auth = authorize(req);
+  // A signed-in human OR the machine key. Transcripts carry what a prospect
+  // said, so the read is logged with WHO read it when a session was used.
+  const auth = await authorizeRead(req, { role: 'viewer' });
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
   if (limited(req, res, { bucket: 'transcript', limit: Number(process.env.RATE_LIMIT_TRANSCRIPT || 60) })) return;
@@ -63,7 +65,11 @@ async function transcriptHandler(req, res) {
 async function recordingHandler(req, res) {
   if (!requireMethod(req, res, ['GET', 'DELETE'])) return;
 
-  const auth = authorize(req);
+  // ASYMMETRIC ON PURPOSE. Playing a recording back is a read any operator may
+  // do. DELETING one destroys the evidence that a call happened the way we say
+  // it did — under docs/COMPLIANCE.md that artifact is the defence if a
+  // complaint is ever raised — so it takes an owner, not merely a session.
+  const auth = await authorizeRead(req, { role: req.method === 'DELETE' ? 'owner' : 'viewer' });
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
   if (limited(req, res, { bucket: 'recording', limit: Number(process.env.RATE_LIMIT_RECORDING || 60) })) return;

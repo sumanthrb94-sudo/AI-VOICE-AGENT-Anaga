@@ -11,7 +11,7 @@
 // response says so in `store.durable:false`, and the console renders that as a
 // visible banner. No fabricated history, no seeded demo numbers.
 
-import { authorize, requireMethod } from '../_lib/integrations/http.js';
+import { authorizeRead, requireMethod } from '../_lib/integrations/http.js';
 import { list, rollup, meta, history } from '../_lib/events.js';
 import { storeStatus, recentCalls } from '../_lib/store.js';
 import { callView } from '../_lib/callview.js';
@@ -23,7 +23,11 @@ import { queueStatus } from '../_lib/queue.js';
 export default async function handler(req, res) {
   if (!requireMethod(req, res, 'GET')) return;
 
-  const auth = authorize(req);
+  // A signed-in operator OR the machine key. Before this, the console demanded
+  // that a human paste the fleet's shared secret into a text box and kept it
+  // in sessionStorage — the same key the caller agent uses to report call
+  // outcomes, now one screenshot away from being shared.
+  const auth = await authorizeRead(req, { role: 'viewer' });
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
   const compliance = complianceStatus();

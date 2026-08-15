@@ -292,10 +292,25 @@ await t('the outcome endpoint drops a playable URL instead of storing it', async
   assert.match(src, /RECORDING_URL_REJECTED/, 'and a rejected URL must be logged, not silently dropped');
 });
 
-await t('playback requires the operator key', async () => {
+await t('playback is never public, and erasure needs more than playback', async () => {
   const fs = await import('node:fs');
   const src = fs.readFileSync(new URL('../api/calls/transcript.js', import.meta.url), 'utf8');
-  assert.match(src, /authorize\(req\)/);
+
+  // This used to assert `authorize(req)` — the machine key, and only that.
+  // The endpoint now also accepts a signed-in operator, because the old rule
+  // meant a human had to paste the fleet's shared secret into a browser to
+  // hear a call back. What must NOT change is that something is always
+  // required, so the assertion moved from naming the mechanism to naming the
+  // property.
+  assert.match(src, /authorizeRead\(req/, 'every read on this endpoint must be authorized');
+  assert.doesNotMatch(src, /^\s*\/\/\s*no auth/im, 'no unauthenticated path may exist here');
+
+  // DELETING a recording destroys the artifact that evidences how a call
+  // actually went — under docs/COMPLIANCE.md that is the defence if a
+  // complaint is raised. It must cost more than listening to one.
+  assert.match(src, /'DELETE' \? 'owner' : 'viewer'/,
+    'erasure must demand a higher role than playback');
+
   // The signed URL IS a bearer credential for that object.
   assert.doesNotMatch(src, /log\([^)]*url/i, 'the minted URL must never be logged');
 });

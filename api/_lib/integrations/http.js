@@ -139,6 +139,65 @@ export function authorize(req) {
   return { ok: true };
 }
 
+/**
+ * READ auth for surfaces a HUMAN looks at: the console, a transcript, a
+ * recording. Accepts EITHER a signed-in session OR the machine key.
+ *
+ * ── THE GAP THIS CLOSES ──────────────────────────────────────────────────
+ * authorize() above answers "is this our software?". It is one shared secret
+ * with no identity behind it. Every console endpoint used only that, which
+ * meant signing in as a person got you a session that nothing honoured — the
+ * dashboard still demanded that a human paste a machine credential into a
+ * text box, and then kept it in sessionStorage. A key typed into a browser is
+ * a key that ends up in a screenshot, and it is the same key the caller agent
+ * uses to report call outcomes.
+ *
+ * So: a person presents a session and is known by name and role; a machine
+ * presents the key and is known to be ours. Both may READ.
+ *
+ * ── WHY THIS IS SAFE ON GET, AND WHY IT STOPS AT GET ─────────────────────
+ * The session cookie is SameSite=Lax, which sends it on top-level navigation
+ * but never on a cross-site XHR — that is the CSRF protection api/_lib/auth.js
+ * documents. It holds for reads. It is NOT extended to anything that mutates
+ * state or spends money: /api/calls/outcome and /api/leads/intake keep
+ * authorize() alone, because those are machine-to-machine and a browser
+ * should never be able to reach them at all.
+ *
+ * Order matters: the session is checked FIRST so an operator's own identity
+ * is what gets logged, rather than the anonymous fleet key they happen to
+ * also possess.
+ *
+ * @param {object} req
+ * @param {{role?: 'viewer'|'operator'|'owner'}} [opts]
+ * @returns {Promise<{ok:boolean, via?:'session'|'key', user?:object, status?:number, error?:string}>}
+ */
+export async function authorizeRead(req, { role = 'viewer' } = {}) {
+  // Imported lazily so the machine-only endpoints that never call this do not
+  // pull the user store into their cold start.
+  const { currentUser, hasRole, authConfigured } = await import('../auth.js');
+
+  if (authConfigured()) {
+    let user = null;
+    try { user = await currentUser(req); } catch { user = null; }
+    if (user) {
+      if (hasRole(user, role)) return { ok: true, via: 'session', user };
+      // A REAL session with an insufficient role is a 403, and it stops here.
+      // Falling through to the key check would let a viewer escalate simply by
+      // also sending the fleet secret.
+      return { ok: false, status: 403, error: 'forbidden', need: role };
+    }
+  }
+
+  const key = authorize(req);
+  if (key.ok) return { ok: true, via: 'key', user: null };
+
+  // Report "not signed in" rather than the key's 503-when-unconfigured, unless
+  // neither mechanism exists at all — otherwise a deployment with sessions but
+  // no INTEGRATIONS_API_KEY tells a logged-out human the server is broken.
+  if (key.status === 503 && !authConfigured()) return key;
+  return { ok: false, status: 401, error: 'not_signed_in' };
+}
+
 /** Method guard used by every integration endpoint. */
 export function requireMethod(req, res, methods) {
   const allowed = Array.isArray(methods) ? methods : [methods];

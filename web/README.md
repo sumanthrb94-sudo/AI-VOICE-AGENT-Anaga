@@ -111,7 +111,7 @@ cd web && python3 -m http.server 8000   # open http://localhost:8000
 Full site exactly as deployed (assembles docs + spec into `public/`):
 
 ```bash
-bash scripts/build-static.sh
+pnpm build
 cd public && python3 -m http.server 8000
 ```
 
@@ -123,7 +123,7 @@ Deep-link straight into the guide with `#playbook`.
 The repo is Vercel-ready via `vercel.json` (build → `public/`, no framework needed).
 
 **Option A — dashboard:** Import the GitHub repo at vercel.com. Vercel reads `vercel.json`
-automatically (Build Command `bash scripts/build-static.sh`, Output Directory `public`).
+automatically (Build Command `pnpm build`, Output Directory `out`).
 Leave the Framework Preset as **Other**. Deploy.
 
 **Option B — CLI:**
@@ -139,7 +139,7 @@ site — no extra config. To enable the **live Gemini** brain, add `GEMINI_API_K
 dashboard (Settings → Environment Variables). Without it, the call demo runs on the rule-engine
 fallback. The functions have no npm dependencies (they use the Node global `fetch`).
 
-> ✅ **Fixed.** `build-static.sh` publishes only the documents named in its
+> ✅ **Fixed.** `scripts/prepare-public.mjs` publishes only the documents named in its
 > `PUBLIC_DOCS` array (COMPLIANCE.md, INTEGRATIONS.md), and fails the build if
 > anything reaching `public/` declares itself confidential. This file is no
 > longer published either — developer docs are not part of the site.

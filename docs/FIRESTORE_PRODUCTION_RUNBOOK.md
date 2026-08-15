@@ -61,7 +61,7 @@ Run the complete local validation suite before deployment:
 
 ```bash
 pnpm test
-bash scripts/build-static.sh
+pnpm build
 ```
 
 The dedicated verifier test can also be run by itself:

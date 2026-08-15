@@ -19,9 +19,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: 'pnpm'
+
+      # The API and caller-agent still have ZERO runtime dependencies — that
+      # boundary has not moved. Everything installed here is build-time only:
+      # Next/React/Tailwind for the frontend, Playwright for the browser
+      # suites. Nothing under api/ or caller-agent/src/ imports any of it, and
+      # the syntax check below runs against those directories unchanged.
+      - name: Install build tooling
+        run: pnpm install --frozen-lockfile
 
       - name: Syntax check every API and caller-agent module
         run: |
@@ -31,11 +44,47 @@ jobs:
           done
           echo "syntax OK"
 
+      - name: The backend still has ZERO runtime dependencies
+        # Until this commit the repo had no node_modules at all, which made the
+        # "no vendor SDK in business logic" rule in CLAUDE.md self-enforcing —
+        # there was nothing to import. Adding Next.js for the frontend removes
+        # that accident, so the rule needs a check.
+        #
+        # Every import under api/ and caller-agent/src/ must be relative or a
+        # node: builtin. A serverless function that reaches into node_modules
+        # also has to have it bundled, and a caller-agent that does breaks the
+        # single-file Cloud Run deploy — but the real reason is the boundary
+        # itself: adapters talk to vendors, business logic does not.
+        run: |
+          set -e
+          bad=$(grep -arhoE "from '[^']+'|require\('[^']+'\)" \
+                  --include='*.js' api caller-agent/src shared \
+                | grep -oE "'[^']+'" | tr -d "'" \
+                | grep -vE '^(\.|/|node:)' | sort -u || true)
+          if [ -n "$bad" ]; then
+            echo "FAIL: api/, caller-agent/src/ or shared/ imports a package:"
+            echo "$bad" | sed 's/^/    /'
+            echo "These directories must import only relative paths and node: builtins."
+            exit 1
+          fi
+          echo "backend dependency-free: OK"
+
       - name: Unit + integration tests
         run: node --experimental-detect-module scripts/test-integrations.mjs
 
       - name: Auth QA (forged sessions, bootstrap window, password storage)
         run: node --experimental-detect-module scripts/test-auth.mjs
+
+      - name: Google sign-in QA (forged ID tokens, audience, allowlist)
+        # Nine forged tokens, each of which is a way in if its check is missing.
+        # The audience one is the check people skip: a Google ID token issued to
+        # a DIFFERENT app is perfectly signed and perfectly valid, so without
+        # comparing `aud` to our own client id, anyone who can register a Google
+        # OAuth client can sign in here as whoever they like.
+        run: node --experimental-detect-module scripts/test-google-auth.mjs
+
+      - name: Console read auth (a session OR the machine key, never an escalation)
+        run: node --experimental-detect-module scripts/test-console-auth.mjs
 
       - name: Firestore durability QA (offline half — no credentials in CI)
         # The live half is skipped without FIREBASE_SERVICE_ACCOUNT_LIVE. The
@@ -267,7 +316,7 @@ jobs:
           # quietly stops scanning. Anything not on this list still fails.
           MATCHES=$(grep -rInE '(AIza[0-9A-Za-z_-]{30,}|sk-[A-Za-z0-9]{32,}|sk_[a-z0-9]{8}_[A-Za-z0-9]{20,}|xox[baprs]-[0-9A-Za-z-]{10,}|AKIA[0-9A-Z]{16}|-----BEGIN[A-Z ]*PRIVATE KEY-----)' \
                --include='*.js' --include='*.json' --include='*.mjs' --include='*.yml' \
-               api caller-agent shared web scripts 2>/dev/null \
+               api caller-agent shared web scripts app components lib 2>/dev/null \
              | grep -vF 'AKIAIOSFODNN7EXAMPLE' \
              | grep -vF 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' \
              | grep -vF 'not-a-real-key' || true)
@@ -295,8 +344,22 @@ jobs:
             echo "::warning::at the 12-function cap — the next new route breaks the deploy."
           fi
 
-      - name: Static site builds
-        run: bash scripts/build-static.sh
+      - name: Frontend builds (static export — MUST emit zero functions)
+        # `next build` with output:'export' is the reason the frontend fits on
+        # Hobby at all: 0 Next.js functions + 12 API functions = exactly the
+        # cap. An SSR page, a route handler, a server action or middleware
+        # would each emit at least one and put the DEPLOY over — and the deploy
+        # fails AFTER the build reports success, so this step passing is not by
+        # itself proof. The assertion below is what makes it proof.
+        run: |
+          set -e
+          pnpm build
+          if [ -d .next/server/app ] && find .next/server/app -name '*.func' | grep -q .; then
+            echo "FAIL: the frontend emitted serverless functions. Static export is broken."
+            exit 1
+          fi
+          test -f out/index.html || { echo "FAIL: no out/index.html — the export produced nothing"; exit 1; }
+          echo "static export OK: $(find out -name '*.html' | wc -l) pages, 0 functions"
 
   review:
     name: Open Code Review (advisory)

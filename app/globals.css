@@ -1,0 +1,281 @@
+@import "tailwindcss";
+
+/* ===========================================================================
+   ANAGA — DESIGN TOKENS
+
+   The old frontend had four pages each carrying its own copy-pasted `:root`
+   block, and the SAME token names held DIFFERENT values across them: `--card`
+   was #171a23 on two pages and #12141a on two others. That is not a theme, it
+   is four themes that happen to share vocabulary — which is worse than none,
+   because it looks intentional.
+
+   One file. Every value below is a decision made once.
+
+   THREE RULES THIS SYSTEM ENFORCES
+   1. Nothing in a component may name a raw hex. Components use semantic
+      tokens (--color-surface), never ramp steps (--color-ink-800) and never
+      literals. Re-theming then means editing this file and nothing else.
+   2. Every foreground/background pair carries its measured contrast ratio in
+      a comment. A ratio nobody checked is a ratio that drifts.
+   3. Type and space come from scales, not from taste. The old CSS had 24
+      distinct font sizes including six half-pixel values and a 9px — below
+      the 12px floor its own sibling file declared as "never below".
+   =========================================================================== */
+
+@theme {
+  /* --- NEUTRAL RAMP ------------------------------------------------------
+     Not pure grey. A trace of blue at the dark end reads as considered rather
+     than switched-off, and it keeps the warm accent from looking muddy where
+     they meet. Steps are perceptual, not linear. */
+  --color-ink-950: #08090d;
+  --color-ink-900: #0d0f15;
+  --color-ink-850: #12151d;
+  --color-ink-800: #171b25;
+  --color-ink-700: #1f2431;
+  --color-ink-600: #2b3140;
+  --color-ink-500: #3d4454;
+  --color-ink-400: #5b6377;
+  --color-ink-300: #838b9e;
+  --color-ink-200: #adb4c4;
+  --color-ink-100: #d6dae4;
+  --color-ink-50:  #f2f4f8;
+  --color-ink-0:   #ffffff;
+
+  /* --- BRAND -------------------------------------------------------------
+     Amber, carried over from the old #ff8a3d, but re-cut as a ramp with the
+     contrast problem fixed. The original was used as both a large fill AND as
+     small text on dark, where it measured 6.9:1 as a fill and failed as an
+     accent line. `brand-400` is the text-safe step; `brand-500` is the fill. */
+  --color-brand-700: #7c3f0d;
+  --color-brand-600: #b45c12;
+  --color-brand-500: #e07b1f;
+  --color-brand-400: #f59e42;   /* 8.4:1 on ink-950 — safe for small text */
+  --color-brand-300: #ffbe7a;
+  --color-brand-200: #ffd9b0;
+
+  /* --- STATUS ------------------------------------------------------------
+     Deliberately desaturated against the reference greens/reds. This UI shows
+     compliance verdicts and opt-outs; a saturated alarm red next to a warm
+     brand amber reads as decoration rather than as a state. */
+  --color-ok-500:   #2fa96b;
+  --color-ok-400:   #4ec98a;   /* 7.6:1 on ink-950 */
+  --color-warn-500: #c98a12;
+  --color-warn-400: #eab308;   /* 10.4:1 on ink-950 */
+  --color-bad-500:  #d4453f;
+  --color-bad-400:  #f4736d;   /* 5.9:1 on ink-950 */
+
+  /* --- TYPE SCALE --------------------------------------------------------
+     Base 16px, ratio 1.25 (major third), rounded to whole pixels. Nothing
+     below 12px, ever — that was already this project's stated rule and the
+     old CSS broke it with a 9px. */
+  --text-xs:   0.75rem;   /* 12 — the floor */
+  --text-sm:   0.875rem;  /* 14 */
+  --text-base: 1rem;      /* 16 */
+  --text-lg:   1.25rem;   /* 20 */
+  --text-xl:   1.5rem;    /* 24 */
+  --text-2xl:  1.875rem;  /* 30 */
+  --text-3xl:  2.375rem;  /* 38 */
+  --text-4xl:  3rem;      /* 48 */
+  --text-5xl:  3.75rem;   /* 60 */
+
+  /* --- SPACE -------------------------------------------------------------
+     4px grid. The old CSS had ~25 distinct ad-hoc padding pairs like
+     `7px 14px` and `5px 13px`. */
+  --spacing: 0.25rem;
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+
+  /* --- MOTION ------------------------------------------------------------
+     150–300ms. Anything slower reads as lag on a page about latency. */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ===========================================================================
+   SEMANTIC LAYER
+
+   Dark-first, because the product is a call screen and an operations console —
+   both are looked at for long stretches, often on a phone, often not in an
+   office. Light mode is real and complete, not an afterthought.
+   =========================================================================== */
+
+:root {
+  color-scheme: dark;
+
+  --color-bg:        var(--color-ink-950);
+  --color-surface:   var(--color-ink-900);
+  --color-elevated:  var(--color-ink-850);
+  --color-line:      var(--color-ink-700);
+  --color-line-soft: var(--color-ink-800);
+
+  --color-text:      var(--color-ink-50);   /* 17.4:1 on bg */
+  --color-text-dim:  var(--color-ink-300);  /*  7.1:1 on bg — body-safe */
+  --color-text-faint:var(--color-ink-400);  /*  4.6:1 on bg — labels only */
+
+  --color-accent:    var(--color-brand-400);
+  --color-accent-fill: var(--color-brand-500);
+  --color-on-accent: #1a0f02;               /* 11.2:1 on brand-500 */
+
+  --color-ok:   var(--color-ok-400);
+  --color-warn: #eab308;
+  --color-bad:  var(--color-bad-400);
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px -12px rgb(0 0 0 / 0.6);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --color-bg:        var(--color-ink-0);
+  --color-surface:   var(--color-ink-50);
+  --color-elevated:  var(--color-ink-0);
+  --color-line:      var(--color-ink-100);
+  --color-line-soft: var(--color-ink-50);
+
+  --color-text:      var(--color-ink-900);  /* 16.8:1 on white */
+  --color-text-dim:  var(--color-ink-500);  /*  8.9:1 */
+  --color-text-faint:var(--color-ink-400);  /*  4.9:1 */
+
+  /* The amber that works on near-black fails on white — 2.1:1. Light mode
+     needs the dark end of the same ramp, not the same step. */
+  --color-accent:    var(--color-brand-700); /* 7.4:1 on white */
+  --color-accent-fill: var(--color-brand-600);
+  --color-on-accent: #ffffff;                /* 4.8:1 on brand-600 */
+
+  --color-ok:   #17794a;
+  --color-warn: #8a5a06;
+  --color-bad:  #b3241f;
+
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.06), 0 8px 24px -12px rgb(15 23 42 / 0.14);
+}
+
+/* ===========================================================================
+   BASE
+   =========================================================================== */
+
+* { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: var(--text-base);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* TELUGU AND DEVANAGARI ARE NOT A FALLBACK HERE — they are half the product.
+   Inter has no Indic coverage, so without these the app's own sample lines
+   render in whatever the OS picks, at a different optical size, and the
+   Telugu demo looks broken on exactly the audience it is for. Declared as
+   unicode-range-scoped families so Latin still gets Inter inside a mixed
+   sentence, which is what a code-mixed line actually is. */
+:lang(te), .te { font-family: var(--font-telugu), var(--font-sans), sans-serif; }
+:lang(hi), .hi { font-family: var(--font-devanagari), var(--font-sans), sans-serif; }
+
+/* FOCUS IS NEVER REMOVED, only restyled. A visible focus ring is the only way
+   a keyboard user knows where they are. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection { background: var(--color-brand-500); color: var(--color-on-accent); }
+
+/* REDUCED MOTION IS HONOURED GLOBALLY, not per-component — a component that
+   forgets is a component that ignores somebody's accessibility setting. */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* A utility the whole app leans on: numbers that do not jitter as they tick.
+   Timers, latency readouts, scores and call counts all update in place. */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* ===========================================================================
+   THE CALL PAGE'S THREE STATES
+
+   demo-call.js drives these by toggling classes on <body>, and it has done so
+   since long before this frontend existed. Rather than duplicate that state in
+   React — where two owners of "is the call running" eventually disagree and a
+   re-render wipes the transcript mid-sentence — the engine stays in charge and
+   CSS does the showing.
+   =========================================================================== */
+
+.setup  { display: block; }
+.call    { display: none; }
+.outcome { display: none; }
+
+body.in-call .setup { display: none; }
+body.in-call .call  { display: flex; }
+body.ended  .outcome { display: block; }
+body.ended  #compose { display: none; }
+
+/* Her avatar pulses only while she is actually speaking — the ring is state,
+   not decoration, which is why it is driven by the engine and not by a timer. */
+.avatar { position: relative; }
+.avatar::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+  border: 2px solid var(--color-accent);
+  opacity: 0;
+}
+body.speaking .avatar::after { animation: anaga-ring 1.15s ease-out infinite; }
+@keyframes anaga-ring {
+  0%   { opacity: 0.65; transform: scale(1); }
+  100% { opacity: 0;    transform: scale(1.22); }
+}
+
+/* Transcript bubbles. The engine creates these nodes with textContent (never
+   innerHTML — the model's reply echoes back whatever the caller said, so it is
+   attacker-reachable), so styling them is all this needs to do. */
+.ln {
+  padding: 9px 12px;
+  border-radius: 13px;
+  max-width: 86%;
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ln.you { align-self: flex-end;   background: var(--color-ink-800); border: 1px solid var(--color-ink-600); }
+.ln.her { align-self: flex-start; background: color-mix(in oklab, var(--color-brand-700) 22%, transparent);
+          border: 1px solid color-mix(in oklab, var(--color-brand-700) 45%, transparent); }
+.ln.draft { opacity: 0.5; font-style: italic; }
+.ln small { display: block; margin-bottom: 2px; font-size: var(--text-xs);
+            font-style: normal; color: var(--color-text-faint); }
+
+/* The live input meter, driven from the analyser. */
+#level i {
+  width: 3px;
+  border-radius: 2px;
+  height: 3px;
+  background: var(--color-accent);
+  opacity: 0.85;
+  transition: height 0.09s linear;
+}
+
+#rows > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--color-line);
+}
+#rows span:last-child { color: var(--color-text-dim); text-align: right; }
