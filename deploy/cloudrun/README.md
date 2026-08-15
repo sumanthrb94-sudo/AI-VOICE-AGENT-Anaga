@@ -10,6 +10,27 @@ bash deploy/cloudrun/deploy.sh
 That is the whole thing. It builds, pushes and deploys, and refuses to start if
 something it needs is missing rather than half-deploying.
 
+## Easiest: Cloud Shell
+
+No local install, and `gcloud` is already authenticated as you.
+
+Open [Cloud Shell](https://shell.cloud.google.com), then:
+
+```bash
+git clone -b claude/anaga-voice-meta-crm-w6atbl \
+  https://github.com/sumanthrb94-sudo/AI-VOICE-AGENT-Anaga.git
+cd AI-VOICE-AGENT-Anaga
+gcloud config set project YOUR_PROJECT_ID
+bash deploy/cloudrun/deploy.sh
+```
+
+Cloud Shell ships Node 20, so the script's image-contents pre-flight check may
+skip with a warning — that is fine and deliberate. CI runs it on every push; a
+pre-flight check refusing to deploy because it could not run would be the check
+causing the outage it exists to prevent.
+
+Docker is not needed anywhere: `gcloud builds submit` builds remotely.
+
 ## Once, before the first run
 
 ```bash
