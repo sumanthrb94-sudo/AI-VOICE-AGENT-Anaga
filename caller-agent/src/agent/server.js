@@ -219,9 +219,20 @@ export function attachTwilio(ws, o = {}) {
       // A caller who hears nothing also just hangs up.
       if (o.greeting) {
         (async () => {
-          try { await bridge.greet(await o.greeting(lang, 'inbound')); }
+          let said = null;
+          try { said = await bridge.greet(await o.greeting(lang, 'inbound')); }
           catch (err) {
             console.error(JSON.stringify({ event: 'twilio_greet_failed', reason: String(err?.message || err) }));
+          }
+          // Same rule as the browser leg, one difference: THEY rang US, so
+          // consent to the call is implied and hanging up on a person who just
+          // dialled is its own harm. But an undelivered disclosure is still a
+          // compliance event and must be recorded rather than shrugged off.
+          if (!said || said.delivered === 0) {
+            console.error(JSON.stringify({
+              event: 'disclosure_not_delivered', direction: 'inbound', lang,
+              reason: said?.failed || 'no greeting line',
+            }));
           }
         })();
       }
@@ -286,8 +297,36 @@ export function attach(ws, o = {}) {
 
       // OUTBOUND SPEAKS FIRST, and the opening is approved wording read from
       // the flow — never a generation. Same rule as the HTTP path.
+      // AN EMPTY CATCH USED TO SIT HERE, commented "she starts on their turn".
+      // Their turn contains no disclosure. What that actually produced was a
+      // prospect answering an outbound call, hearing nothing, and Anaga
+      // joining mid-conversation having never said who or what she is — the
+      // one sentence that makes the call lawful, dropped with no log, no
+      // event, and no way to know it had happened.
+      //
+      // On an OUTBOUND call the disclosure is not best-effort. If it cannot be
+      // spoken, there is no lawful call to continue, so this fails closed.
       if (direction === 'outbound' && o.greeting) {
-        try { await bridge.greet(await o.greeting(lang, direction)); } catch { /* she starts on their turn */ }
+        let line = null;
+        try {
+          line = await o.greeting(lang, direction);
+        } catch (err) {
+          console.error(JSON.stringify({
+            event: 'disclosure_unavailable', direction, lang,
+            reason: String(err?.message || err),
+          }));
+        }
+        const said = line ? await bridge.greet(line) : null;
+        if (!said || said.delivered === 0) {
+          console.error(JSON.stringify({
+            event: 'disclosure_not_delivered', direction, lang,
+            reason: said?.failed || 'no greeting line',
+          }));
+          send({ type: 'error', text: 'disclosure_unavailable' });
+          bridge.end();
+          ws.close(1011, 'disclosure');
+          return;
+        }
       }
       return;
     }

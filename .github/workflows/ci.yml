@@ -143,6 +143,22 @@ jobs:
       - name: Live call QA (the streaming bridge — barge-in as an event, not a guess)
         run: node --experimental-detect-module scripts/test-agent-bridge.mjs
 
+      - name: Bridge failure modes (opt-out mid-think, a lying transcript, a dead recogniser)
+        # Four ways a call used to go wrong SILENTLY. The first is the one that
+        # matters most: an opt-out spoken while the model was thinking hit a
+        # turn-ordering guard and vanished — not suppressed, not answered, not
+        # even recorded. That window is exactly when people interrupt.
+        run: node --experimental-detect-module scripts/test-bridge-failures.mjs
+
+      - name: The two phrase splitters agree
+        # The server pre-renders phrase 0 and ships the audio; the browser
+        # splits the same line itself and speaks the rest. They disagreed on
+        # every decimal, so "3.5 crore" became "3." + "5 crore" — a budget
+        # figure read wrong on the one turn where the number is the point.
+        # They cannot be merged: the server uses lookbehind, which is a
+        # PARSE-time error on Safari < 16.4 and would blank the call page.
+        run: node --experimental-detect-module scripts/test-splitter-agreement.mjs
+
       - name: Streaming page QA (a real browser, a real socket, real PCM)
         env:
           PLAYWRIGHT_BROWSERS_PATH: /opt/pw-browsers

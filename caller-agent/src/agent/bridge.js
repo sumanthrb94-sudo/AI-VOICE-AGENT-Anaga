@@ -105,25 +105,71 @@ export function createBridge(o) {
       }
       if (e.type === 'error') emit({ type: 'error', text: e.text });
     },
-    onClose() { if (!ended) emit({ type: 'error', text: 'stt_closed' }); },
+    // ── A DEAD RECOGNISER ENDS THE CALL. IT DOES NOT CONTINUE IT. ─────────
+    //
+    // This used to emit a UI error and stop there. Nothing else changed:
+    // `ended` stayed false, the transport kept streaming, deepgram-live.js
+    // kept pushing every PCM chunk into an unbounded `pending` array, and
+    // pushAudio() kept metering STT usage for audio that reached no vendor.
+    //
+    // What the prospect experienced was a live call in which Anaga never
+    // responded again — for the rest of the call, with no explanation and no
+    // hang-up. That is worse than a dropped call, and we were billing for it.
+    //
+    // There is no reconnect here on purpose: a recogniser that has gone away
+    // mid-call has already lost the audio spoken since, so "resume" would mean
+    // answering a question we did not hear the start of. Fail closed instead —
+    // the same rule the compliance gate follows.
+    onClose() {
+      if (ended) return;
+      emit({ type: 'error', text: 'stt_closed' });
+      emit({ type: 'stt_lost', text: 'the recogniser closed mid-call; ending rather than continuing deaf' });
+      finish();
+    },
   });
 
   /** One turn: their words in, her voice out. */
   async function answer(heard) {
-    if (ended || thinking) return;
-    thinking = true;
-    history.push({ role: 'user', text: heard });
+    if (ended) return;
 
-    // OPT-OUT IS OURS. Checked before the model is asked anything, because the
-    // model does not get a vote on it and must not be able to talk past it.
+    // ── OPT-OUT IS CHECKED BEFORE THE `thinking` GUARD, NOT AFTER ─────────
+    //
+    // This used to read `if (ended || thinking) return;` on the line above,
+    // with the opt-out test below it. That meant an opt-out spoken while the
+    // model was mid-thought was dropped ENTIRELY: not suppressed, not
+    // answered, not even pushed into history. It left no trace anywhere.
+    //
+    // And that window is exactly when it happens. The 1-3 seconds she is
+    // thinking is the most likely moment for somebody to cut in with "don't
+    // call me" — barge-in clears `speaking`, but nothing cleared `thinking`.
+    //
+    // docs/COMPLIANCE.md and CLAUDE.md both put this first: opt-out reaches
+    // the suppression list before anything else and overrides whatever the
+    // agent reports. A turn-ordering guard is not allowed to be the thing
+    // that swallows it.
     if (isOptOut(heard)) {
+      history.push({ role: 'user', text: heard });
+      // Abandon whatever is in flight. Bumping turnId makes the superseded
+      // turn's audio undeliverable even though its think() is still running.
       thinking = false;
+      cutOff();
       const bye = await sayBye();
       emit({ type: 'disposition', value: 'opt-out' });
-      await play(bye, ++turnId);
+      const said = await play(bye, ++turnId);
+      markIfUndelivered(said, 'the opt-out confirmation');
       finish();
       return;
     }
+
+    // Ordinary speech during a think is still dropped — one turn at a time is
+    // the design — but it is now VISIBLE rather than silent, because "she
+    // ignored me" is a real complaint and this is one of its causes.
+    if (thinking) {
+      emit({ type: 'dropped_while_thinking', text: heard });
+      return;
+    }
+    thinking = true;
+    history.push({ role: 'user', text: heard });
 
     let out;
     try {
@@ -147,7 +193,10 @@ export function createBridge(o) {
     history.push({ role: 'agent', text: out.say });
     emit({ type: 'said', text: out.say, disposition: out.disposition });
     const mine = ++turnId;
-    await play(out.say, mine);
+    const said = await play(out.say, mine);
+    // Only amend if this turn is still current — a barge-in is already
+    // recorded by cutOff() and must not be relabelled a voice failure.
+    if (mine === turnId) markIfUndelivered(said);
     if (out.end === true && mine === turnId) finish();
   }
 
@@ -156,10 +205,19 @@ export function createBridge(o) {
    * been superseded. Rendering the whole line first would mean an interruption
    * is only honoured once the sentence has finished being made.
    */
+  /**
+   * @returns {Promise<{of:number, delivered:number, failed:string|null}>}
+   *   How much of the line actually reached the prospect. The caller needs
+   *   this because `history` is the compliance record, and it used to claim
+   *   every line was spoken in full — see markIfUndelivered().
+   */
   async function play(text, mine) {
     speaking = true;
     emit({ type: 'speaking', value: true });
-    for (const phrase of splitForSpeech(text)) {
+    const phrases = splitForSpeech(text);
+    let delivered = 0;
+    let failed = null;
+    for (const phrase of phrases) {
       if (ended || mine !== turnId) break;
       let audio_;
       try {
@@ -175,18 +233,53 @@ export function createBridge(o) {
           cached: synthesized?.cached === true,
         });
       } catch (err) {
-        emit({ type: 'error', text: `voice: ${err?.message || 'unavailable'}` });
+        failed = String(err?.message || 'unavailable');
+        emit({ type: 'error', text: `voice: ${failed}` });
         break;
       }
       // Checked AGAIN after the await: synthesis takes a second or more, and
       // she may have been interrupted while it was happening.
       if (ended || mine !== turnId) break;
       try { onAudio(audio_); } catch { /* the transport is gone */ }
+      delivered++;
     }
     if (mine === turnId) {
       speaking = false;
       emit({ type: 'speaking', value: false });
     }
+    return { of: phrases.length, delivered, failed };
+  }
+
+  /**
+   * THE TRANSCRIPT MUST NOT CLAIM SHE SAID SOMETHING NOBODY HEARD.
+   *
+   * history.push({role:'agent'}) and the `said` event both fire BEFORE play()
+   * runs, so a line was recorded as spoken and then, if synthesis failed
+   * halfway, the loop simply broke. The record kept the whole sentence. On the
+   * greeting that sentence is the AI DISCLOSURE, which makes the transcript —
+   * the thing that would be produced as evidence if a complaint were ever
+   * raised — assert that disclosure happened when the prospect heard silence.
+   *
+   * cutOff() already did this correctly for barge-in ("…[cut off]"). This is
+   * the same idea for a voice that failed rather than a prospect who
+   * interrupted.
+   */
+  function markIfUndelivered(result, what = 'the reply') {
+    if (!result || result.delivered >= result.of) return false;
+    const partial_ = result.delivered > 0;
+    const note = partial_
+      ? ` …[only ${result.delivered} of ${result.of} phrases reached the caller: ${result.failed || 'interrupted'}]`
+      : ` …[NOT SPOKEN — the caller heard nothing: ${result.failed || 'interrupted'}]`;
+    const last = history[history.length - 1];
+    if (last && last.role === 'agent' && !/…\[/.test(last.text)) last.text += note;
+    emit({
+      type: 'not_delivered',
+      what,
+      delivered: result.delivered,
+      of: result.of,
+      reason: result.failed || 'interrupted',
+    });
+    return true;
   }
 
   async function sayBye() {
@@ -222,10 +315,23 @@ export function createBridge(o) {
     },
     /** Her opening line — outbound calls speak first. */
     async greet(line) {
-      if (!line || ended) return;
+      // A FALSY LINE HERE IS A COMPLIANCE FAILURE, NOT A NO-OP. The greeting
+      // is the AI disclosure. Returning quietly meant a prospect answered the
+      // phone, heard nothing, and Anaga joined mid-conversation having never
+      // identified herself. The caller (server.js) decides whether to hang up;
+      // this makes sure it is TOLD.
+      if (ended) return { of: 0, delivered: 0, failed: 'call already ended' };
+      if (!line) {
+        emit({ type: 'disclosure_missing', reason: 'no greeting line was supplied' });
+        return { of: 0, delivered: 0, failed: 'no greeting line' };
+      }
       history.push({ role: 'agent', text: line });
       emit({ type: 'said', text: line, disposition: 'qualifying' });
-      await play(line, ++turnId);
+      const said = await play(line, ++turnId);
+      if (markIfUndelivered(said, 'the AI disclosure')) {
+        emit({ type: 'disclosure_missing', reason: said.failed || 'interrupted' });
+      }
+      return said;
     },
     end: finish,
     get ended() { return ended; },

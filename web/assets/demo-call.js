@@ -430,6 +430,23 @@
     for (var i = 0; i < text.length; i++) {
       cur += text[i];
       if (marks.indexOf(text[i]) !== -1) {
+        // A BOUNDARY NEEDS WHITESPACE AFTER IT, exactly as the server's
+        // /(?<=[.!?।॥])\s+/ requires. This loop used to split on the mark
+        // alone, so the two implementations disagreed on every decimal — 5 of
+        // 7 realistic lines diverged.
+        //
+        //   "Your budget is 3.5 crore, is that right?"
+        //     server  -> ["Your budget is 3.5 crore,", "is that right?"]
+        //     browser -> ["Your budget is 3.", "5 crore, is that right?"]
+        //
+        // That is not cosmetic. api/anaga/turn.js prerenders phrase 0 with the
+        // SERVER splitter and ships the audio; the browser then splits the
+        // same line its own way and speaks "everything after phrase 0"
+        // according to a different boundary. The prospect hears the number
+        // twice, or hears it cut in half — on an ordinary budget question,
+        // which is the one turn where a wrong number matters most.
+        var atEnd = i + 1 >= text.length;
+        if (!atEnd && !/\s/.test(text[i + 1])) continue;   // "3.5" is one word
         while (i + 1 < text.length && /\s/.test(text[i + 1])) i++;
         if (cur.trim()) out.push(cur.trim());
         cur = "";
