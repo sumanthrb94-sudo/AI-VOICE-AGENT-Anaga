@@ -1,7 +1,7 @@
 // caller-agent/src/server.js
 //
 // The dial queue consumer (WP-2's hand-off point). This is the service the
-// `DIAL_QUEUE_URL` in the Vaak API points at — the piece that closes the gap
+// `DIAL_QUEUE_URL` in the Anaga API points at — the piece that closes the gap
 // between "a lead passed the compliance gate" and "a phone rings".
 //
 //   POST /jobs     signed dial job  -> accepted, call runs, outcome reported
@@ -239,7 +239,17 @@ export function createServer() {
     }
 
     // 1. signature — this endpoint causes phone calls
-    const sig = verifyJobSignature(raw, req.headers['x-vaak-signature-256']);
+    //
+    // The header was `X-Vaak-Signature-256` before the rename. Both are
+    // accepted, because the signer and the verifier deploy separately: for the
+    // minutes between the two rollouts one side is on each name, and a rename
+    // that silently rejects every job in that window looks exactly like an
+    // outage. The SIGNATURE is what is trusted either way — the header name
+    // carries no authority, so accepting the old one grants nothing.
+    const sig = verifyJobSignature(
+      raw,
+      req.headers['x-anaga-signature-256'] || req.headers['x-vaak-signature-256'],
+    );
     if (!sig.ok) {
       log('job_rejected', { reason: sig.error });
       return send(403, { error: sig.error });

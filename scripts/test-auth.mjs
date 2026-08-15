@@ -31,8 +31,8 @@ const realFetch = globalThis.fetch;
     publicKeyEncoding: { type: 'spki', format: 'pem' },
   });
   process.env.FIREBASE_SERVICE_ACCOUNT = JSON.stringify({
-    type: 'service_account', project_id: 'vaak-test',
-    client_email: 't@vaak-test.iam.gserviceaccount.com', private_key: privateKey,
+    type: 'service_account', project_id: 'anaga-test',
+    client_email: 't@anaga-test.iam.gserviceaccount.com', private_key: privateKey,
   });
 }
 globalThis.fetch = async (url, opts = {}) => {
@@ -91,7 +91,7 @@ function mkRes() {
 const call = async (h, req) => { const res = mkRes(); await h(req, res); return res; };
 const cookieOf = (res) => String(res.headers['set-cookie'] || '').split(';')[0].split('=').slice(1).join('=');
 
-const EMAIL = 'founder@vaak.ai';
+const EMAIL = 'founder@modcon.in';
 const PASSWORD = 'a-long-enough-passphrase-9';
 
 console.log('\n═══ AUTH QA ═══');
@@ -143,14 +143,14 @@ await t('the wrong password does not', async () => {
 });
 
 await t('an unknown account is indistinguishable from a wrong password', async () => {
-  const a = await call(loginH, { method: 'POST', headers: {}, query: {}, body: JSON.stringify({ email: 'nobody@vaak.ai', password: PASSWORD }) });
+  const a = await call(loginH, { method: 'POST', headers: {}, query: {}, body: JSON.stringify({ email: 'nobody@modcon.in', password: PASSWORD }) });
   const b = await call(loginH, { method: 'POST', headers: {}, query: {}, body: JSON.stringify({ email: EMAIL, password: 'wrong-but-long-enough' }) });
   assert.equal(a.statusCode, b.statusCode);
   assert.deepEqual(a.body, b.body, 'the two must not be tellable apart');
 });
 
 await t('the email is case- and space-insensitive', async () => {
-  const res = await call(loginH, { method: 'POST', headers: {}, query: {}, body: JSON.stringify({ email: '  FOUNDER@Vaak.AI ', password: PASSWORD }) });
+  const res = await call(loginH, { method: 'POST', headers: {}, query: {}, body: JSON.stringify({ email: '  FOUNDER@Modcon.in ', password: PASSWORD }) });
   assert.equal(res.statusCode, 200);
 });
 
@@ -160,7 +160,7 @@ let goodCookie;
 await t('a valid session identifies the user', async () => {
   const res = await call(loginH, { method: 'POST', headers: {}, query: {}, body: JSON.stringify({ email: EMAIL, password: PASSWORD }) });
   goodCookie = cookieOf(res);
-  const me = await call(meH, { method: 'GET', headers: { cookie: `vaak_session=${goodCookie}` }, query: {} });
+  const me = await call(meH, { method: 'GET', headers: { cookie: `anaga_session=${goodCookie}` }, query: {} });
   assert.equal(me.body.user.email, EMAIL);
   assert.equal(me.body.user.role, 'owner');
 });
@@ -176,7 +176,7 @@ await t('the cookie is httpOnly, Secure and SameSite', async () => {
 await t('A FORGED session is rejected', async () => {
   const payload = Buffer.from(JSON.stringify({ uid: EMAIL, org: 'default', role: 'owner', pw: 0, exp: Date.now() + 9e6 })).toString('base64url');
   const forged = `${payload}.${Buffer.from('whatever').toString('base64url')}`;
-  const me = await call(meH, { method: 'GET', headers: { cookie: `vaak_session=${forged}` }, query: {} });
+  const me = await call(meH, { method: 'GET', headers: { cookie: `anaga_session=${forged}` }, query: {} });
   assert.equal(me.body.user, null, 'an unsigned token must never authenticate');
 });
 
@@ -186,7 +186,7 @@ await t('a TAMPERED session is rejected (role escalation)', async () => {
   decoded.role = 'owner';
   decoded.uid = 'attacker@evil.com';
   const tampered = `${Buffer.from(JSON.stringify(decoded)).toString('base64url')}.${mac}`;
-  const me = await call(meH, { method: 'GET', headers: { cookie: `vaak_session=${tampered}` }, query: {} });
+  const me = await call(meH, { method: 'GET', headers: { cookie: `anaga_session=${tampered}` }, query: {} });
   assert.equal(me.body.user, null, 'editing the payload must invalidate the signature');
 });
 
@@ -203,7 +203,7 @@ await t('an EXPIRED session is rejected', () => {
 await t('a session issued before a password change stops working', async () => {
   const { updateUser } = await import(`${ROOT}/api/_lib/store.js`);
   await updateUser(EMAIL, { pwChangedAt: Date.now() + 1000 });
-  const me = await call(meH, { method: 'GET', headers: { cookie: `vaak_session=${goodCookie}` }, query: {} });
+  const me = await call(meH, { method: 'GET', headers: { cookie: `anaga_session=${goodCookie}` }, query: {} });
   assert.equal(me.body.user, null, 'changing a password must retire existing sessions');
   await updateUser(EMAIL, { pwChangedAt: 0 });
 });
@@ -213,7 +213,7 @@ await t('a disabled account is locked out immediately, not at expiry', async () 
   const res = await call(loginH, { method: 'POST', headers: {}, query: {}, body: JSON.stringify({ email: EMAIL, password: PASSWORD }) });
   const c = cookieOf(res);
   await updateUser(EMAIL, { disabled: true });
-  const me = await call(meH, { method: 'GET', headers: { cookie: `vaak_session=${c}` }, query: {} });
+  const me = await call(meH, { method: 'GET', headers: { cookie: `anaga_session=${c}` }, query: {} });
   assert.equal(me.body.user, null);
   const relogin = await call(loginH, { method: 'POST', headers: {}, query: {}, body: JSON.stringify({ email: EMAIL, password: PASSWORD }) });
   assert.equal(relogin.statusCode, 401, 'a disabled account must not be able to sign back in');

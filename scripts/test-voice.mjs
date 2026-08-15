@@ -759,7 +759,7 @@ await t('THE SAME LINE IS NOT RE-RENDERED FOR EVERY CALLER', async () => {
   let calls = 0;
   routes = [{ match: /api\.sarvam\.ai/, reply: () => { calls++; return bin([0xff, 0xfb, 0x53]); } }];
 
-  const line = 'Namaskaram, nenu Anaga — Vaak nunchi oka AI voice assistant.';
+  const line = 'Namaskaram, nenu Anaga — Modcon Builders nunchi oka AI voice assistant.';
   const a = await tts.synth({ text: line, lang: 'te-IN', speaker: 'kavya' });
   const b = await tts.synth({ text: line, lang: 'te-IN', speaker: 'kavya' });
   assert.equal(calls, 1, 'the second caller must not pay for the same sentence');
@@ -987,9 +987,9 @@ await t('the persona carries a MALE disclosure with correct Hindi agreement', as
   // Hindi marks the speaker's gender on the verb AND on the possessive. सकती /
   // की in a man's voice is the feminine form and lands as audibly broken Hindi.
   assert.match(p.disclosure['hi-IN'], /सकती हूँ/, 'the default (female) line should stay feminine');
-  assert.match(p.disclosure['hi-IN'], /वाक् की/, '…including the possessive');
+  assert.match(p.disclosure['hi-IN'], /मॉडकॉन बिल्डर्स की/, '…including the possessive');
   assert.match(male['hi-IN'], /सकता हूँ/, 'the male line must use the masculine form');
-  assert.match(male['hi-IN'], /वाक् का/);
+  assert.match(male['hi-IN'], /मॉडकॉन बिल्डर्स का/);
   assert.doesNotMatch(male['hi-IN'], /सकती हूँ/);
 });
 

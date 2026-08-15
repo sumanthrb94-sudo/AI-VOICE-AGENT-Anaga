@@ -528,7 +528,7 @@ await t('the microphone is released when the call ends', async () => {
 
 await t('THE FIRST PHRASE SHIPS WITH THE TURN — one round trip, not two', async () => {
   await restart();
-  const line = 'Namaste, this is Anaga from Vaak. I have a three BHK in Gachibowli. Would you like the details?';
+  const line = 'Namaste, this is Anaga from Modcon Builders. I have a three BHK in Gachibowli. Would you like the details?';
   process.env.STUB_LLM_SAY = line;
   await page.locator('#lang button[data-lang="en-IN"]').click();
   await page.locator('#start').click();
@@ -560,7 +560,7 @@ await t('THE FIRST PHRASE SHIPS WITH THE TURN — one round trip, not two', asyn
   }).then((r) => r.json()), [{ role: 'user', text: 'tell me about it' }]);
   assert.ok(turn.speak, 'the turn must carry audio');
   assert.ok(turn.speak.audio, '…with actual bytes in it');
-  assert.equal(turn.speak.text, 'Namaste, this is Anaga from Vaak.',
+  assert.equal(turn.speak.text, 'Namaste, this is Anaga from Modcon Builders.',
     'and it must be the FIRST phrase, not the whole line');
 
   // The browser then renders only what is left — no duplicate of phrase one.

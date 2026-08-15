@@ -1,4 +1,4 @@
-# Vaak integrations contract (shared)
+# Anaga integrations contract (shared)
 
 The wiring between **lead sources** (Meta Lead Ads, a CRM, a landing page), the
 **compliance gate**, the **dial queue** (orchestrator / caller agent), and the
@@ -199,7 +199,7 @@ error — a non-durable suppression means that number can be dialed again.
 
 ## Outbound: dial job → `DIAL_QUEUE_URL`
 
-Signed `X-Vaak-Signature-256: sha256=<hex hmac of the body with DIAL_QUEUE_SECRET>`.
+Signed `X-Anaga-Signature-256: sha256=<hex hmac of the body with DIAL_QUEUE_SECRET>`.
 
 ```json
 { "type": "outbound_call", "version": 1, "createdAt": "…",

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Vaak caller-agent persona",
+  "title": "Anaga caller-agent persona",
   "description": "Versioned persona + voice config for a caller agent. Data, not code (MULTI_AGENT_SPEC §1.5). Voice is provider-abstracted (WP-4); compliance disclosure is enforced by WP-5 and fails closed.",
   "type": "object",
   "required": ["id", "version", "displayName", "persona", "voice", "disclosure"],

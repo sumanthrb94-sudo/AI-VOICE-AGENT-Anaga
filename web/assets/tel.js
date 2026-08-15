@@ -1,5 +1,5 @@
 /* ===================================================================
-   Vaak — Bulbul v3 Telugu voice sampler.
+   Anaga — Bulbul v3 Telugu voice sampler.
 
    A thin wrapper over one thing: Sarvam Bulbul speaking Telugu. Everything
    else that used to be on this page — the language pills, the live call demo,

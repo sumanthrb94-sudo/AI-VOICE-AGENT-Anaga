@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ===================================================================
-# Assemble the Vaak AI home screen into a self-contained ./public
+# Assemble the Anaga home screen into a self-contained ./public
 # directory that Vercel (or any static host) can serve from root.
 #   - web/            -> public/            (index.html, assets/)
 #   - docs/*.md       -> public/docs/       (linked from the nav)

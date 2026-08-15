@@ -81,5 +81,5 @@ class PlaybackProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor('vaak-capture', CaptureProcessor);
-registerProcessor('vaak-playback', PlaybackProcessor);
+registerProcessor('anaga-capture', CaptureProcessor);
+registerProcessor('anaga-playback', PlaybackProcessor);

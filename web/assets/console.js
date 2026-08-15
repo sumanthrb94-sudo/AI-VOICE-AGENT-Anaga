@@ -1,5 +1,5 @@
 /* ===================================================================
-   Vaak Console — operator surface (WP-8)
+   Anaga Console — operator surface (WP-8)
 
    Renders GET /api/console/summary. Vanilla JS, no dependencies, no
    build step (the repo deploys as a static site).
@@ -15,8 +15,8 @@
 (function () {
   "use strict";
 
-  var KEY_SS = "vaak_operator_key";
-  var THEME_LS = "vaak_console_theme";
+  var KEY_SS = "anaga_operator_key";
+  var THEME_LS = "anaga_console_theme";
   var POLL_MS = 15000;
 
   var $ = function (id) { return document.getElementById(id); };

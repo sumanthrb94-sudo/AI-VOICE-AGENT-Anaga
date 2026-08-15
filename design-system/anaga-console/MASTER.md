@@ -6,7 +6,7 @@
 
 ---
 
-**Project:** Vaak Console
+**Project:** Anaga Console
 **Generated:** 2026-08-03 16:15:22
 **Category:** Smart Home/IoT Dashboard
 **Design Dials:** Variance 3/10 (Centered / Minimal) | Motion 2/10 (Subtle) | Density 8/10 (Dense / Dashboard)

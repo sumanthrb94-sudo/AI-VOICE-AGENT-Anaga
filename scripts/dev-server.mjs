@@ -234,7 +234,7 @@ if (invokedDirectly) {
   const server = createDevServer();
   server.listen(PORT, () => {
     const n = routeTable().size;
-    console.log(`vaak dev server  http://localhost:${PORT}`);
+    console.log(`anaga dev server  http://localhost:${PORT}`);
     console.log(`  ${n} api routes (Vercel Hobby allows 12)`);
     console.log(`  vendors: ${process.env.STUB_VENDORS === '1' ? 'STUBBED' : 'live (needs real keys + egress)'}`);
   });

@@ -1,5 +1,5 @@
 /* ===================================================================
-   Vaak — the live call, over one socket.
+   Anaga — the live call, over one socket.
 
    WHAT THIS REPLACES, AND WHY
    ---------------------------
@@ -21,7 +21,7 @@
 
    POINT IT AT A SERVER
    --------------------
-   window.VAAK_AGENT_URL = "wss://vaak-agent-xxxx.a.run.app/agent"
+   window.ANAGA_AGENT_URL = "wss://anaga-agent-xxxx.a.run.app/agent"
    ...before this file loads. Locally: "ws://localhost:8080/agent".
    =================================================================== */
 (function (global) {
@@ -40,6 +40,10 @@
     var closed = false;
 
     function url() {
+      // VAAK_AGENT_URL is the pre-rename name. A phone that has the old page
+      // cached still sets it, and a blank agent URL is a call that never
+      // connects — so it is still honoured.
+      if (global.ANAGA_AGENT_URL) return global.ANAGA_AGENT_URL;
       if (global.VAAK_AGENT_URL) return global.VAAK_AGENT_URL;
       // Same host, ws(s) scheme — right when the page is served BY the agent
       // service, which is how the local dev loop works.
@@ -69,10 +73,10 @@
         ctx = new AC();
         return ctx.audioWorklet.addModule("assets/pcm-worklet.js");
       }).then(function () {
-        capture = new AudioWorkletNode(ctx, "vaak-capture", {
+        capture = new AudioWorkletNode(ctx, "anaga-capture", {
           processorOptions: { targetRate: SAMPLE_RATE }
         });
-        playback = new AudioWorkletNode(ctx, "vaak-playback", {
+        playback = new AudioWorkletNode(ctx, "anaga-playback", {
           outputChannelCount: [1]
         });
         ctx.createMediaStreamSource(stream).connect(capture);

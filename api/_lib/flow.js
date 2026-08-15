@@ -23,7 +23,7 @@ import personaJson from '../../caller-agent/flows/anaga.persona.json' with { typ
 // that has lost its disclosure rule because someone mistyped a JSON key is the
 // failure this guards against, and it fails toward saying MORE, not less.
 const FLOOR = {
-  disclosure: "Disclose at the very open that you are an AI voice agent from Vaak, say what the call "
+  disclosure: "Disclose at the very open that you are an AI voice agent from Modcon Builders, say what the call "
     + "is about, and ask consent before anything else.",
   optOutTriggers: ['not interested', 'do not call', "don't call", 'stop calling', 'remove me', 'unsubscribe', 'opt out', 'dnd'],
   goal: 'Disclose AI, get consent, qualify the lead, book a site visit, handle opt-out.',

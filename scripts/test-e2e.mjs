@@ -43,7 +43,7 @@ process.env.CRM_WEBHOOK_URL = 'http://crm.invalid/hook';
 process.env.CRM_WEBHOOK_SECRET = 'e2e-crm-secret';
 process.env.OUTBOUND_CALLER_ID = '+911600000000';
 process.env.COMPLIANCE_MODE = 'strict';       // the real gate, not dev mode
-process.env.VAAK_API_BASE_URL = 'http://vaak.invalid';
+process.env.ANAGA_API_BASE_URL = 'http://anaga.invalid';
 process.env.TELEPHONY_PROVIDER = 'mock';
 process.env.BRAIN_OUTCOME_RETRIES = '1';      // keep the suite fast
 
@@ -105,7 +105,7 @@ globalThis.fetch = async (url, opts = {}) => {
   if (u.startsWith('http://crm.invalid/')) {
     if (world.crmDown) return json(503, { error: 'crm_down' });
     // Verify OUR signature the way a real consumer would.
-    const sig = opts.headers?.['X-Vaak-Signature-256'] || '';
+    const sig = opts.headers?.['X-Anaga-Signature-256'] || '';
     const expect = 'sha256=' + crypto.createHmac('sha256', 'e2e-crm-secret').update(opts.body).digest('hex');
     assert.equal(sig, expect, 'CRM webhook signature must verify');
     world.crmEvents.push(body);
@@ -114,19 +114,19 @@ globalThis.fetch = async (url, opts = {}) => {
 
   // --- dial queue: capture the job AND verify its signature --------------
   if (u.startsWith('http://queue.invalid/')) {
-    const sig = opts.headers?.['X-Vaak-Signature-256'] || '';
+    const sig = opts.headers?.['X-Anaga-Signature-256'] || '';
     const expect = 'sha256=' + crypto.createHmac('sha256', QUEUE_SECRET).update(opts.body).digest('hex');
     assert.equal(sig, expect, 'dial job must be signed with DIAL_QUEUE_SECRET');
     world.queuedJobs.push({ job: body, raw: opts.body, signature: sig });
     return json(200, { callId: 'queued-' + world.queuedJobs.length });
   }
 
-  // --- the Vaak API, called by the caller agent --------------------------
-  if (u.startsWith('http://vaak.invalid/api/anaga/turn')) {
+  // --- the Anaga API, called by the caller agent --------------------------
+  if (u.startsWith('http://anaga.invalid/api/anaga/turn')) {
     if (world.llmDown) return json(503, { error: 'llm_unavailable' });
     return json(200, world.turnScript(body.history));
   }
-  if (u.startsWith('http://vaak.invalid/api/calls/outcome')) {
+  if (u.startsWith('http://anaga.invalid/api/calls/outcome')) {
     assert.equal(opts.headers?.Authorization, `Bearer ${KEY}`, 'outcome must be authenticated');
     const res = mkRes();
     await outcomeHandler({ method: 'POST', headers: { authorization: `Bearer ${KEY}` }, body }, res);
@@ -207,7 +207,7 @@ const HAPPY_PATH = (history) => {
 };
 
 // ===========================================================================
-console.log('\n═══ VAAK END-TO-END QA ═══');
+console.log('\n═══ ANAGA END-TO-END QA ═══');
 
 // --- 0. preflight ----------------------------------------------------------
 section('0. preflight');
@@ -363,7 +363,7 @@ await t('the API is the last line of defence: an Indic opt-out in a reported tra
       call: { id: 'third-party-1', disposition: 'callback' },   // wrong on purpose
       lead: { phone: '+919876500077', name: 'Third Party Lead' },
       history: [
-        { role: 'agent', text: 'Hi, I am Anaga, an AI assistant from Vaak.' },
+        { role: 'agent', text: 'Hi, I am Anaga, an AI assistant from Modcon Builders.' },
         { role: 'user', text: 'కాల్ చేయకండి' },
       ],
     },

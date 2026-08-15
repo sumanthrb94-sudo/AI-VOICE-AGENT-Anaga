@@ -31,7 +31,7 @@ const ITERATIONS = 210_000;
 const KEYLEN = 32;
 const DIGEST = 'sha256';
 export const SESSION_HOURS = Number(process.env.SESSION_HOURS || 12);
-const COOKIE = 'vaak_session';
+const COOKIE = 'anaga_session';
 
 export const ROLES = ['owner', 'operator', 'viewer'];
 
@@ -83,7 +83,7 @@ export function passwordProblem(password) {
   if (p.length < 12) return 'Use at least 12 characters.';
   if (p.length > 200) return 'That is too long.';
   if (/^\s|\s$/.test(p)) return 'Remove the leading or trailing space.';
-  const common = ['password', '123456', 'qwerty', 'letmein', 'welcome', 'admin', 'vaak'];
+  const common = ['password', '123456', 'qwerty', 'letmein', 'welcome', 'admin', 'anaga'];
   if (common.some((c) => p.toLowerCase().includes(c) && p.length < 20)) {
     return 'That contains a word attackers try first. Use a longer passphrase.';
   }
@@ -151,13 +151,22 @@ export function clearCookie() {
   return `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 }
 
+// The cookie was named `vaak_session` before the rename. It is still READ, so
+// the rename does not sign every operator out mid-shift; it is never WRITTEN,
+// so the old name disappears on its own within SESSION_HOURS. The token's HMAC
+// is what makes a session valid — the cookie name it arrived under is not
+// trusted for anything, so reading the legacy name concedes nothing.
+const LEGACY_COOKIE = 'vaak_session';
+
 function cookieFrom(req) {
   const raw = req.headers?.cookie || '';
+  let legacy = null;
   for (const part of raw.split(';')) {
     const [k, ...v] = part.trim().split('=');
     if (k === COOKIE) return v.join('=');
+    if (k === LEGACY_COOKIE) legacy = v.join('=');
   }
-  return null;
+  return legacy;
 }
 
 /**

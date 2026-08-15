@@ -1,6 +1,6 @@
 // caller-agent/src/brain.js
 //
-// The caller agent's client for the Vaak API: next-turn generation and outcome
+// The caller agent's client for the Anaga API: next-turn generation and outcome
 // reporting. Keeps HTTP concerns out of session.js so the session can be tested
 // against a fake brain with no network.
 //
@@ -39,11 +39,15 @@ async function postJson(url, body, { timeoutMs, auth = null } = {}) {
 }
 
 export function createBrain({
-  baseUrl = process.env.VAAK_API_BASE_URL || process.env.PUBLIC_BASE_URL || '',
+  // VAAK_API_BASE_URL is the pre-rename name, still read so an environment set
+  // before the rename keeps working. An env var that quietly became undefined
+  // fails here as "required", i.e. as a misconfiguration nobody made.
+  baseUrl = process.env.ANAGA_API_BASE_URL || process.env.VAAK_API_BASE_URL
+    || process.env.PUBLIC_BASE_URL || '',
   apiKey = process.env.INTEGRATIONS_API_KEY || '',
   log = () => {},
 } = {}) {
-  if (!baseUrl) throw new Error('VAAK_API_BASE_URL (or PUBLIC_BASE_URL) is required');
+  if (!baseUrl) throw new Error('ANAGA_API_BASE_URL (or PUBLIC_BASE_URL) is required');
   const base = baseUrl.replace(/\/+$/, '');
 
   return {

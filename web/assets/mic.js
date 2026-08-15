@@ -1,5 +1,5 @@
 /* ===================================================================
-   Vaak — the microphone, done properly.
+   Anaga — the microphone, done properly.
 
    THE PROBLEM THIS REPLACES
    -------------------------

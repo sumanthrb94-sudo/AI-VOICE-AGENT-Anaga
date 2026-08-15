@@ -1,4 +1,4 @@
-# Launch readiness — Vaak / Anaga
+# Launch readiness — Anaga, by Modcon Builders
 
 An honest state-of-the-system. Written so nobody discovers a gap the week of launch.
 

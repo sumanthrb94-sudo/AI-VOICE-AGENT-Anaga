@@ -12,8 +12,8 @@
    Priority used by the call demo: BYOK key (here) → server /api → offline rules.
    =================================================================== */
 (function () {
-  const KEY_LS   = "vaak_gemini_key";
-  const MODEL_LS = "vaak_gemini_model";
+  const KEY_LS   = "anaga_gemini_key";
+  const MODEL_LS = "anaga_gemini_model";
   const DEFAULT_MODEL = "gemini-2.0-flash";
 
   const getKey   = () => (localStorage.getItem(KEY_LS) || "").trim();
@@ -24,7 +24,7 @@
 
   /* ---- the "Syl rules" Anaga must follow (mirrors api/_lib/prompts.js) ---- */
   const SYL_RULES = [
-    "You are Anaga, a warm, concise female AI voice agent for Vaak, calling about the",
+    "You are Anaga, a warm, concise female AI voice agent for Modcon Builders, calling about the",
     "'Skyline Villaments' project in Hyderabad. Speak natural, friendly Indian English; code-mixing is fine.",
     "RULES: (1) At the very start, disclose you are an AI and ask for consent to continue.",
     "(2) Qualify IN ORDER: purpose (live-in vs investment) → budget → configuration (BHK) → timeline.",
@@ -47,7 +47,7 @@
   }
   function summaryPrompt(history) {
     return {
-      system: "You are a sales-ops analyst reviewing a Vaak call by the AI agent Anaga. " +
+      system: "You are a sales-ops analyst reviewing a Modcon Builders call by the AI agent Anaga. " +
         "Return ONLY JSON: {\"interested\": boolean, \"score\": 0-100 integer, \"disposition\": " +
         "[\"booked\",\"callback\",\"not-interested\",\"opt-out\",\"undecided\"], \"summary\": string, " +
         "\"nextAction\": string, \"comment\": string}. 'comment' is a short internal note from the sales team's side.",

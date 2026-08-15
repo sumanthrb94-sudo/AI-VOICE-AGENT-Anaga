@@ -697,7 +697,7 @@ async function viaGoogleTranslate(text, opts) {
       // redirect:'manual' — a 302 here is Google's /sorry/ bot check, not a
       // move. Following it would report a failure on a host we never called.
       res = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; VaakVoice/1.0)', Referer: 'https://translate.google.com/' },
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AnagaVoice/1.0)', Referer: 'https://translate.google.com/' },
         redirect: 'manual',
         signal: ctrl.signal,
       });

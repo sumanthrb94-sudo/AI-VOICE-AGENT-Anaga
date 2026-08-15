@@ -1,6 +1,6 @@
 # Console Page Overrides
 
-> **PROJECT:** Vaak Console
+> **PROJECT:** Anaga Console
 > **Generated:** 2026-08-03 16:15:22
 > **Page Type:** Dashboard / Data View
 

@@ -1,4 +1,4 @@
-# Agent Task Template — Vaak AI Work Package
+# Agent Task Template — Anaga Work Package
 
 Copy this into a GitHub issue to spawn a coding agent (or brief a developer) against one WP.
 

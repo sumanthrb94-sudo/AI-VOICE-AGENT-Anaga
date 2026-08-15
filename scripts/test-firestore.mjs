@@ -241,7 +241,7 @@ if (!CREDENTIAL) {
     // it offline against a double proves the double.
     const callId = wrote('calls', `qa_probe_call_${stamp}`);
     const history = [
-      { role: 'agent', text: "Hi, I'm Anaga, an AI voice assistant from Vaak." },
+      { role: 'agent', text: "Hi, I'm Anaga, an AI voice assistant from Modcon Builders." },
       { role: 'user', text: 'Haan bolo — 3BHK, around 1.5 crore, buying in two months.' },
       { role: 'agent', text: 'Could I book you a site visit this weekend?' },
     ];

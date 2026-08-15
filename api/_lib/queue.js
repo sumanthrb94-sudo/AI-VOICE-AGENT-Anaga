@@ -85,7 +85,7 @@ export async function enqueueCall(job) {
   const body = JSON.stringify(job);
   const headers = { 'Content-Type': 'application/json' };
   const secret = process.env.DIAL_QUEUE_SECRET;
-  if (secret) headers['X-Vaak-Signature-256'] = `sha256=${hmacSha256Hex(secret, body)}`;
+  if (secret) headers['X-Anaga-Signature-256'] = `sha256=${hmacSha256Hex(secret, body)}`;
 
   const res = await fetchJson(url, { method: 'POST', headers, body, timeoutMs: 8000 });
   return {

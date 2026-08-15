@@ -80,7 +80,7 @@ function leadRecord(lead) {
     ...(lead.city ? { City: lead.city } : {}),
     Lead_Source: lead.source === 'meta_lead_ads'
       ? (lead.campaign?.platform === 'instagram' ? 'Instagram' : 'Facebook Ads')
-      : 'Vaak',
+      : 'Modcon Builders',
     ...(lead.campaign?.name ? { Description: `Campaign: ${lead.campaign.name}` } : {}),
   };
 }
@@ -144,7 +144,7 @@ export async function logCall(lead, review, call, noteBody) {
       data: [{
         id: found.id,
         Lead_Status: review?.disposition === 'booked' ? 'Contacted' : 'Attempted to Contact',
-        ...(Number.isFinite(review?.score) ? { Vaak_Intent_Score: review.score } : {}),
+        ...(Number.isFinite(review?.score) ? { Anaga_Intent_Score: review.score } : {}),
       }],
     },
   });
@@ -158,7 +158,7 @@ export async function markOptOut(lead, reason) {
   const found = await findLeadId(lead);
   if (!found.ok || !found.id) return { ok: false, error: found.error || 'lead_not_found' };
 
-  const dndField = process.env.CRM_DND_PROPERTY || 'Vaak_DND';
+  const dndField = process.env.CRM_DND_PROPERTY || 'Anaga_DND';
   await zoho('/crm/v3/Leads', {
     method: 'PUT',
     body: { data: [{ id: found.id, Lead_Status: 'Not Interested', [dndField]: true }] },
@@ -167,7 +167,7 @@ export async function markOptOut(lead, reason) {
   const note = await addNote(
     found.id,
     'Opt-out — do not call',
-    `Opt-out recorded by Anaga (${reason || 'requested by prospect'}). Number added to the Vaak do-not-call list. Do not dial again.`
+    `Opt-out recorded by Anaga (${reason || 'requested by prospect'}). Number added to the Modcon Builders do-not-call list. Do not dial again.`
   );
   return { ok: note.ok, error: note.error };
 }

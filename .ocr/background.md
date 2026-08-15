@@ -1,4 +1,4 @@
-# Review background — Vaak AI voice agent
+# Review background — Anaga voice agent
 
 Read this before reviewing. It changes what counts as a defect in this repo.
 

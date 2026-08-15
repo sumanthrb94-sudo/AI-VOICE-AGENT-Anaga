@@ -318,7 +318,7 @@ await t('playback starts before the whole line has been rendered', async () => {
     sleep: async () => {},
   });
 
-  await tr.say('Hello, this is Anaga from Vaak. I have a three BHK in Gachibowli. Would you like the details?');
+  await tr.say('Hello, this is Anaga from Modcon Builders. I have a three BHK in Gachibowli. Would you like the details?');
 
   const synths = events.filter((e) => e.kind === 'synth_start');
   assert.ok(synths.length > 1, 'the line should have been split into phrases');
@@ -336,7 +336,7 @@ await t('a line marked atomic is rendered whole and never split', async () => {
     audioOut: () => {},
     sleep: async () => {},
   });
-  const line = 'Hi, I am Anaga, an AI voice assistant from Vaak. Is now a good time to talk?';
+  const line = 'Hi, I am Anaga, an AI voice assistant from Modcon Builders. Is now a good time to talk?';
   await tr.say(line, { atomic: true });
   assert.deepEqual(rendered, [line],
     'a disclosure that can be split is a disclosure that can be half-spoken');
@@ -356,7 +356,7 @@ await t('a phrase failing after the first was spoken truncates but does not drop
     audioOut: (f) => out.push(f.toString('utf8')),
     sleep: async () => {},
   });
-  const ok = await tr.say('Hello, this is Anaga from Vaak. I have a three BHK in Gachibowli.');
+  const ok = await tr.say('Hello, this is Anaga from Modcon Builders. I have a three BHK in Gachibowli.');
   assert.equal(ok, true, 'words already spoken mean the line succeeded, however partially');
   assert.equal(out.length, 1, 'the first phrase was still delivered');
 });
@@ -364,7 +364,7 @@ await t('a phrase failing after the first was spoken truncates but does not drop
 await t('a barge-in before a word is spoken holds the phrases that were never rendered', async () => {
   let clock = 0;
   const out = [];
-  const line = 'Hello, this is Anaga from Vaak. I have a three BHK in Gachibowli. Would you like the details?';
+  const line = 'Hello, this is Anaga from Modcon Builders. I have a three BHK in Gachibowli. Would you like the details?';
   const tr = createMediaTransport({
     stt: { async transcribe(c) { return c.map((x) => x.toString('utf8')).join(' ').trim(); } },
     tts: { async synth(text) { return { frames: [Buffer.from(text)] }; } },
@@ -396,15 +396,15 @@ section('phrase splitting');
 
 await t('a multi-sentence line splits at sentences', () => {
   assert.deepEqual(
-    splitForSpeech('Hello, this is Anaga from Vaak. I have a three BHK in Gachibowli.'),
-    ['Hello, this is Anaga from Vaak.', 'I have a three BHK in Gachibowli.']
+    splitForSpeech('Hello, this is Anaga from Modcon Builders. I have a three BHK in Gachibowli.'),
+    ['Hello, this is Anaga from Modcon Builders.', 'I have a three BHK in Gachibowli.']
   );
 });
 
 await t('Hindi ends sentences with a danda, and the splitter knows it', () => {
   // A splitter that only knows "." leaves an entire Hindi turn as one chunk,
   // which is exactly the language where the latency hurts most.
-  const parts = splitForSpeech('नमस्ते, मैं वाक् से अनागा बोल रही हूँ। क्या अभी बात करने का सही समय है।');
+  const parts = splitForSpeech('नमस्ते, मैं मॉडकॉन बिल्डर्स से अनागा बोल रही हूँ। क्या अभी बात करने का सही समय है।');
   assert.equal(parts.length, 2, `expected two phrases, got ${parts.length}`);
 });
 
@@ -466,11 +466,11 @@ await t('THE STREAMING SCAN AND THE SPLITTER AGREE — on every line', async () 
     'Are you looking to live in it, or to invest?',
     'What budget are you working with?',
     'మీరు ఉండటానికా, లేక పెట్టుబడి కోసమా చూస్తున్నారు?',
-    'నమస్కారం, నేను అనగా, వాక్ నుంచి ఒక AI వాయిస్ అసిస్టెంట్.',
-    'नमस्ते, मैं वाक् से अनगा बोल रही हूँ। क्या अभी बात करने का सही समय है?',
+    'నమస్కారం, నేను అనగా, మోడ్‌కాన్ బిల్డర్స్ నుంచి ఒక AI వాయిస్ అసిస్టెంట్.',
+    'नमस्ते, मैं मॉडकॉन बिल्डर्स से अनगा बोल रही हूँ। क्या अभी बात करने का सही समय है?',
     'Theek hai.',
     'Sure, I have a three BHK in Gachibowli, ready in March.',
-    'Hello, this is Anaga from Vaak. I have a three BHK in Gachibowli.',
+    'Hello, this is Anaga from Modcon Builders. I have a three BHK in Gachibowli.',
     'I have a three BHK in Gachibowli that fits exactly what you described to me',
     'Got it.',
     // FROM PRODUCTION. Both of these missed: Anaga opens turns with a short
@@ -710,7 +710,7 @@ await t('an uninterrupted line is recorded verbatim', async () => {
 
 await t('SHE DOES NOT CLAIM THE HALF SHE NEVER SAID', async () => {
   const h = spoken();
-  const line = 'Hello, this is Anaga from Vaak. I have a three BHK in Gachibowli. Would you like the details?';
+  const line = 'Hello, this is Anaga from Modcon Builders. I have a three BHK in Gachibowli. Would you like the details?';
   const speaking = h.tr.say(line);
   h.interrupt();
   await speaking;
@@ -729,7 +729,7 @@ await t('a line cut MID-PHRASE is MARKED, not silently trimmed', async () => {
   // on. Trimming to a guessed word boundary would be the same lie in a smaller
   // font, so the phrase is kept with a marker instead.
   const h = spoken({ perFrame: 'char' });
-  const speaking = h.tr.say('Just so you know, I am an AI voice agent from Vaak.');
+  const speaking = h.tr.say('Just so you know, I am an AI voice agent from Modcon Builders.');
   await h.interruptAfter(6);
   await speaking;
   assert.match(h.tr.spokenText(), /\[cut off\]/,
@@ -741,7 +741,7 @@ await t('THE SESSION RECORDS THE SPOKEN TEXT, not the generated text', async () 
   // returning true. She then reads that back as "already asked" and moves on
   // without the answer.
   const h = spoken();
-  const line = 'Hello, this is Anaga from Vaak. I have a three BHK in Gachibowli. Would you like the details?';
+  const line = 'Hello, this is Anaga from Modcon Builders. I have a three BHK in Gachibowli. Would you like the details?';
   const telephony = {
     async dial() { return { answered: true }; },
     async say(text) { const p = h.tr.say(text); h.interrupt(); return p; },
@@ -770,7 +770,7 @@ await t('THE PHRASE SPLIT IS NOT SCRIPT-BIASED', () => {
   // product actually sells in — and on the phone leg they cost first-audio on
   // every line of every call.
   const cases = {
-    'en-IN': 'Namaste, this is Anaga from Vaak. I have a three BHK in Gachibowli. Would you like the details?',
+    'en-IN': 'Namaste, this is Anaga from Modcon Builders. I have a three BHK in Gachibowli. Would you like the details?',
     'hi-IN': 'नमस्ते, मैं अनगा हूँ। मेरे पास गाचीबौली में एक थ्री बीएचके है। क्या आप जानना चाहेंगे?',
     'te-IN': 'నమస్కారం, నేను అనగా. మీరు అడిగిన ఇంటి గురించి మాట్లాడటానికి కాల్ చేశాను. ఇప్పుడు మాట్లాడవచ్చా?',
   };

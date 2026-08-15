@@ -1,6 +1,6 @@
-# Vaak AI — Business Plan & Investment Memorandum
+# Anaga — Business Plan & Investment Memorandum
 
-> **Vaak** (वाक् / వాక్) — Sanskrit for *speech, the spoken word*.
+> **Anaga** (मॉडकॉन बिल्डर्स / మోడ్‌కాన్ బిల్డర్స్) — Sanskrit for *speech, the spoken word*.
 > The voice-AI sales infrastructure for Bharat's high-ticket industries.
 
 **Confidential — for prospective investors and founding team only**
@@ -21,7 +21,7 @@ A note on honesty, because it protects you in a fundraise: this plan deliberatel
 
 India runs on phone calls, in dozens of languages, and the highest-value of those calls — selling a ₹2 crore home, closing an insurance policy, recovering a loan — are still made by humans who are expensive, inconsistent, unavailable after 7pm, and impossible to scale with ad spend.
 
-**Vaak is voice-AI sales infrastructure built natively for India's languages and India's regulations.** We deploy autonomous, multilingual voice agents that qualify leads, handle objections, and book high-intent meetings across Hindi, Telugu, Tamil, and English — including the code-mixed way Indians actually speak — then hand warm prospects to human closers. We start where the unit economics are most violent: **real estate**, where a single booked site visit is worth lakhs and developers burn crores on leads that never get a callback.
+**Anaga is voice-AI sales infrastructure built natively for India's languages and India's regulations.** We deploy autonomous, multilingual voice agents that qualify leads, handle objections, and book high-intent meetings across Hindi, Telugu, Tamil, and English — including the code-mixed way Indians actually speak — then hand warm prospects to human closers. We start where the unit economics are most violent: **real estate**, where a single booked site visit is worth lakhs and developers burn crores on leads that never get a callback.
 
 The wedge is narrow and deep. The platform underneath is horizontal: the same engine that books a site visit qualifies an insurance lead or runs a collections call. We are building the **agentic sales layer for Bharat's regulated, high-ticket, multilingual industries** — a market no US-built platform can serve well, because they were never built for Indian languages, Indian telephony, or TRAI.
 
@@ -45,7 +45,7 @@ The result: a structural gap between the value of high-ticket Indian sales conve
 
 ## 3. The solution
 
-**Vaak deploys fleets of autonomous voice agents that sound local, stay compliant, and are measured on outcomes — booked meetings — not minutes.**
+**Anaga deploys fleets of autonomous voice agents that sound local, stay compliant, and are measured on outcomes — booked meetings — not minutes.**
 
 What an agent does on a call:
 - Opens in the prospect's language, discloses it's an AI (legally required, and it builds trust), and asks permission.
@@ -55,7 +55,7 @@ What an agent does on a call:
 - Hands hot leads to a human closer, warm, with full context written to the CRM.
 - Respects opt-outs instantly and logs everything for compliance.
 
-What makes it *Vaak* and not a wrapper:
+What makes it *Anaga* and not a wrapper:
 - **India-native language core** — built on the Indian-language speech stack (Sarvam-class STT/TTS, IndicVoices-trained models), tuned on real Indian telephony audio, handling code-mixing as a first-class case.
 - **Compliance as a product feature** — 160-series, DLT, real-time DND scrubbing, AI disclosure, and 90-day Indian-soil recording retention are built into the dialing path. Competitors treat this as an integration problem; we treat it as the moat.
 - **Outcome-priced** — we align our pricing to booked meetings, not call minutes, which aligns our incentives with the customer's ROI and is structurally hard for USD-per-minute foreign platforms to match.
@@ -69,11 +69,11 @@ The numbers support a venture-scale outcome without any need to exaggerate them.
 **India voice AI / conversational AI — top-down:**
 - India's voice assistant market: valued at USD 153.01 million in 2024, predicted to reach USD 957.61 million by 2030, at a 35.7% CAGR — among the fastest-growing voice AI markets globally.
 - India's broader conversational AI market is forecast to grow at a 26.3% CAGR from 2025 to 2030, with BFSI, retail, and healthcare as the leading adopting sectors.
-- The global conversational AI market sits at USD 11.58 billion in 2024, projected to USD 41.39 billion by 2030 at a 23.7% CAGR — Vaak is an India-first play in a globally expanding category.
+- The global conversational AI market sits at USD 11.58 billion in 2024, projected to USD 41.39 billion by 2030 at a 23.7% CAGR — Anaga is an India-first play in a globally expanding category.
 - The validating tailwind: IIT Madras, AI4Bharat, and Sarvam AI launched IndicVoices, a 12,000-hour speech dataset covering 22 Indian languages, and Indian voicebots already operate at scale — e.g. Gnani.ai's speech-to-speech LLM powers 10M daily interactions for banks. The infrastructure to build on exists; the application layer for high-ticket sales is open.
 
 **Bottom-up TAM (the number that matters):**
-- Real estate beachhead: India has thousands of active residential projects. A mid-size developer spends ₹50L–₹5Cr/year on lead generation and loses a large fraction to slow follow-up. If Vaak captures even ₹5–15L/year per developer across a few thousand developers, the real-estate segment alone is a multi-thousand-crore opportunity.
+- Real estate beachhead: India has thousands of active residential projects. A mid-size developer spends ₹50L–₹5Cr/year on lead generation and loses a large fraction to slow follow-up. If Anaga captures even ₹5–15L/year per developer across a few thousand developers, the real-estate segment alone is a multi-thousand-crore opportunity.
 - Horizontal expansion (BFSI collections, insurance renewals, lending, edtech, healthcare) multiplies this several times over — each is a phone-driven, multilingual, regulated, high-ticket vertical with the identical core need.
 
 We are not claiming the whole market. We are claiming that a focused India-native player can build a ₹100 Cr+ enterprise inside it.
@@ -91,7 +91,7 @@ We are not claiming the whole market. We are claiming that a focused India-nativ
 
 ## 6. Product & the multi-agent architecture
 
-Vaak is not a single bot. It is an **orchestrated fleet of specialized agents**, which is both the technical design and the scaling story investors should understand:
+Anaga is not a single bot. It is an **orchestrated fleet of specialized agents**, which is both the technical design and the scaling story investors should understand:
 
 - **Caller agents** — run the live conversation (one per call, spawned on demand, horizontally scalable to thousands of concurrent calls).
 - **Qualifier/scoring agent** — grades lead intent in real time against the customer's ideal-customer profile and live inventory.
@@ -127,10 +127,10 @@ The founder's existing footprint (real estate channel partnerships, a portfolio 
 
 ## 9. Competition & moat
 
-| Competitor type | Examples | Why Vaak wins |
+| Competitor type | Examples | Why Anaga wins |
 |---|---|---|
 | US-built voice platforms | Vapi, Retell, Bland | Weak Indian-language quality; not TRAI-native; USD/min pricing punishes Indian call patterns |
-| India horizontal voicebots | Bolna, Gnani, SquadStack | Generalist/API-first; Vaak wins on vertical depth (high-ticket sales playbooks) + outcome pricing |
+| India horizontal voicebots | Bolna, Gnani, SquadStack | Generalist/API-first; Anaga wins on vertical depth (high-ticket sales playbooks) + outcome pricing |
 | In-house dev teams | Enterprises building their own | Compliance + conversation quality + eval flywheel are hard to replicate; we sell time-to-value |
 
 **The compounding moats:** (1) proprietary in-language, in-telephony conversation + objection data from real high-ticket calls; (2) compliance infrastructure as a hard-to-copy product surface; (3) outcome-pricing that aligns incentives and is structurally awkward for foreign per-minute platforms; (4) the eval flywheel — every call makes the next one better.
@@ -172,7 +172,7 @@ The founder's existing footprint (real estate channel partnerships, a portfolio 
 
 | Risk | Mitigation |
 |---|---|
-| "Closes deals autonomously" is overhyped | We do NOT claim it. Vaak qualifies + books; humans close high-ticket. This is the correct, defensible design. |
+| "Closes deals autonomously" is overhyped | We do NOT claim it. Anaga qualifies + books; humans close high-ticket. This is the correct, defensible design. |
 | Regulatory change (TRAI/DPDP) | Compliance is core team competency + advisor; we adapt faster than generalists because it's our moat. |
 | Foundation-model / platform dependency | Provider-abstracted architecture (swap STT/LLM/TTS); migrate to owned orchestration; own the data + eval layer. |
 | Incumbent (Sarvam/Gnani) moves down-market | We win on vertical depth + outcome pricing + distribution, not on being a better horizontal API. |
@@ -183,7 +183,7 @@ The founder's existing footprint (real estate channel partnerships, a portfolio 
 
 ## 14. Closing
 
-India's most valuable conversations happen by voice, in many languages, and the tools to have them at scale don't exist yet — not built for Bharat. Vaak is that infrastructure. We start with the most painful, highest-value wedge, build a compliance and conversation moat that foreign platforms structurally cannot cross, and compound it with every call we run.
+India's most valuable conversations happen by voice, in many languages, and the tools to have them at scale don't exist yet — not built for Bharat. Anaga is that infrastructure. We start with the most painful, highest-value wedge, build a compliance and conversation moat that foreign platforms structurally cannot cross, and compound it with every call we run.
 
 We're not selling the fantasy that AI closes the deal. We're building the engine that makes sure the deal *gets the call* — instantly, in the customer's language, every time. That engine is a ₹100 Cr+ company.
 

@@ -92,9 +92,9 @@ function redact(value, depth = 0) {
 export function log(event, fields = {}) {
   try {
     console.log(JSON.stringify({
-      at: new Date().toISOString(), svc: 'vaak-api', event, ...redact(fields),
+      at: new Date().toISOString(), svc: 'anaga-api', event, ...redact(fields),
     }));
   } catch {
-    console.log(JSON.stringify({ at: new Date().toISOString(), svc: 'vaak-api', event }));
+    console.log(JSON.stringify({ at: new Date().toISOString(), svc: 'anaga-api', event }));
   }
 }

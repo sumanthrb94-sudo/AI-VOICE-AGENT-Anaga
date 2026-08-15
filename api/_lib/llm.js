@@ -79,7 +79,7 @@ export function firstClauseOf(saySoFar, done) {
       if (cand.length > MAX_CHARS) return null;   // the splitter re-cuts at 140
       // A short opening sentence is its own phrase; a long one is cut at the
       // clause, exactly as splitHead() does — INCLUDING the case where it
-      // cannot cut. "नमस्ते, मैं वाक् से अनगा बोल रही हूँ।" is 37 characters
+      // cannot cut. "नमस्ते, मैं मॉडकॉन बिल्डर्स से अनगा बोल रही हूँ।" is 37 characters
       // with its only comma at 7, and splitHead needs a head of at least
       // MIN_HEAD, so it gives up and keeps the sentence whole.
       if (cand.length <= HEAD_CHARS || clause < 0) return cand;

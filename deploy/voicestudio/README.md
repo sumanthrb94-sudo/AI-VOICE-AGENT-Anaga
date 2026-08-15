@@ -70,7 +70,7 @@ woman — do not undo that by pinning them backwards.
 
 ---
 
-## 3. Point Vaak at it
+## 3. Point Anaga at it
 
 `VOICESTUDIO_URL` is **the address of the box you just started**, as seen from
 whatever is calling it. There is no default and no correct value until the

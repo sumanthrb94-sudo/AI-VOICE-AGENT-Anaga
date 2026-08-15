@@ -1,4 +1,4 @@
-# Vaak AI — Production Build & Multi-Agent Engineering Spec
+# Anaga — Production Build & Multi-Agent Engineering Spec
 
 **Audience:** the engineering org — human developers and/or autonomous coding agents.
 **Purpose:** a buildable, production-grade specification broken into discrete, parallelizable
@@ -10,7 +10,7 @@ work packages (WPs). Each WP is scoped so a single agent (or dev) can own it end
 
 ## 1. North-star architecture
 
-Vaak is a fleet of specialized agents behind one orchestrator. Cascaded streaming pipeline
+Anaga is a fleet of specialized agents behind one orchestrator. Cascaded streaming pipeline
 (STT → LLM → TTS) per live call, because cascaded is debuggable, swappable, and the only sane
 choice for Indian-language quality. End-to-end speech-to-speech is explicitly NOT used (no tool
 support, no Indic depth, not debuggable).
@@ -58,7 +58,7 @@ support, no Indic depth, not debuggable).
 ## 2. Repository layout (target)
 
 ```
-vaak-ai/
+anaga-ai/
 ├── docs/                      # business plan, compliance, financial notes
 ├── orchestrator/              # WP-2: work assignment, scaling, handoff
 ├── caller-agent/              # WP-3: the live conversation pipeline (Pipecat/Bolna)

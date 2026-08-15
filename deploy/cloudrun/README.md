@@ -4,7 +4,7 @@ Cloud Run, `asia-south1` (Mumbai) — beside Sarvam and Deepgram. See
 `docs/ARCHITECTURE.md` for why this is not on Vercel.
 
 ```bash
-gcloud run deploy vaak-agent \
+gcloud run deploy anaga-agent \
   --source . \
   --region asia-south1 \
   --allow-unauthenticated \
@@ -32,7 +32,7 @@ Four things that are easy to get wrong:
   as silence during a call.
 
 The browser connects to `wss://<service-url>/agent`. Point the page at it by
-setting `window.VAAK_AGENT_URL` before `live.js` loads — see the top of
+setting `window.ANAGA_AGENT_URL` before `live.js` loads — see the top of
 `web/assets/live.js`.
 
 ## Before you spend a trial minute: simulate the call
@@ -143,5 +143,5 @@ DEEPGRAM_API_KEY=… SARVAM_API_KEY=… \
   node --experimental-detect-module caller-agent/src/agent/main.js
 ```
 
-Then open the call page with `window.VAAK_AGENT_URL = "ws://localhost:8080/agent"`.
+Then open the call page with `window.ANAGA_AGENT_URL = "ws://localhost:8080/agent"`.
 No container, no Cloud Run, no phone number.

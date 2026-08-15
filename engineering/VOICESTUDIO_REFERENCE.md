@@ -4,7 +4,7 @@
 (previously OmniVoice-Studio) · reviewed at `ea2d715` · AGPL-3.0-only
 
 Same format as [`LIVEKIT_REFERENCE.md`](LIVEKIT_REFERENCE.md): an honest read of
-an open-source project, what it actually gives Vaak, and where the boundary is.
+an open-source project, what it actually gives Anaga, and where the boundary is.
 
 ---
 
@@ -32,7 +32,7 @@ So, concretely:
 | ✅ | Run an **unmodified** VoiceStudio on our own GPU host and call it over HTTP. Its notice names this exactly: deploy internally, sell the audio. |
 | ✅ | Ship Anaga calls whose audio it synthesized. The output is ours. |
 | ⚠️ | **Modify** it and expose the modified build to users over a network → we must publish our modified source under AGPL-3.0. Fine for a patched Dockerfile we're willing to publish; a decision, not an accident. |
-| ❌ | **Copy its source into this repo.** Vendoring even one adapter file risks making Vaak's server a derivative work, and the Affero clause bites precisely because we serve users over a network. This is the one that would hurt. |
+| ❌ | **Copy its source into this repo.** Vendoring even one adapter file risks making Anaga's server a derivative work, and the Affero clause bites precisely because we serve users over a network. This is the one that would hurt. |
 | 💰 | Want it embedded in the product with no copyleft? `VoiceStudio@palash.dev` sells that. |
 
 **This is not legal advice.** The distinction between "separate programs talking
@@ -62,7 +62,7 @@ engine**, and that is all we should ask of it.
 
 ## 3. Why it matters to us specifically
 
-Four things, in the order they matter for Vaak.
+Four things, in the order they matter for Modcon Builders.
 
 ### 3.1 Data residency — the one that is a requirement, not a saving
 
@@ -167,7 +167,7 @@ claim a voice we cannot serve.
 
 ## 6. Before betting on it — the honest checklist
 
-Nothing above is proven for Vaak. In order:
+Nothing above is proven for Modcon Builders. In order:
 
 1. **Stand one up.** A GPU box (CUDA) on an Indian VPS. CPU works for some
    engines but not at call latency. This is real infrastructure with real

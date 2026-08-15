@@ -83,7 +83,7 @@ if (!URL_) {
   server = createAgentServer({
     think: configured ? think : async () => ({ say: 'Are you looking to live in it, or to invest?', end: false }),
     speak: configured ? speak : async () => Buffer.alloc(160, 0xff),
-    greeting: async () => 'Thanks for calling Vaak. I am Anaga, an AI voice assistant.',
+    greeting: async () => 'Thanks for calling Modcon Builders. I am Anaga, an AI voice assistant.',
     isOptOut: (t) => /not interested|do not call|don't call/i.test(t),
   });
   await new Promise((r) => server.listen(0, r));

@@ -340,8 +340,8 @@ const realFetch = globalThis.fetch;
   });
   process.env.FIREBASE_SERVICE_ACCOUNT = JSON.stringify({
     type: 'service_account',
-    project_id: 'vaak-test',
-    client_email: 'test@vaak-test.iam.gserviceaccount.com',
+    project_id: 'anaga-test',
+    client_email: 'test@anaga-test.iam.gserviceaccount.com',
     private_key: privateKey,
   });
 }
@@ -390,7 +390,7 @@ function mkRes() {
 
 const AUTH = { authorization: `Bearer ${process.env.INTEGRATIONS_API_KEY}` };
 const CONVERSATION = [
-  { role: 'agent', text: "Hi, I'm Anaga, an AI voice assistant from Vaak. Is now a good time?" },
+  { role: 'agent', text: "Hi, I'm Anaga, an AI voice assistant from Modcon Builders. Is now a good time?" },
   { role: 'user', text: 'Yes, go ahead.' },
   { role: 'agent', text: 'Are you looking for a home to live in, or as an investment?' },
   { role: 'user', text: 'To live in. Budget is about one and a half crore, 3BHK, buying in two months.' },

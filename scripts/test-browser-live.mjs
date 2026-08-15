@@ -46,7 +46,7 @@ async function t(name, fn) {
 const server = createAgentServer({
   think: async () => ({ say: 'Are you looking to live in it, or to invest?', end: false, disposition: 'qualifying' }),
   speak: async () => Buffer.alloc(320, 0),
-  greeting: async () => 'Hi, I am Anaga, an AI voice assistant from Vaak.',
+  greeting: async () => 'Hi, I am Anaga, an AI voice assistant from Modcon Builders.',
   isOptOut: (x) => /not interested/i.test(x),
 });
 await new Promise((r) => server.listen(0, r));

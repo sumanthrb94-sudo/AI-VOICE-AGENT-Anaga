@@ -155,7 +155,7 @@ async function runSimulation({ label, echoGain, echoDelayMs = 120, prospectSays 
   };
 
   const persona = {
-    disclosure: { 'en-IN': 'Hi, I am Anaga, an AI voice assistant from Vaak. Is now a good time?' },
+    disclosure: { 'en-IN': 'Hi, I am Anaga, an AI voice assistant from Modcon Builders. Is now a good time?' },
   };
 
   const result = await runCall({

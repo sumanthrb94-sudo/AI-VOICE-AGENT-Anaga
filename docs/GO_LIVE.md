@@ -61,7 +61,7 @@ An S3-compatible bucket in
 **`ap-south-1` (Mumbai)** or **`ap-south-2` (Hyderabad)**:
 
 ```
-RECORDING_BUCKET=vaak-recordings
+RECORDING_BUCKET=anaga-recordings
 RECORDING_REGION=ap-south-1
 RECORDING_ACCESS_KEY_ID=…
 RECORDING_SECRET_ACCESS_KEY=…

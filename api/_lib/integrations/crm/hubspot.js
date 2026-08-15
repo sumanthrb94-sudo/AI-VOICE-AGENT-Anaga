@@ -7,10 +7,20 @@
 //   crm.objects.contacts.read, crm.objects.contacts.write, crm.objects.notes.write
 //
 // Custom properties (create them once in HubSpot, or rename via env):
-//   vaak_disposition (text) · vaak_intent_score (number) · vaak_last_call (datetime)
-//   plus a DND checkbox named by CRM_DND_PROPERTY (default: vaak_dnd)
+//   anaga_disposition (text) · anaga_intent_score (number) · anaga_last_call (datetime)
+//   plus a DND checkbox named by CRM_DND_PROPERTY (default: anaga_dnd)
 // Unknown properties make HubSpot reject the whole write, so a property write
 // that 400s is retried once with only the standard fields.
+//
+// ⚠️ BREAKING, at the rename: these four defaults were vaak_disposition,
+// vaak_intent_score, vaak_last_call and vaak_dnd. They name properties that
+// live in SOMEBODY ELSE'S HubSpot, so this repo cannot rename them there —
+// a portal that already has the vaak_* properties must either rename them in
+// HubSpot or set CRM_DND_PROPERTY=vaak_dnd and keep the old names. Doing
+// neither does not lose data loudly: the write 400s, the retry drops every
+// custom property, and the call is recorded with no disposition and no score.
+
+
 //
 // ⚠️ Verify endpoints against current HubSpot docs (developers.hubspot.com).
 
@@ -33,7 +43,7 @@ function headers() {
 }
 
 function dndProperty() {
-  return process.env.CRM_DND_PROPERTY || 'vaak_dnd';
+  return process.env.CRM_DND_PROPERTY || 'anaga_dnd';
 }
 
 async function findContactByPhone(phone) {
@@ -91,7 +101,7 @@ export async function upsertLead(lead) {
     ...(lead.email ? { email: lead.email } : {}),
     ...(lead.city ? { city: lead.city } : {}),
     hs_lead_status: 'NEW',
-    vaak_disposition: 'queued',
+    anaga_disposition: 'queued',
   };
 
   const res = await writeContact(found.id, properties, ['phone', 'firstname', 'lastname', 'email', 'city']);
@@ -135,9 +145,9 @@ export async function logCall(lead, review, call, noteBody) {
 
   // Best-effort property roll-up; the note is the record of truth.
   await writeContact(found.id, {
-    vaak_disposition: review?.disposition || 'undecided',
-    vaak_intent_score: Number.isFinite(review?.score) ? review.score : 0,
-    vaak_last_call: new Date().toISOString(),
+    anaga_disposition: review?.disposition || 'undecided',
+    anaga_intent_score: Number.isFinite(review?.score) ? review.score : 0,
+    anaga_last_call: new Date().toISOString(),
     hs_lead_status: review?.disposition === 'booked' ? 'CONNECTED' : 'ATTEMPTED_TO_CONTACT',
   }, []);
 
@@ -156,10 +166,10 @@ export async function markOptOut(lead, reason) {
   const res = await writeContact(found.id, {
     [dndProperty()]: true,
     hs_lead_status: 'UNQUALIFIED',
-    vaak_disposition: 'opt-out',
+    anaga_disposition: 'opt-out',
   }, []);
   if (!res.ok) return { ok: false, error: res.error };
 
-  await createNote(found.id, `🚫 Opt-out recorded by Anaga (${reason || 'requested by prospect'}). Number added to the Vaak do-not-call list. Do not dial again.`);
+  await createNote(found.id, `🚫 Opt-out recorded by Anaga (${reason || 'requested by prospect'}). Number added to the Modcon Builders do-not-call list. Do not dial again.`);
   return { ok: true, error: null };
 }

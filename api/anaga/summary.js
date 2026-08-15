@@ -69,7 +69,7 @@ export default async function handler(req, res) {
     out = await generate({ system, user, json: true });
   } catch (err) {
     console.error(JSON.stringify({
-      at: new Date().toISOString(), svc: 'vaak-api', event: 'llm_call_failed',
+      at: new Date().toISOString(), svc: 'anaga-api', event: 'llm_call_failed',
       endpoint: 'summary', model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
       reason: String((err && err.message) || 'unknown'),
     }));

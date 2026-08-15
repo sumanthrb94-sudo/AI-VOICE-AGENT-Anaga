@@ -1,5 +1,5 @@
 /* ===================================================================
-   Vaak AI — Mission Control · app logic
+   Anaga — Mission Control · app logic
    Renders the agent fleet, the metrics, and drives the Playbook overlay.
    =================================================================== */
 
@@ -161,14 +161,14 @@ if (location.hash === "#playbook") openPlaybook();
    Hindi needs a second version. */
 const ANAGA_LINES_BY_GENDER = {
   female: {
-    "en-IN": "Hi, I'm Anaga, an AI voice assistant from Vaak. Is now a good time to talk for a couple of minutes?",
+    "en-IN": "Hi, I'm Anaga, an AI voice assistant from Modcon Builders. Is now a good time to talk for a couple of minutes?",
     "hi-IN": "नमस्ते, मैं अनघा हूँ, वाक की एक ए आई वॉइस असिस्टेंट। क्या मैं आपसे दो मिनट बात कर सकती हूँ?",
-    "te-IN": "నమస్కారం, నేను అనగా, వాక్ నుండి ఒక ఏఐ వాయిస్ అసిస్టెంట్. మీకు కొన్ని నిమిషాలు ఉంటే మాట్లాడొచ్చా?"
+    "te-IN": "నమస్కారం, నేను అనగా, మోడ్‌కాన్ బిల్డర్స్ నుండి ఒక ఏఐ వాయిస్ అసిస్టెంట్. మీకు కొన్ని నిమిషాలు ఉంటే మాట్లాడొచ్చా?"
   },
   male: {
-    "en-IN": "Hi, I'm Anaga, an AI voice assistant from Vaak. Is now a good time to talk for a couple of minutes?",
+    "en-IN": "Hi, I'm Anaga, an AI voice assistant from Modcon Builders. Is now a good time to talk for a couple of minutes?",
     "hi-IN": "नमस्ते, मैं अनघा हूँ, वाक का एक ए आई वॉइस असिस्टेंट। क्या मैं आपसे दो मिनट बात कर सकता हूँ?",
-    "te-IN": "నమస్కారం, నేను అనగా, వాక్ నుండి ఒక ఏఐ వాయిస్ అసిస్టెంట్. మీకు కొన్ని నిమిషాలు ఉంటే మాట్లాడొచ్చా?"
+    "te-IN": "నమస్కారం, నేను అనగా, మోడ్‌కాన్ బిల్డర్స్ నుండి ఒక ఏఐ వాయిస్ అసిస్టెంట్. మీకు కొన్ని నిమిషాలు ఉంటే మాట్లాడొచ్చా?"
   }
 };
 function anagaLine(lang, gender) {
@@ -216,25 +216,25 @@ const VOICES = [
     hints: FEMALE_HINTS }
 ];
 let selectedVoiceId = (function () {
-  try { return localStorage.getItem("vaak_voice") || "aria"; } catch (e) { return "aria"; }
+  try { return localStorage.getItem("anaga_voice") || "aria"; } catch (e) { return "aria"; }
 })();
 function currentVoice() { return VOICES.find(v => v.id === selectedVoiceId) || VOICES[0]; }
 function setSelectedVoice(id) {
   selectedVoiceId = id;
-  try { localStorage.setItem("vaak_voice", id); } catch (e) {}
+  try { localStorage.setItem("anaga_voice", id); } catch (e) {}
 }
 
 /* ---- voice modulation (set by the Voice Lab sliders) ----
    pitch/pace are ±% offsets; loud is % (100 = normal). Applied to both the
    browser voice and the Sarvam request. */
 let modulation = (function () {
-  try { return Object.assign({ pitch: 0, pace: 0, loud: 100 }, JSON.parse(localStorage.getItem("vaak_mod") || "{}")); }
+  try { return Object.assign({ pitch: 0, pace: 0, loud: 100 }, JSON.parse(localStorage.getItem("anaga_mod") || "{}")); }
   catch (e) { return { pitch: 0, pace: 0, loud: 100 }; }
 })();
 function getModulation() { return modulation; }
 function setModulation(m) {
   modulation = Object.assign({}, modulation, m);
-  try { localStorage.setItem("vaak_mod", JSON.stringify(modulation)); } catch (e) {}
+  try { localStorage.setItem("anaga_mod", JSON.stringify(modulation)); } catch (e) {}
 }
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
@@ -519,9 +519,9 @@ function browserSpeak(text, lang, preset, opts) {
 
    So it is off by default. It is still reachable for anyone who genuinely wants
    an offline demo, and turning it on is a deliberate act with a name:
-     localStorage.setItem("vaak_allow_device_voice", "1") */
+     localStorage.setItem("anaga_allow_device_voice", "1") */
 function deviceVoiceAllowed() {
-  try { return localStorage.getItem("vaak_allow_device_voice") === "1"; } catch (e) { return false; }
+  try { return localStorage.getItem("anaga_allow_device_voice") === "1"; } catch (e) { return false; }
 }
 
 function speakText(text, lang, opts = {}) {
@@ -874,7 +874,7 @@ if (demoEl) {
   const BARGE_IN = true;
   /* Half-duplex: close the mic while Anaga speaks. Default ON because the demo
      is used on phone speakers, where an open mic guarantees self-echo. */
-  const HALF_DUPLEX = localStorage.getItem("vaak_full_duplex") !== "1";
+  const HALF_DUPLEX = localStorage.getItem("anaga_full_duplex") !== "1";
   const MIC_REOPEN_DELAY_MS = 350;   // let her audio tail drain before listening
   let micReopenTimer = null;
   const ENDPOINT_MS = 900;
@@ -961,7 +961,7 @@ if (demoEl) {
   /* ---- the flow (mirrors the versioned flow JSON) ---- */
   const FLOW = {
     greet: {
-      say: () => "Namaste! This is Anaga, an A I assistant from Vaak, calling about the Skyline Villaments project in Hyderabad. Just so you know, I'm an AI voice agent. Do you have a quick minute to talk?",
+      say: () => "Namaste! This is Anaga, an A I assistant from Modcon Builders, calling about the Skyline Villaments project in Hyderabad. Just so you know, I'm an AI voice agent. Do you have a quick minute to talk?",
       next: t => optout(t) ? "optout" : (negative(t) ? "busy" : "purpose")
     },
     purpose: {
@@ -1388,7 +1388,7 @@ if (demoEl) {
            Throwing a bare status lost that and every failure looked the same. */
         return res.json().catch(() => ({})).then(body => {
           const e = new Error("turn_unavailable_" + res.status);
-          e.vaakReason = body && body.reason;
+          e.anagaReason = body && body.reason;
           throw e;
         });
       }
@@ -1450,7 +1450,7 @@ if (demoEl) {
         /* detect-once: remember offline so we don't spam failed fetches every turn */
         if (brainMode !== "offline") {
           brainMode = "offline";
-          setBrain("offline", null, err && err.vaakReason);
+          setBrain("offline", null, err && err.anagaReason);
         }
         nextOfflineTurn();
       });

@@ -1,4 +1,4 @@
-# Vaak AI — Financial Model Notes (assumptions to validate)
+# Anaga — Financial Model Notes (assumptions to validate)
 
 These are the assumptions behind the plan, written so an investor can interrogate them and a
 founder can replace them with real numbers as design partners report data. Nothing here is a promise.
@@ -22,7 +22,7 @@ founder can replace them with real numbers as design partners report data. Nothi
 ## Value to customer (why outcome pricing works)
 - A booked, qualified site visit for a ₹2–4 Cr villament is worth lakhs in expected value.
 - A human telecaller: ₹25–40k/month all-in, ~50–80 quality calls/day, no nights/weekends, attrition.
-- One Vaak agent: thousands of calls/day, 24/7, consistent, in-language. The arbitrage is large
+- One Anaga agent: thousands of calls/day, 24/7, consistent, in-language. The arbitrage is large
   enough that outcome pricing (per booked meeting) leaves strong margin for both sides.
 
 ## Revenue model levers

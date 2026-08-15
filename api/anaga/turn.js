@@ -242,7 +242,7 @@ export default async function handler(req, res) {
     // unconfigured — and the only symptom was Anaga sounding like a script.
     // The message never contains the key (llm.js strips it).
     console.error(JSON.stringify({
-      at: new Date().toISOString(), svc: 'vaak-api', event: 'llm_call_failed',
+      at: new Date().toISOString(), svc: 'anaga-api', event: 'llm_call_failed',
       endpoint: 'turn', model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
       reason: String((err && err.message) || 'unknown'),
     }));

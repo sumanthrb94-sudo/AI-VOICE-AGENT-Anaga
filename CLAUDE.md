@@ -234,7 +234,7 @@ Rules:
 
 ---
 
-## Vaak repo context (authoritative — overrides generic guidance above)
+## Anaga repo context (authoritative — overrides generic guidance above)
 
 This is an **outbound voice-AI system that places real phone calls under Indian
 telecom regulation**. Before changing anything under `api/`, `caller-agent/`, or

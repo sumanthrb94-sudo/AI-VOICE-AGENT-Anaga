@@ -1,6 +1,6 @@
-# Vaak AI — Home Screen (Mission Control)
+# Anaga — Home Screen (Mission Control)
 
-A self-contained, zero-build home screen for the Vaak AI project.
+A self-contained, zero-build home screen for the Anaga project.
 
 ## What's here
 

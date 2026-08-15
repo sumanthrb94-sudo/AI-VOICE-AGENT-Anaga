@@ -30,7 +30,7 @@ export const MAX_SECONDS = Number(process.env.CALL_MAX_SECONDS || 300);
 export const MAX_SILENT_TURNS = Number(process.env.CALL_MAX_SILENT_TURNS || 2);
 
 export const DEFAULT_DISCLOSURE =
-  "Hi, I'm Anaga, an AI voice assistant from Vaak. Is now a good time to talk for a couple of minutes?";
+  "Hi, I'm Anaga, an AI voice assistant from Modcon Builders. Is now a good time to talk for a couple of minutes?";
 
 /**
  * The lines the model never writes. They are constants because they are the

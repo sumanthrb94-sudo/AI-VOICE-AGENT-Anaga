@@ -1,4 +1,4 @@
-# Vaak — self-hosted voice engine for Anaga
+# Anaga — self-hosted voice engine for Anaga
 #
 # Runs VoiceStudio (github.com/debpalash/VoiceStudio, AGPL-3.0) as a private
 # service that api/_lib/tts.js and caller-agent/src/providers/speech.js call
@@ -37,7 +37,7 @@ services:
   # ── GPU (NVIDIA) — what a real call needs ────────────────────────────────
   voicestudio:
     image: ghcr.io/debpalash/omnivoice-studio:latest
-    container_name: vaak-voicestudio
+    container_name: anaga-voicestudio
     profiles: ["gpu"]
     ports:
       - "127.0.0.1:3900:3900"       # see SECURITY above before touching this
@@ -74,7 +74,7 @@ services:
   # the wiring and to audition voices, then move to the gpu profile.
   voicestudio-cpu:
     image: ghcr.io/debpalash/omnivoice-studio:latest
-    container_name: vaak-voicestudio-cpu
+    container_name: anaga-voicestudio-cpu
     profiles: ["cpu"]
     ports:
       - "127.0.0.1:3900:3900"

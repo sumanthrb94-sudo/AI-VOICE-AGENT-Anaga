@@ -1,4 +1,4 @@
-# Vaak AI
+# Anaga
 
 **Voice-AI sales infrastructure for Bharat's high-ticket, multilingual, regulated industries.**
 
@@ -92,7 +92,7 @@ Grabbing Investors → Marketing & GTM.** No build step; see `web/README.md`.
 
 ## The one-line thesis
 India's most valuable conversations happen by voice, in many languages — and no platform built
-for Bharat's languages, telephony, and regulation exists to have them at scale. Vaak is that layer.
+for Bharat's languages, telephony, and regulation exists to have them at scale. Anaga is that layer.
 We start with real estate (the founder's home market), build a compliance + conversation moat
 foreign per-minute platforms can't cross, and compound it with an eval flywheel where every call
 makes the next one better.

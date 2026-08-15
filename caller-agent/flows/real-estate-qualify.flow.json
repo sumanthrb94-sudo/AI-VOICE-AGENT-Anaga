@@ -1,7 +1,7 @@
 {
   "$schema": "../../shared/flow.schema.json",
   "id": "real-estate-qualify",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "persona": "anaga",
   "vertical": "real-estate",
   "project": {
@@ -150,7 +150,7 @@
   "steps": [
     {
       "id": "greet",
-      "say": "Namaste! This is Anaga, an AI assistant from Vaak, calling about the Skyline Villaments project in Hyderabad. Just so you know, I'm an AI voice agent. Do you have a quick minute to talk?",
+      "say": "Namaste! This is Anaga, an AI assistant from Modcon Builders, calling about the Skyline Villaments project in Hyderabad. Just so you know, I'm an AI voice agent. Do you have a quick minute to talk?",
       "disclosure": true,
       "branch": {
         "optout": "optout",
@@ -233,9 +233,9 @@
         "facebook_lead_ad"
       ],
       "greet": {
-        "en-IN": "Hi, I'm Anaga, an AI voice assistant from Vaak. You asked about {project} in {city} on Instagram — is now a good time to talk for two minutes?",
-        "hi-IN": "नमस्ते, मैं अनगा हूँ, वाक् की AI वॉइस असिस्टेंट। आपने इंस्टाग्राम पर {city} के {project} के बारे में एन्क्वायरी की थी ना। दो मिनट का टाइम है क्या?",
-        "te-IN": "హలో, నేను అనగా, వాక్ నుంచి AI వాయిస్ అసిస్టెంట్‌ని. మీరు ఇన్‌స్టాగ్రామ్‌లో {city}లోని {project} గురించి ఎంక్వైరీ చేశారు కదా. రెండు నిమిషాలు టైమ్ ఉందా?"
+        "en-IN": "Hi, I'm Anaga, an AI voice assistant from Modcon Builders. You asked about {project} in {city} on Instagram — is now a good time to talk for two minutes?",
+        "hi-IN": "नमस्ते, मैं अनगा हूँ, मॉडकॉन बिल्डर्स की AI वॉइस असिस्टेंट। आपने इंस्टाग्राम पर {city} के {project} के बारे में एन्क्वायरी की थी ना। दो मिनट का टाइम है क्या?",
+        "te-IN": "హలో, నేను అనగా, మోడ్‌కాన్ బిల్డర్స్ నుంచి AI వాయిస్ అసిస్టెంట్‌ని. మీరు ఇన్‌స్టాగ్రామ్‌లో {city}లోని {project} గురించి ఎంక్వైరీ చేశారు కదా. రెండు నిమిషాలు టైమ్ ఉందా?"
       },
       "rules": [
         "They left their number on a Meta or Instagram ad for this project. SAY SO in the opening — that enquiry is the reason this call is permitted at all, and a stranger who cannot place you hangs up.",
@@ -252,9 +252,9 @@
         "whatsapp"
       ],
       "greet": {
-        "en-IN": "Thanks for calling Vaak — I'm Anaga, an AI voice assistant. Are you calling about {project}?",
-        "hi-IN": "वाक् में कॉल करने के लिए थैंक यू। मैं अनगा हूँ, AI वॉइस असिस्टेंट। क्या आप {project} के बारे में कॉल कर रहे हैं?",
-        "te-IN": "వాక్‌కి కాల్ చేసినందుకు థాంక్యూ. నేను అనగా, AI వాయిస్ అసిస్టెంట్‌ని. మీరు {project} గురించి కాల్ చేస్తున్నారా?"
+        "en-IN": "Thanks for calling Modcon Builders — I'm Anaga, an AI voice assistant. Are you calling about {project}?",
+        "hi-IN": "मॉडकॉन बिल्डर्स को कॉल करने के लिए थैंक यू। मैं अनगा हूँ, AI वॉइस असिस्टेंट। क्या आप {project} के बारे में कॉल कर रहे हैं?",
+        "te-IN": "మోడ్‌కాన్ బిల్డర్స్‌కి కాల్ చేసినందుకు థాంక్యూ. నేను అనగా, AI వాయిస్ అసిస్టెంట్‌ని. మీరు {project} గురించి కాల్ చేస్తున్నారా?"
       },
       "rules": [
         "THEY rang YOU. Do not ask permission to talk and do not apologise for calling — they started this, and asking 'is now a good time?' of someone who just dialled you sounds like a machine reading a script.",

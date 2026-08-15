@@ -57,7 +57,7 @@ const CALLS = [
     qualification: { purpose: 'end-use', budget: 'in-range', config: 'match', timeline: 'immediate' },
     summary: 'Qualified end-user, booked Saturday.', nextAction: 'Assign a closer.',
     comment: 'Serious buyer.', reviewedBy: 'llm', turns: 6,
-    recordingRef: 's3://vaak-recordings/calls/2026-08-09/call_hot.wav',
+    recordingRef: 's3://anaga-recordings/calls/2026-08-09/call_hot.wav',
     lead: { phoneMasked: '+9198*****78', name: 'Test Lead', source: 'meta', sourceId: 'l1', crmRecordId: 'c1' },
   },
   {
@@ -96,7 +96,7 @@ const server = http.createServer((req, res) => {
       events: [],
       calls: world.durable ? CALLS : [],
       store: world.durable
-        ? { durable: true, backend: 'firestore', projectId: 'vaak', reachable: true, held: 2 }
+        ? { durable: true, backend: 'firestore', projectId: 'anaga', reachable: true, held: 2 }
         : { durable: false, backend: 'memory', reachable: false, held: 0, capacity: 500, instanceStartedAt: new Date().toISOString(), storeError: null },
     });
   }
@@ -111,7 +111,7 @@ const server = http.createServer((req, res) => {
       call: {
         ...base,
         transcript: [
-          { role: 'agent', text: "Hi, I'm Anaga, an AI voice assistant from Vaak." },
+          { role: 'agent', text: "Hi, I'm Anaga, an AI voice assistant from Modcon Builders." },
           { role: 'user', text: HOSTILE },
           { role: 'agent', text: 'Could I book you a site visit this weekend?' },
         ],
@@ -144,7 +144,7 @@ async function openConsole() {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   page.on('pageerror', (e) => pageErrors.push(String(e)));
-  await page.addInitScript(([k, key]) => { sessionStorage.setItem(k, key); }, ['vaak_operator_key', KEY]);
+  await page.addInitScript(([k, key]) => { sessionStorage.setItem(k, key); }, ['anaga_operator_key', KEY]);
   await page.goto(`${BASE}/console.html`);
   try {
     await page.waitForSelector('#calls-body table, #calls-body .empty', { timeout: 10000 });
@@ -214,7 +214,7 @@ await t('the score explanation travels with the transcript', async () => {
 await t('playing a recording mints a signed URL, and never renders it', async () => {
   await page.locator('#calls-body tbody tr').first().getByRole('button', { name: 'Recording' }).click();
   await page.waitForSelector('#calls-body audio', { timeout: 5000 });
-  assert.deepEqual(world.recordingRequests, ['s3://vaak-recordings/calls/2026-08-09/call_hot.wav']);
+  assert.deepEqual(world.recordingRequests, ['s3://anaga-recordings/calls/2026-08-09/call_hot.wav']);
   const body = await page.locator('#calls-body').innerText();
   assert.ok(!body.includes('SECRETSIGNATURE'),
     'the signed URL is a bearer credential for that audio — it must not be page text');

@@ -125,7 +125,7 @@ document.addEventListener("DOMContentLoaded", function () {
   var body = document.body, lang = "en-IN", call = null, draft = null;
 
   // Remembered, because typing a WebSocket URL on a phone once is enough.
-  try { $("agent").value = localStorage.getItem("vaak_agent_url") || ""; } catch (e) {}
+  try { $("agent").value = localStorage.getItem("anaga_agent_url") || ""; } catch (e) {}
   $("hint").textContent = $("agent").value
     ? "" : "Leave blank to use this page's own host — right when the agent service serves it.";
 
@@ -152,7 +152,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   $("start").addEventListener("click", function () {
     var url = $("agent").value.trim();
-    if (url) { try { localStorage.setItem("vaak_agent_url", url); } catch (e) {} window.VAAK_AGENT_URL = url; }
+    if (url) { try { localStorage.setItem("anaga_agent_url", url); } catch (e) {} window.ANAGA_AGENT_URL = url; }
     body.classList.add("in-call");
     $("log").textContent = "";
 

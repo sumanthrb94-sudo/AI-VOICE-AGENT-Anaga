@@ -6,7 +6,7 @@
 //
 // Every event has the same envelope:
 //   { event, at, lead, review?, call?, reason? }
-// signed with CRM_WEBHOOK_SECRET as X-Vaak-Signature-256: sha256=<hex>.
+// signed with CRM_WEBHOOK_SECRET as X-Anaga-Signature-256: sha256=<hex>.
 
 import { fetchJson, hmacSha256Hex } from '../http.js';
 
@@ -23,7 +23,7 @@ async function send(event, payload) {
   const body = JSON.stringify({ event, at: new Date().toISOString(), ...payload });
   const headers = { 'Content-Type': 'application/json' };
   const secret = process.env.CRM_WEBHOOK_SECRET;
-  if (secret) headers['X-Vaak-Signature-256'] = `sha256=${hmacSha256Hex(secret, body)}`;
+  if (secret) headers['X-Anaga-Signature-256'] = `sha256=${hmacSha256Hex(secret, body)}`;
 
   const res = await fetchJson(url, { method: 'POST', headers, body, timeoutMs: 8000 });
   return { ok: res.ok, error: res.error, recordId: res.data?.recordId || res.data?.id || null };

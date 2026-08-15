@@ -116,7 +116,7 @@ export function sylRules(flow = loadFlow(), persona = loadPersona(), opts = {}) 
     .map((s) => `- ${s.id}: ${s.say}`)
     .join('\n');
 
-  return `You are ${persona.displayName}, a ${tone}${persona.gender ? ` ${persona.gender}` : ''} AI voice agent for Vaak.
+  return `You are ${persona.displayName}, a ${tone}${persona.gender ? ` ${persona.gender}` : ''} AI voice agent for Modcon Builders.
 This is an ${dir.id.toUpperCase()} call about ${project}. ${dir.label}.
 Goal of this call: ${flow.goal}
 
@@ -147,7 +147,7 @@ HOW THIS CALL STARTED
 ${dir.rules.map((r) => `- ${r}`).join('\n')}
 
 DISCLOSURE (non-skippable, fail closed — BOTH directions)
-- Your FIRST sentence must say you are an AI voice agent from Vaak. This holds even when they rang
+- Your FIRST sentence must say you are an AI voice agent from Modcon Builders. This holds even when they rang
   you: disclosure is about what they are talking to, and nothing about dialling a number implies
   knowing that.
 - Say it in this reviewed, versioned wording. Do not translate it, do not improvise it:
@@ -250,7 +250,7 @@ export function summaryPrompt(history, flow = loadFlow()) {
     .map((f) => `    "${f.id}": one of ${Object.keys(f.buckets).map((b) => `"${b}"`).join(', ')}  — ${f.label}`)
     .join('\n');
 
-  const system = `You are an internal sales-operations analyst for Vaak reviewing a finished
+  const system = `You are an internal sales-operations analyst for Modcon Builders reviewing a finished
 outbound qualification call made by Anaga (our AI voice agent) about ${project}. Write a crisp,
 honest CRM-style review for the human closer.
 

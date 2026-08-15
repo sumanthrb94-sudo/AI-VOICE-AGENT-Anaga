@@ -43,7 +43,7 @@ const ENV = ['RECORDING_BUCKET', 'RECORDING_REGION', 'RECORDING_ENDPOINT', 'RECO
 function clearEnv() { for (const k of ENV) delete process.env[k]; }
 function mumbai() {
   clearEnv();
-  process.env.RECORDING_BUCKET = 'vaak-recordings';
+  process.env.RECORDING_BUCKET = 'anaga-recordings';
   process.env.RECORDING_REGION = 'ap-south-1';
   process.env.RECORDING_ACCESS_KEY_ID = 'AKIAIOSFODNN7EXAMPLE';
   process.env.RECORDING_SECRET_ACCESS_KEY = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
@@ -190,10 +190,10 @@ section('§4 storing and retrieving');
 
 await t('a successful put returns an s3:// REFERENCE, never a URL', async () => {
   mumbai(); reset();
-  routes = [{ match: /vaak-recordings/, reply: () => ok(200) }];
+  routes = [{ match: /anaga-recordings/, reply: () => ok(200) }];
   const out = await rec.putRecording({ callId: 'c9', audio: Buffer.from('RIFFfake'), at: new Date('2026-08-05T10:00:00Z') });
   assert.equal(out.ok, true);
-  assert.equal(out.ref, 's3://vaak-recordings/calls/2026-08-05/c9.wav');
+  assert.equal(out.ref, 's3://anaga-recordings/calls/2026-08-05/c9.wav');
   assert.doesNotMatch(out.ref, /^https?:/, 'a reference must not be fetchable on its own');
   assert.equal(out.expiresAt.slice(0, 10), '2026-11-03', '90 days on');
   clearEnv();
@@ -201,7 +201,7 @@ await t('a successful put returns an s3:// REFERENCE, never a URL', async () => 
 
 await t('a storage failure is returned, not thrown', async () => {
   mumbai(); reset();
-  routes = [{ match: /vaak-recordings/, reply: () => ok(500) }];
+  routes = [{ match: /anaga-recordings/, reply: () => ok(500) }];
   const out = await rec.putRecording({ callId: 'c9', audio: Buffer.from('x') });
   assert.equal(out.ok, false);
   assert.equal(out.error, 'recording_put_500');
@@ -214,7 +214,7 @@ await t('playbackUrl refuses a reference for another bucket', () => {
   assert.equal(rec.refToKey('s3://someone-elses-bucket/secrets.wav'), null);
   assert.equal(rec.playbackUrl('s3://someone-elses-bucket/secrets.wav'), null);
   // Otherwise this endpoint is a presigning oracle for any object anyone names.
-  assert.equal(rec.refToKey('https://vaak-recordings.s3.amazonaws.com/x.wav'), null);
+  assert.equal(rec.refToKey('https://anaga-recordings.s3.amazonaws.com/x.wav'), null);
   assert.equal(rec.refToKey('calls/x.wav'), null);
   clearEnv();
 });
@@ -226,18 +226,18 @@ await t('REGRESSION: `..` inside the key cannot climb out of the bucket', () => 
   // it. Against a path-style endpoint (MinIO, Wasabi, most Indian S3-compatible
   // providers serve https://host/bucket/key) those segments resolve into a
   // different bucket, and the URL normalises before the request is even sent:
-  // /vaak-recordings/../../etc/passwd -> /etc/passwd.
+  // /anaga-recordings/../../etc/passwd -> /etc/passwd.
   for (const evil of [
-    's3://vaak-recordings/../../etc/passwd',
-    's3://vaak-recordings/calls/../../../elsewhere',
-    's3://vaak-recordings/calls/2026-08-05/../../../x.wav',
-    's3://vaak-recordings/%2e%2e/secret',
-    's3://vaak-recordings/..%2f..%2fsecret',
-    's3://vaak-recordings//etc/passwd',
-    's3://vaak-recordings/a b.wav',
+    's3://anaga-recordings/../../etc/passwd',
+    's3://anaga-recordings/calls/../../../elsewhere',
+    's3://anaga-recordings/calls/2026-08-05/../../../x.wav',
+    's3://anaga-recordings/%2e%2e/secret',
+    's3://anaga-recordings/..%2f..%2fsecret',
+    's3://anaga-recordings//etc/passwd',
+    's3://anaga-recordings/a b.wav',
     // NUL truncation, built explicitly: a literal control byte in the source
     // makes this file binary to git and grep, which is how one got committed.
-    's3://vaak-recordings/calls/2026-08-05/x.wav' + String.fromCharCode(0) + '.txt',
+    's3://anaga-recordings/calls/2026-08-05/x.wav' + String.fromCharCode(0) + '.txt',
   ]) {
     assert.equal(rec.refToKey(evil), null, `must reject: ${JSON.stringify(evil)}`);
     assert.equal(rec.playbackUrl(evil), null, `must not presign: ${JSON.stringify(evil)}`);
@@ -250,7 +250,7 @@ await t('...and the shape it DOES accept is exactly what recordingKey produces',
   // An allowlist is only safe if it still admits the real thing — a rule that
   // rejects everything would pass the test above and break every playback.
   const key = rec.recordingKey('call_abc-123', new Date('2026-08-05T10:00:00Z'));
-  const ref = `s3://vaak-recordings/${key}`;
+  const ref = `s3://anaga-recordings/${key}`;
   assert.equal(rec.refToKey(ref), key);
   assert.match(rec.playbackUrl(ref, 60), /X-Amz-Signature=[0-9a-f]{64}/);
   clearEnv();
@@ -258,7 +258,7 @@ await t('...and the shape it DOES accept is exactly what recordingKey produces',
 
 await t('playbackUrl signs a valid reference', () => {
   mumbai();
-  const url = rec.playbackUrl('s3://vaak-recordings/calls/2026-08-05/c9.wav', 120);
+  const url = rec.playbackUrl('s3://anaga-recordings/calls/2026-08-05/c9.wav', 120);
   assert.match(url, /X-Amz-Signature=[0-9a-f]{64}/);
   assert.match(url, /X-Amz-Expires=120/);
   clearEnv();
@@ -266,8 +266,8 @@ await t('playbackUrl signs a valid reference', () => {
 
 await t('delete is idempotent — a 404 counts as deleted', async () => {
   mumbai(); reset();
-  routes = [{ match: /vaak-recordings/, reply: () => ok(404) }];
-  const out = await rec.deleteRecording('s3://vaak-recordings/calls/2026-08-05/c9.wav');
+  routes = [{ match: /anaga-recordings/, reply: () => ok(404) }];
+  const out = await rec.deleteRecording('s3://anaga-recordings/calls/2026-08-05/c9.wav');
   assert.equal(out.ok, true, 'an erasure request for an already-gone object has succeeded');
   clearEnv();
 });

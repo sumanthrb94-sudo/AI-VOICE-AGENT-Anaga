@@ -1,5 +1,5 @@
 {
-  "name": "@vaak/caller-agent",
+  "name": "@modcon/caller-agent",
   "version": "1.0.0",
   "private": true,
   "description": "WP-2/WP-3 — dial queue consumer + live call pipeline. Consumes signed dial jobs, runs the Anaga turn loop over a provider-abstracted telephony adapter, reports outcomes back.",

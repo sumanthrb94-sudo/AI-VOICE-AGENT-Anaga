@@ -45,9 +45,9 @@ async function get(path) {
 // audition
 // ---------------------------------------------------------------------------
 const SAMPLES = {
-  en: "Namaste! This is Anaga, an A I assistant from Vaak. Do you have a quick minute to talk?",
+  en: "Namaste! This is Anaga, an A I assistant from Modcon Builders. Do you have a quick minute to talk?",
   hi: 'नमस्ते, मैं अनघा हूँ, वाक की एक ए आई वॉइस असिस्टेंट। क्या मैं आपसे दो मिनट बात कर सकती हूँ?',
-  te: 'నమస్కారం, నేను అనగా, వాక్ నుండి ఒక ఏఐ వాయిస్ అసిస్టెంట్. మీకు కొన్ని నిమిషాలు ఉంటే మాట్లాడొచ్చా?',
+  te: 'నమస్కారం, నేను అనగా, మోడ్‌కాన్ బిల్డర్స్ నుండి ఒక ఏఐ వాయిస్ అసిస్టెంట్. మీకు కొన్ని నిమిషాలు ఉంటే మాట్లాడొచ్చా?',
 };
 
 if (sayId) {

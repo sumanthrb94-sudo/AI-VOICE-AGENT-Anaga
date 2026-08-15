@@ -261,7 +261,7 @@ await t('a finished call emits numeric-only provider usage', async () => {
 
 await t('OUTBOUND SPEAKS FIRST, from approved wording', async () => {
   const { bridge, audio, of } = build();
-  await bridge.greet('హలో, నేను అనగా, వాక్ నుంచి AI వాయిస్ అసిస్టెంట్‌ని.');
+  await bridge.greet('హలో, నేను అనగా, మోడ్‌కాన్ బిల్డర్స్ నుంచి AI వాయిస్ అసిస్టెంట్‌ని.');
   await settle();
   assert.match(of('said')[0].text, /అనగా/);
   assert.ok(audio.length);
@@ -464,7 +464,7 @@ await t('THE PHONE LEG RUNS THE SAME CONVERSATION', async () => {
   attachTwilio(fakeSock, {
     think: async () => ({ say: 'Are you looking to live in it, or to invest?', end: false }),
     speak: async (t2, l, fmt) => { askedFormat = fmt; return Buffer.from([0xff, 0x7f]); },
-    greeting: async () => 'Thanks for calling Vaak. I am Anaga, an AI voice assistant.',
+    greeting: async () => 'Thanks for calling Modcon Builders. I am Anaga, an AI voice assistant.',
   });
 
   handlers.message(JSON.stringify({ event: 'start', start: { streamSid: 'MZ9' } }), 'text');

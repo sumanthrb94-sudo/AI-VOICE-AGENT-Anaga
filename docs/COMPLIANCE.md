@@ -1,4 +1,4 @@
-# Vaak AI — Compliance (India)
+# Anaga — Compliance (India)
 
 Compliance is a **product feature and a moat**, not paperwork. Every commercial outbound call in
 India is governed by overlapping frameworks. The compliance agent (WP-5) enforces these in code.

@@ -148,7 +148,7 @@ async function viaFree(text, target, source) {
       // failure on a different host, which is how this reads as "upstream_error"
       // when it is really "you are calling too often from a datacentre IP".
       res = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; VaakVoice/1.0)' },
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AnagaVoice/1.0)' },
         redirect: 'manual',
         signal: ctrl.signal,
       });

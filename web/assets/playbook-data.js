@@ -1,5 +1,5 @@
 /* ===================================================================
-   THE VAAK PLAYBOOK — data
+   THE ANAGA PLAYBOOK — data
    The complete operating manual: scratch → production → investors →
    marketing. Sourced from BUSINESS_PLAN, MULTI_AGENT_SPEC, COMPLIANCE,
    and FINANCIAL_MODEL_NOTES. Edit content here; app.js renders it.
