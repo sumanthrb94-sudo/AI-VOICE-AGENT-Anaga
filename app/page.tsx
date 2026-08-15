@@ -25,14 +25,11 @@ import { cn } from '@/lib/utils';
    it, lives in components/site/marketing-copy.ts — including the note about
    the one number that is deliberately absent from this page.
 
-   ONE TOKEN IS NOT USED ANYWHERE ON THESE PAGES: --color-text-faint.
-   globals.css documents it as "4.6:1 on bg — labels only". Measured, ink-400 on
-   ink-950 is 3.31:1, and on --color-surface and --color-elevated it is 3.19:1
-   and 3.04:1 — below the 4.5:1 floor everywhere in the dark theme, which is the
-   default theme. (Light mode is fine: 5.5–6.0:1.) So every label here uses
-   --color-text-dim and earns its hierarchy from size, weight and tracking
-   instead. This wants fixing in globals.css — ink-300 measures 5.35:1 at its
-   worst — but that file belongs to somebody else this session.
+   THREE LEVELS OF TEXT, and the distinction is load-bearing rather than
+   decorative: --color-text for headings, --color-text-dim for anything anybody
+   is meant to READ, --color-text-faint for labels and meta only. Prose never
+   uses faint. Both greys were measured against every surface they land on, in
+   both themes, and scripts/test-contrast.mjs holds the line.
    =========================================================================== */
 
 /* The two calls to action. They navigate, so they are anchors rather than
@@ -196,7 +193,7 @@ export default function HomePage() {
 
                 <div className="min-w-0 pt-1.5">
                   <h3 className="text-balance text-[length:var(--text-lg)] font-semibold leading-snug tracking-[-0.01em]">
-                    <span className="tabular mr-2 text-[length:var(--text-sm)] font-medium text-[var(--color-text-dim)]">
+                    <span className="tabular mr-2 text-[length:var(--text-sm)] font-medium text-[var(--color-text-faint)]">
                       {String(i + 1).padStart(2, '0')}
                     </span>
                     {step.title}
@@ -233,7 +230,7 @@ export default function HomePage() {
                       <dd className="tabular mt-1 text-[length:var(--text-2xl)] font-semibold leading-none text-[var(--color-accent)]">
                         {w.weight}
                       </dd>
-                      <dd className="mt-2 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-dim)]">
+                      <dd className="mt-2 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-faint)]">
                         {w.hint}
                       </dd>
                     </div>
@@ -269,7 +266,7 @@ export default function HomePage() {
                       <span lang={l.code} className="text-[length:var(--text-lg)] font-semibold">
                         {l.name}
                       </span>
-                      <span className="text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
+                      <span className="text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
                         {l.english}
                       </span>
                     </div>
@@ -289,7 +286,7 @@ export default function HomePage() {
                     </div>
 
                     <div className="mt-auto border-t border-[var(--color-line-soft)] pt-5">
-                      <p className="mb-2 text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-dim)]">
+                      <p className="mb-2 text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.1em] text-[var(--color-text-faint)]">
                         Mid-call
                       </p>
                       <p lang={l.code} className="text-pretty text-[length:var(--text-base)] leading-relaxed">
@@ -396,7 +393,7 @@ export default function HomePage() {
                     key={x.text}
                     className="inline-flex items-center gap-2 text-[length:var(--text-xs)] text-[var(--color-text-dim)]"
                   >
-                    <x.icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-[var(--color-text-dim)]" />
+                    <x.icon aria-hidden size={14} strokeWidth={1.75} className="shrink-0 text-[var(--color-text-faint)]" />
                     {x.text}
                   </li>
                 ))}
@@ -417,7 +414,10 @@ export default function HomePage() {
         {/* ================================================== SCOPE ====== */}
         <Section id="scope" className="scroll-mt-20">
           <Reveal>
-            <div className="rounded-[var(--radius-xl)] border border-[var(--color-line)] bg-[var(--color-elevated)] p-6 sm:p-10">
+            {/* --color-surface, not --color-elevated: in the light theme
+                `elevated` resolves to pure white, which is also the page
+                background, so this whole band vanished except for its border. */}
+            <div className="rounded-[var(--radius-xl)] border border-[var(--color-line)] bg-[var(--color-surface)] p-6 sm:p-10">
               <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between lg:gap-12">
                 <div className="max-w-2xl">
                   <p className="mb-3 text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.12em] text-[var(--color-accent)]">

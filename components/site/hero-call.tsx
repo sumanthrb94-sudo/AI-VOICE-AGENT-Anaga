@@ -138,12 +138,12 @@ export function HeroCall({ className }: { className?: string }) {
         <span className="text-[length:var(--text-xs)] font-medium text-[var(--color-text)]">
           Outbound · connected
         </span>
-        <span className="text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
+        <span className="text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
           Instagram lead
         </span>
         {/* Numbers are masked here for the same reason they are masked in the
             logs and in every API response. */}
-        <span className="tabular ml-auto text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
+        <span className="tabular ml-auto text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
           +91 98•••••10
         </span>
       </div>
@@ -158,7 +158,7 @@ export function HeroCall({ className }: { className?: string }) {
             transition={reduced ? { duration: 0 } : { duration: 0.24, delay: 0.12 + i * 0.14, ease: EASE }}
             className={cn('flex flex-col gap-1.5', t.who === 'prospect' && 'items-end text-right')}
           >
-            <span className="text-[length:var(--text-xs)] font-medium uppercase tracking-[0.1em] text-[var(--color-text-dim)]">
+            <span className="text-[length:var(--text-xs)] font-medium uppercase tracking-[0.1em] text-[var(--color-text-faint)]">
               {t.who === 'anaga' ? 'Anaga' : 'Prospect'}
             </span>
 
@@ -179,7 +179,7 @@ export function HeroCall({ className }: { className?: string }) {
             </p>
 
             {t.tag && (
-              <p className="inline-flex items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
+              <p className="inline-flex items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
                 <ShieldCheck aria-hidden size={13} strokeWidth={1.75} />
                 {t.tag}
               </p>
@@ -198,7 +198,7 @@ export function HeroCall({ className }: { className?: string }) {
           <PhoneOff aria-hidden size={13} strokeWidth={1.75} />
           Opt-out checked on every utterance
         </span>
-        <span className="ml-auto text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
+        <span className="ml-auto text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
           Illustration
         </span>
       </figcaption>

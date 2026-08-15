@@ -67,7 +67,7 @@ export function SiteNav() {
           <span className="text-[length:var(--text-lg)] font-semibold tracking-[-0.02em] text-[var(--color-text)]">
             Anaga
           </span>
-          <span className="hidden text-[length:var(--text-xs)] text-[var(--color-text-dim)] sm:inline">
+          <span className="hidden text-[length:var(--text-xs)] text-[var(--color-text-faint)] sm:inline">
             by Modcon Builders
           </span>
         </Link>

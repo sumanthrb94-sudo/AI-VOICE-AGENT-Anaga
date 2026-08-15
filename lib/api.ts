@@ -87,7 +87,15 @@ export const signInWithGoogle = (credential: string) =>
     body: JSON.stringify({ credential }),
   });
 
-export const getMe = () => request<{ ok: true; user: SessionUser }>('/api/auth/me');
+/**
+ * NOTE THE `| null`. /api/auth/me answers **200 with `user: null`** for an
+ * anonymous visitor rather than 401 — deliberately, so a page can ask "who is
+ * this?" without treating "nobody" as an error. It means a RESOLVED getMe() is
+ * not proof of a session: anything consuming this must check the `user` field,
+ * not merely that the promise did not reject. Typing it as non-null would have
+ * let every caller skip that check with the type system's blessing.
+ */
+export const getMe = () => request<{ ok: true; user: SessionUser | null }>('/api/auth/me');
 
 export const signOut = () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' });
 

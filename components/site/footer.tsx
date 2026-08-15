@@ -53,7 +53,7 @@ export function SiteFooter() {
 
           {columns.map((col) => (
             <div key={col.heading}>
-              <h2 className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-dim)]">
+              <h2 className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-faint)]">
                 {col.heading}
               </h2>
               <ul className="mt-3 flex flex-col gap-0.5">
@@ -76,12 +76,12 @@ export function SiteFooter() {
         </div>
 
         <div className="mt-12 flex flex-col gap-3 border-t border-[var(--color-line-soft)] pt-6 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
+          <p className="text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
             &copy; {new Date().getFullYear()} Modcon Builders, Hyderabad.
           </p>
           {/* Worth repeating at the bottom of the page as well as in her first
               sentence: this is the thing the product is legally built around. */}
-          <p className="text-[length:var(--text-xs)] text-[var(--color-text-dim)]">
+          <p className="text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
             Anaga says she is an AI in the first sentence of every call, in every language.
           </p>
         </div>
