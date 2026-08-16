@@ -143,16 +143,31 @@ say "→ Building ${IMAGE}:${TAG}"
 gcloud builds submit --config deploy/cloudrun/cloudbuild.yaml \
   --substitutions "_IMAGE=${IMAGE},_TAG=${TAG}" .
 
-say "→ Deploying to Cloud Run (${REGION})"
-# No --platform: gcloud removed it from `run deploy`, and --region already
-# means managed. Leaving it in made the deploy fail on flag parsing AFTER a
-# successful build, which reads like a broken image and is not one.
+# ── ENVIRONMENT ──────────────────────────────────────────────────────────────
+# A FILE, not --set-env-vars, and the reason is not style.
 #
-# --set-env-vars uses the ^@^ alternate delimiter. The default separator is a
-# COMMA, and both of these values CONTAIN commas — they are provider fallback
-# chains (see api/_lib/tts.js). With the default delimiter, "sarvam,gemini"
-# parses as the variable LLM_PROVIDER=sarvam plus a nonsense bare token
-# "gemini", and gcloud rejects the lot.
+# --set-env-vars splits on COMMAS, and two of these values CONTAIN commas —
+# LLM_PROVIDER and TTS_PROVIDER are provider fallback CHAINS, tried in order
+# (api/_lib/tts.js, api/_lib/llm.js). So "LLM_PROVIDER=sarvam,gemini" parses as
+# LLM_PROVIDER=sarvam plus a bare token "gemini", which is not a KEY=VALUE pair,
+# and gcloud rejects the command. gcloud offers a ^@^ alternate-delimiter escape
+# for exactly this, but an escape only works if every future editor of this file
+# remembers it is there — and this failure lands AFTER a three-minute build.
+#
+# A YAML file has no delimiter to collide with. Nothing to remember.
+ENV_FILE="$(mktemp -t anaga-env-XXXXXX.yaml)"
+trap 'rm -f "$ENV_FILE"' EXIT
+cat > "$ENV_FILE" <<'YAML'
+NODE_ENV: "production"
+# Fallback chains, tried in order. A provider is inert until its own key is
+# set, so naming one you have not configured costs nothing.
+LLM_PROVIDER: "sarvam,gemini"
+TTS_PROVIDER: "sarvam,google"
+YAML
+
+say "→ Deploying to Cloud Run (${REGION})"
+# No --platform: gcloud has removed it from `run deploy`, and --region already
+# selects managed.
 gcloud run deploy "$SERVICE" \
   --image "${IMAGE}:${TAG}" \
   --region "$REGION" \
@@ -162,7 +177,7 @@ gcloud run deploy "$SERVICE" \
   --concurrency 20 \
   --cpu 1 --memory 512Mi \
   --timeout 3600 \
-  --set-env-vars "^@^NODE_ENV=production@LLM_PROVIDER=sarvam,gemini@TTS_PROVIDER=sarvam,google" \
+  --env-vars-file "$ENV_FILE" \
   --set-secrets "$SECRETS" \
   --quiet
 
