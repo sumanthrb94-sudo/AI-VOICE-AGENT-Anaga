@@ -249,6 +249,15 @@ export default function CallPage() {
           </div>
         </Card>
       </section>
+
+      {/* Hidden mid-call: an invitation to leave is not what you want on
+          screen while the microphone is open. */}
+      <Link
+        href="/call/live"
+        className="mt-6 text-[length:var(--text-sm)] text-[var(--color-accent)] underline underline-offset-4 transition-opacity hover:opacity-80 [body.in-call_&]:hidden"
+      >
+        Try the streaming version — she replies while you are still talking
+      </Link>
     </main>
   );
 }

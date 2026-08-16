@@ -66,11 +66,25 @@ export interface SignInStatus {
   store: boolean;
 }
 
+/** Where the streaming call lives, if one is deployed at all.
+ *
+ *  `url` is null on a deployment with no Cloud Run agent — which is the normal
+ *  state of a preview. The page must offer the HTTP turn demo in that case
+ *  rather than opening a socket to nothing: a WebSocket to a host that is not
+ *  there fails asynchronously, several seconds later, as a close event with no
+ *  useful reason, which reads to the user as "the call broke". */
+export interface AgentStatus {
+  url: string | null;
+  streaming: boolean;
+  note?: string;
+}
+
 export interface Health {
   ok: boolean;
   region?: string;
   ready?: { demo: boolean; call: boolean; production: boolean };
   signIn?: SignInStatus;
+  agent?: AgentStatus;
   blockers?: string[];
   [k: string]: unknown;
 }

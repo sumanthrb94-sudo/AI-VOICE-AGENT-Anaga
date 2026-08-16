@@ -71,7 +71,13 @@
         stream = s;
         var AC = global.AudioContext || global.webkitAudioContext;
         ctx = new AC();
-        return ctx.audioWorklet.addModule("assets/pcm-worklet.js");
+        // ABSOLUTE, and overridable. This read "assets/pcm-worklet.js", which
+        // resolves against the DOCUMENT's URL: fine from /live.html at the
+        // root of the agent, a 404 from /call on the Next.js site, where it
+        // becomes /call/assets/pcm-worklet.js. addModule() rejects, the whole
+        // start() chain lands in the catch, and the page reports "no
+        // microphone available" — a permissions message for a missing file.
+        return ctx.audioWorklet.addModule(global.ANAGA_WORKLET_URL || "/assets/pcm-worklet.js");
       }).then(function () {
         capture = new AudioWorkletNode(ctx, "anaga-capture", {
           processorOptions: { targetRate: SAMPLE_RATE }
