@@ -14,6 +14,11 @@ design-system
 docs
 engineering
 scripts
+# …except the latency harness, which deploy/cloudrun/measure.sh runs as a Cloud
+# Run Job on this image so the number is measured in asia-south1 rather than
+# from wherever Cloud Shell happens to be. Excluded by `scripts` above, so the
+# COPY for it failed the build outright — the exception has to come after.
+!scripts/measure-latency.mjs
 graphify-out
 .secrets
 *.env

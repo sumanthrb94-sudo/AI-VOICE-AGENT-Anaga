@@ -139,6 +139,35 @@ t('the frontend toolchain is NOT in the image', () => {
   }
 });
 
+t('every COPY path is actually IN the build context', () => {
+  // The hole this closes cost a failed deploy. A COPY was added for
+  // scripts/measure-latency.mjs while .dockerignore excluded `scripts`, so the
+  // file was not in the context at all and `docker build` failed outright —
+  // after the source upload, minutes in, with a message about a build step
+  // rather than about an ignore rule.
+  //
+  // This test read the Dockerfile and never the .dockerignore beside it, which
+  // is exactly half of what decides whether a COPY can succeed.
+  const rules = fs.readFileSync(path.join(ROOT, '.dockerignore'), 'utf8')
+    .split('\n').map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'));
+
+  /** Docker semantics: every rule is evaluated, and the LAST match wins. */
+  const excluded = (p) => {
+    let out = false;
+    for (const rule of rules) {
+      const neg = rule.startsWith('!');
+      const pat = neg ? rule.slice(1) : rule;
+      if (p === pat || p.startsWith(`${pat}/`)) out = !neg;
+    }
+    return out;
+  };
+
+  const blocked = prefixes.filter(excluded);
+  assert.deepEqual(blocked, [],
+    `\n       .dockerignore excludes these, so COPY cannot see them:\n       ${blocked.join('\n       ')}`);
+});
+
 t('nothing that could hold a credential is copied', () => {
   for (const p of ['.secrets', '.env', '.git']) {
     assert.ok(!prefixes.some((x) => x === p || x.startsWith(`${p}/`)), `${p} must never ship`);
