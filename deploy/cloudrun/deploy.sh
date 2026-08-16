@@ -61,6 +61,40 @@ say "→ Enabling the APIs this needs (no-op if already on)"
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
   artifactregistry.googleapis.com secretmanager.googleapis.com --quiet
 
+# ── THE BUILD SERVICE ACCOUNT ────────────────────────────────────────────────
+# Cloud Build now runs as the COMPUTE ENGINE default service account, not the
+# legacy PROJECT_NUMBER@cloudbuild one. On a project where Cloud Build has never
+# run, that account holds nothing, so `builds submit` uploads the source tarball
+# to its own staging bucket and is then denied storage.objects.get reading it
+# back — a 403 that reads like a bucket problem and is not one.
+#
+# cloudbuild.builds.builder is the bundle: read the staging bucket, write build
+# logs, push to Artifact Registry. Granting storage access alone fixes this
+# error and fails on the next.
+say "→ Making sure Cloud Build's service account can actually build"
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')"
+BUILD_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+if gcloud projects get-iam-policy "$PROJECT" --flatten="bindings[].members" \
+     --filter="bindings.role=roles/cloudbuild.builds.builder AND bindings.members:${BUILD_SA}" \
+     --format='value(bindings.role)' 2>/dev/null | grep -q .; then
+  echo "  ✓ ${BUILD_SA} already has roles/cloudbuild.builds.builder"
+else
+  echo "  granting roles/cloudbuild.builds.builder to ${BUILD_SA}"
+  gcloud projects add-iam-policy-binding "$PROJECT" \
+    --member="serviceAccount:${BUILD_SA}" \
+    --role="roles/cloudbuild.builds.builder" --quiet >/dev/null \
+    || die "could not grant the build role. You need roles/resourcemanager.projectIamAdmin
+    (or Owner) on ${PROJECT}, or an admin has to run:
+
+      gcloud projects add-iam-policy-binding ${PROJECT} \\
+        --member=serviceAccount:${BUILD_SA} \\
+        --role=roles/cloudbuild.builds.builder"
+  # IAM is eventually consistent; a build started immediately can still 403.
+  echo "  waiting 30s for the grant to propagate"
+  sleep 30
+fi
+
 say "→ Making sure the Artifact Registry repository exists"
 gcloud artifacts repositories describe "$REPO" --location "$REGION" >/dev/null 2>&1 || \
   gcloud artifacts repositories create "$REPO" \

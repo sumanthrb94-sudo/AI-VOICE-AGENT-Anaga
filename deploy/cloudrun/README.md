@@ -33,9 +33,17 @@ Docker is not needed anywhere: `gcloud builds submit` builds remotely.
 
 ## Once, before the first run
 
+**Run the script first, then create the secrets.** That order is not a
+preference — `gcloud secrets create` fails with `SERVICE_DISABLED` on a project
+where Secret Manager has never been used, and the script is the thing that
+enables it. So the first run stops at the secrets check having done all the
+enabling; you create the secrets, and the second run goes all the way through.
+
 ```bash
 gcloud auth login
 gcloud config set project YOUR_PROJECT_ID
+
+bash deploy/cloudrun/deploy.sh          # enables APIs, then stops: "create the secrets above"
 
 # Keys go in Secret Manager, never in --set-env-vars: env vars are readable by
 # anyone with console read access, and one of these dials phones.
@@ -43,9 +51,35 @@ printf %s "YOUR_SARVAM_KEY"   | gcloud secrets create sarvam-key       --data-fi
 printf %s "YOUR_DEEPGRAM_KEY" | gcloud secrets create deepgram-key     --data-file=-
 printf %s "YOUR_TWILIO_TOKEN" | gcloud secrets create twilio-auth-token --data-file=-   # optional
 printf %s "YOUR_GEMINI_KEY"   | gcloud secrets create gemini-key       --data-file=-   # optional
+
+bash deploy/cloudrun/deploy.sh          # this one deploys
 ```
 
-The script enables the APIs and creates the Artifact Registry repository itself.
+`printf`, not `echo` — `echo` appends a newline, and the key reaches the vendor
+with a trailing `\n`. That fails authentication in a way that looks exactly like
+a wrong key.
+
+Paste one command at a time. gcloud asks `enable and retry? (y/N)` on a disabled
+API, and a multi-line paste answers that prompt with your next command.
+
+The script enables the APIs, grants Cloud Build's service account the role it
+needs, and creates the Artifact Registry repository itself.
+
+**The project needs a billing account.** Firebase's free Spark plan does not
+attach one, and Cloud Build and Artifact Registry both refuse without it:
+
+```bash
+gcloud beta billing projects describe YOUR_PROJECT_ID     # want billingEnabled: true
+gcloud beta billing accounts list                         # OPEN: True ones only
+gcloud beta billing projects link YOUR_PROJECT_ID --billing-account=XXXXXX-XXXXXX-XXXXXX
+```
+
+To rotate a key later, add a version rather than recreating the secret — the
+service reads `:latest`, so the next revision picks it up:
+
+```bash
+printf %s "NEW_KEY" | gcloud secrets versions add sarvam-key --data-file=-
+```
 
 Overridable by environment variable: `SERVICE`, `REGION` (default
 `asia-south1`), `REPO`, `MIN_INSTANCES`, `PROJECT`.
