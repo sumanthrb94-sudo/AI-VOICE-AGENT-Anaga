@@ -208,6 +208,14 @@ export function turnPrompt(history, opts = {}) {
     ? sylRules(loadFlow(), loadPersona(), opts)
     : SYL_RULES;
 
+  // ── KEY ORDER IS LATENCY, NOT STYLE ──────────────────────────────────────
+  // The completion is STREAMED, and synthesis starts the moment the opening
+  // phrase of "say" has been written (api/_lib/llm.js, partialSay). Nothing can
+  // start until the "say" key itself appears in the stream — so every token the
+  // model spends on "end" or "disposition" first is silence on a live call.
+  //
+  // Listing it first usually gets it first; requiring it removes the usually.
+  // Measured cost of getting this wrong: the whole head start, about 1.2s.
   const system = `${rules}
 
 OUTPUT FORMAT (strict)
@@ -216,6 +224,7 @@ Return ONLY a JSON object, no prose, no markdown fences, with exactly these keys
   "end":         boolean — true if this line ends the call (after booking, callback, opt-out, or busy).
   "disposition": string  — one of: ${TURN_DISPOSITIONS.map((d) => `"${d}"`).join(', ')}.
                            Use "qualifying" while still disclosing/consenting/qualifying/offering.
+"say" MUST be the FIRST key in the object.
 Choose "say" as the single best next turn given the rules and the conversation so far.`;
 
   const user = `Conversation so far (Anaga speaks first):
