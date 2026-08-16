@@ -142,6 +142,29 @@ async function live() {
 
 const vendors = LIVE ? await live() : stubs();
 
+// ── WHY A TURN WAS SILENT ───────────────────────────────────────────────────
+// The bridge catches vendor errors on purpose: one failed phrase must not take
+// down a live call. The cost is that this harness saw only the SYMPTOM —
+// "produced NO audio", twelve times in a row, with no way to tell a rate limit
+// from a timeout from a rejected codec. Three different problems, one message,
+// and the run that is supposed to diagnose latency could not diagnose itself.
+//
+// So the reasons are recorded on the way past and re-thrown unchanged. The
+// bridge behaves exactly as it did; the harness stops being blind.
+const failures = [];
+function watched(fn, stage) {
+  return async (...args) => {
+    try {
+      return await fn(...args);
+    } catch (err) {
+      failures.push({ turn: attempted, stage, message: String(err?.message || err) });
+      throw err;
+    }
+  };
+}
+vendors.think = watched(vendors.think, 'think');
+vendors.speak = watched(vendors.speak, 'speak');
+
 const samples = [];
 let attempted = 0;
 let sttEvents = null;
@@ -185,8 +208,13 @@ for (let i = 0; i < TURNS; i++) {
   while (samples.length === before && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 10));
   }
-  if (samples.length === before) console.log(`  turn ${i + 1}: produced NO audio`);
-  else process.stdout.write(`\r  ${samples.length}/${TURNS} turns`);
+  if (samples.length === before) {
+    const why = failures.filter((f) => f.turn === attempted);
+    console.log(why.length
+      ? `  turn ${i + 1}: NO audio — ${why.map((f) => `${f.stage}: ${f.message}`).join('; ')}`
+      : `  turn ${i + 1}: NO audio — no vendor error; the turn never completed `
+        + `(timed out after 30s, or the reply was empty)`);
+  } else process.stdout.write(`\r  ${samples.length}/${TURNS} turns`);
 }
 
 bridge.end();
@@ -194,6 +222,34 @@ process.stdout.write('\n');
 
 const sum = summarise(samples, attempted);
 console.log(formatSummary(sum, { title: `TURN LATENCY · ${LIVE ? 'live' : 'stub'} · ${LANG}` }));
+
+// ── WHAT WENT WRONG, GROUPED ───────────────────────────────────────────────
+// A silence rate is not a footnote next to a latency number, it is the more
+// important of the two: a p50 of 3.6s on 40% of turns is not a 3.6s agent.
+// Grouped by message so twelve instances of one rate limit read as one
+// problem rather than twelve, and printed BEFORE the quotable line so nobody
+// copies a number out of a run that mostly failed.
+if (failures.length) {
+  const byMessage = new Map();
+  for (const f of failures) {
+    const k = `${f.stage}: ${f.message}`;
+    byMessage.set(k, (byMessage.get(k) || 0) + 1);
+  }
+  console.log('  WHY TURNS FAILED\n');
+  for (const [msg, n] of [...byMessage].sort((a, b) => b[1] - a[1])) {
+    console.log(`    ${String(n).padStart(3)} ×  ${msg}`);
+  }
+  console.log('');
+  const rate = failures.some((f) => /429|rate.?limit|quota|too many/i.test(f.message));
+  const slow = failures.some((f) => /timeout|abort/i.test(f.message));
+  if (rate) {
+    console.log('    A rate limit is not a latency result. Re-run with fewer turns,');
+    console.log('    or spaced out, before reading anything into the numbers above.\n');
+  } else if (slow) {
+    console.log('    Timeouts inflate nothing and hide everything: the slowest turns');
+    console.log('    are the ones missing from the percentiles, so the p95 is optimistic.\n');
+  }
+}
 
 // The sentence somebody would actually put in a document, written for them so
 // it cannot drift from the run that produced it.
@@ -212,6 +268,9 @@ if (sum.ttfa) {
   console.log('');
 }
 
-if (AS_JSON) console.log(JSON.stringify(sum, null, 2));
+// The failures ride along in --json too. A run piped into a file or a CI step
+// that reports only the percentiles is reporting the turns that SUCCEEDED,
+// which is the most flattering possible sample and never says so.
+if (AS_JSON) console.log(JSON.stringify({ ...sum, failures }, null, 2));
 
 process.exit(sum.turns.measured === 0 ? 1 : 0);
