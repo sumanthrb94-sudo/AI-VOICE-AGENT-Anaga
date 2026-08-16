@@ -116,6 +116,26 @@ export default async function handler(req, res) {
       admins: String(process.env.ADMIN_EMAILS || '').split(',').filter((s) => s.trim()).length,
       store: store.backend === 'firestore',
     },
+    // ── WHERE THE STREAMING CALL LIVES ──────────────────────────────────
+    // The site is a static export on Vercel; the streaming agent is a
+    // long-lived process on Cloud Run, because a serverless function cannot
+    // hold a WebSocket open for the length of a call. So the browser has to be
+    // TOLD where to dial, and it is told at runtime, for the same reason the
+    // OAuth client id is: a NEXT_PUBLIC_ variable is frozen into the bundle at
+    // build time, so the identical artefact could not be promoted from preview
+    // to production without a rebuild.
+    //
+    // Not a secret — it is the address the browser is about to connect to, and
+    // anyone using the page can read it out of the socket. It is also not
+    // authenticated, which is a real exposure and is why it is only published
+    // when explicitly configured: an unset ANAGA_AGENT_URL means the page
+    // offers the HTTP demo and never advertises a socket that may not exist.
+    agent: {
+      url: process.env.ANAGA_AGENT_URL || null,
+      streaming: Boolean(process.env.ANAGA_AGENT_URL),
+      note: 'wss:// endpoint of the Cloud Run agent. Null means no streaming '
+          + 'call is deployed and the page should offer the HTTP turn demo.',
+    },
     // Boolean/configuration names only. The commercial rates themselves never
     // leave the server through this public wiring endpoint.
     usage: callUsageStatus(),
