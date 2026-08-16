@@ -30,6 +30,7 @@ import { ProvenanceBanner, ReadinessPanel, WiringPanel } from './readiness';
 import { CompliancePanel } from './compliance';
 import { FunnelPanel } from './funnel';
 import { CallsPanel } from './calls';
+import { DemoCallsPanel } from './demo-calls';
 import { EventsPanel } from './events';
 import { formatClock, type ConsoleSummary } from './types';
 
@@ -198,6 +199,11 @@ export function Dashboard({ user }: { user: SessionUser }) {
         </div>
 
         <CallsPanel calls={data?.calls ?? null} store={data?.store ?? null} />
+
+        {/* Browser demos, kept out of the lead pipeline above: they have no
+            number, no compliance verdict and no CRM record, and counting them
+            in the funnel would report conversations that were never leads. */}
+        <DemoCallsPanel />
 
         <div className="grid gap-4 lg:grid-cols-12">
           <div className="lg:col-span-7">
