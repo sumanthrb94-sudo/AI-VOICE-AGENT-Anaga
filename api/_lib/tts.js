@@ -417,7 +417,10 @@ export async function synth(opts = {}) {
     if (hit && hit.until > Date.now()) {
       // Re-inserted so the map stays in least-recently-used order.
       SYNTH_CACHE.delete(ck); SYNTH_CACHE.set(ck, hit);
-      return { ...hit.out, cached: true };
+      // `streamed` is a fact about THIS call, not about the clip: a cache hit
+      // emitted no chunks, so the caller must play the buffer itself. Letting
+      // a stored `true` survive is how a cached phrase becomes silence.
+      return { ...hit.out, streamed: false, cached: true };
     }
     if (hit) SYNTH_CACHE.delete(ck);
   }
@@ -924,6 +927,65 @@ async function viaSarvam(text, opts) {
   const gender = SARVAM_MALE_SPEAKERS.includes(spk) ? 'male' : 'female';
 
   if (streaming) {
+    // The mime is resolved FIRST, because whether these bytes can be forwarded
+    // as they arrive depends entirely on what they are. See below.
+    const declared0 = String(res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    const asked0 = String(body.output_audio_codec || '').toLowerCase();
+    const mime0 = /audio|octet-stream/.test(declared0) ? declared0
+      : asked0 === 'linear16' ? 'audio/L16'
+      : asked0 === 'mulaw' ? 'audio/basic'
+      : 'audio/mpeg';
+
+    // ── FORWARD IT AS IT ARRIVES, WHEN IT IS SAFE TO ─────────────────────
+    // This endpoint emits audio AS IT IS GENERATED, and we called
+    // res.arrayBuffer() on it — which waits for the last byte. The repo's own
+    // measurement, in the comment beside SARVAM_STREAM_URL, records
+    // `stream ttfb 1.02s / total 1.44s` and then we paid the 1.44s. Posting to
+    // a streaming endpoint and buffering the response is the whole cost of the
+    // feature with none of the benefit.
+    //
+    // Only for RAW formats. Linear PCM and mu-law are self-describing per
+    // sample, so a prefix of the stream is playable audio. MP3 and WAV are
+    // not: a WAV prefix is a header the transport would play as samples, and
+    // a partial MP3 frame is noise. Those still buffer.
+    const raw = /l16|linear16|pcm|octet-stream|basic|mulaw|ulaw/i.test(mime0);
+    if (raw && typeof opts.onChunk === 'function' && res.body) {
+      const parts = [];
+      // 16-BIT SAMPLES DO NOT RESPECT CHUNK BOUNDARIES. A network chunk can
+      // end halfway through a sample, and forwarding an odd byte count shifts
+      // every following sample by one byte — which is not a glitch, it is
+      // white noise for the rest of the phrase. The stray byte waits here for
+      // its other half.
+      const wide = !/basic|mulaw|ulaw/i.test(mime0);
+      let carry = null;
+      for await (const piece of res.body) {
+        let chunk = Buffer.from(piece);
+        parts.push(chunk);
+        if (carry) { chunk = Buffer.concat([carry, chunk]); carry = null; }
+        if (wide && chunk.length % 2) {
+          carry = chunk.subarray(chunk.length - 1);
+          chunk = chunk.subarray(0, chunk.length - 1);
+        }
+        if (chunk.length) {
+          // The caller's problem if it throws — a transport that has gone away
+          // must not abort the read, or the cache stores a truncated clip.
+          try { opts.onChunk(chunk); } catch { /* the transport is gone */ }
+        }
+      }
+      const whole = Buffer.concat(parts);
+      if (!whole.length) throw new Error('sarvam_tts_empty');
+      return {
+        audio: whole.toString('base64'),
+        mime: mime0,
+        provider: 'sarvam',
+        voice: spk,
+        gender,
+        // Tells the caller the audio has ALREADY been delivered, so it does not
+        // play the same phrase a second time from the returned buffer.
+        streamed: true,
+      };
+    }
+
     // Raw bytes, not JSON.
     const buf = Buffer.from(await res.arrayBuffer());
     if (!buf.length) throw new Error('sarvam_tts_empty');
@@ -944,13 +1006,7 @@ async function viaSarvam(text, opts) {
     // A vendor-shaped failure that was entirely ours. Prefer what the response
     // actually declares; fall back to what we requested; MP3 only when we
     // requested nothing, which is the browser path where it is still right.
-    const declared = String(res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-    const asked = String(body.output_audio_codec || '').toLowerCase();
-    const mime = /audio|octet-stream/.test(declared) ? declared
-      : asked === 'linear16' ? 'audio/L16'
-      : asked === 'mulaw' ? 'audio/basic'
-      : 'audio/mpeg';
-    return { audio: buf.toString('base64'), mime, provider: 'sarvam', voice: spk, gender };
+    return { audio: buf.toString('base64'), mime: mime0, provider: 'sarvam', voice: spk, gender };
   }
 
   const data = await res.json();

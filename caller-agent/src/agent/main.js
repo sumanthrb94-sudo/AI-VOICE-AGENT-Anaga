@@ -65,14 +65,24 @@ const server = createAgentServer({
     };
   },
 
-  async speak(text, lang, format) {
+  async speak(text, lang, format, opts) {
     // THE TRANSPORT'S OWN FORMAT, asked for by name. A browser wants 16kHz
     // linear16; a phone wants 8kHz mulaw. Asking Bulbul for what the wire
     // already speaks means a call transcodes nowhere, and every conversion
     // skipped is quality kept — telephony audio starts with none to spare.
     const codec = format?.encoding === 'mulaw' ? 'mulaw' : 'linear16';
     const rate = Number(format?.sampleRate) || SAMPLE_RATE;
-    const out = await synth({ text, lang, codec, sampleRate: rate });
+    // onChunk lets Sarvam's stream endpoint reach the wire AS IT GENERATES,
+    // instead of after its last byte. It is only ever invoked for raw PCM or
+    // mu-law — formats where a prefix of the stream is playable audio — so the
+    // verification below still governs everything that is not.
+    //
+    // The chunks are the SAME BYTES as the buffer returned; `streamed` says
+    // they have already gone out, so the bridge does not play the phrase twice.
+    const out = await synth({
+      text, lang, codec, sampleRate: rate,
+      onChunk: typeof opts?.onChunk === 'function' ? opts.onChunk : undefined,
+    });
     const buf = Buffer.from(out.audio, 'base64');
     const mime = String(out.mime || '');
 
@@ -90,7 +100,12 @@ const server = createAgentServer({
 
     // The bridge accepts this object form in addition to a raw Buffer. It lets
     // cost telemetry attribute a fallback to the provider that actually spoke.
-    return { audio, provider: out.provider || 'unknown', cached: out.cached === true };
+    return {
+      audio,
+      provider: out.provider || 'unknown',
+      cached: out.cached === true,
+      streamed: out.streamed === true,
+    };
   },
 
   async greeting(lang, direction) {

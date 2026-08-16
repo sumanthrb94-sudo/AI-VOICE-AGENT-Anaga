@@ -235,5 +235,68 @@ await t('time-to-first-audio is measured from the opening phrase, so the saving 
   assert.ok(typeof clause.ms === 'number', 'and it must carry a duration');
 });
 
+console.log('\n═══ AUDIO FORWARDED DURING SYNTHESIS ═══\n');
+
+/** A speak() that emits the phrase in chunks the way a streaming provider does. */
+function streamingSpeak(spoken) {
+  return async (text, lang, format, opts) => {
+    const whole = Buffer.from(text);
+    if (typeof opts?.onChunk === 'function') {
+      const half = Math.floor(whole.length / 2);
+      opts.onChunk(whole.subarray(0, half));
+      opts.onChunk(whole.subarray(half));
+      spoken.push(text);
+      return { audio: whole, provider: 'sarvam', streamed: true };
+    }
+    spoken.push(text);
+    return whole;
+  };
+}
+
+await t('a phrase already sent in chunks is NOT played again from the buffer', async () => {
+  // The failure this guards sounds like a stutter, not like a bug: every
+  // phrase heard twice, the second time immediately after the first.
+  const spoken = [];
+  const h = build({ speak: streamingSpeak(spoken) });
+  h.say('go on');
+  await settle();
+  h.release();
+  await settle();
+
+  const total = h.audio.reduce((n, b) => n + b.length, 0);
+  const expected = Buffer.from(LINE.replace(/\s+/g, ' ')).length;
+  assert.ok(Math.abs(total - expected) <= 4,
+    `${total} bytes reached the transport for a ${expected}-byte line — `
+    + 'roughly double means every phrase played twice');
+});
+
+await t('a barge-in mid-synthesis stops the chunks still arriving', async () => {
+  // Supersession has to be checked INSIDE the chunk callback, not only around
+  // the await. Otherwise the tail of an interrupted phrase keeps arriving and
+  // she talks over the prospect who just cut her off.
+  const spoken = [];
+  const h = build({
+    speak: async (text, lang, format, opts) => {
+      const whole = Buffer.from(text);
+      if (typeof opts?.onChunk === 'function') {
+        opts.onChunk(whole.subarray(0, 4));
+        h.bargeIn();                       // interrupted mid-phrase
+        opts.onChunk(whole.subarray(4));   // must be dropped
+        spoken.push(text);
+        return { audio: whole, provider: 'sarvam', streamed: true };
+      }
+      spoken.push(text);
+      return whole;
+    },
+  });
+  h.say('go on');
+  await settle();
+  h.release();
+  await settle();
+
+  const total = h.audio.reduce((n, b) => n + b.length, 0);
+  assert.equal(total, 4, `${total} bytes went out after the barge-in, expected only the first 4`);
+});
+
 console.log(`\n═══ ${pass} passed, ${fail} failed ═══\n`);
 if (fail) { failures.forEach((f) => console.log('  FAIL ' + f)); process.exit(1); }

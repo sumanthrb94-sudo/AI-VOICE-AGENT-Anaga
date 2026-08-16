@@ -51,15 +51,22 @@ async function t(name, fn) {
 // endpoint actually does. The bug was never in the bytes.
 let lastBody = null;
 let contentType = '';                    // '' = vendor declares nothing
+// The pieces the "network" delivers. Deliberately ODD-sized by default: a real
+// chunk boundary does not respect 16-bit samples, and that is the case most
+// likely to be got wrong.
+let pieces = [new Uint8Array(255).fill(1), new Uint8Array(385).fill(2)];
 globalThis.fetch = async (_url, init = {}) => {
   lastBody = JSON.parse(init.body);
   const headers = new Map();
   if (contentType) headers.set('content-type', contentType);
+  const whole = Buffer.concat(pieces.map((p) => Buffer.from(p)));
   return {
     ok: true,
     status: 200,
     headers: { get: (k) => headers.get(String(k).toLowerCase()) ?? null },
-    arrayBuffer: async () => new Uint8Array(640).fill(1).buffer,   // 320 16-bit samples
+    arrayBuffer: async () => whole.buffer.slice(whole.byteOffset, whole.byteOffset + whole.length),
+    // An async iterable, which is what undici's res.body is.
+    body: (async function* () { for (const p of pieces) yield Buffer.from(p); })(),
   };
 };
 
@@ -126,6 +133,79 @@ await t('a different sample rate is a different entry', async () => {
   const phone = await synth({ text, lang: 'en-IN', codec: 'linear16', sampleRate: 8000 });
   assert.notEqual(phone.cached, true,
     '16kHz audio served to an 8kHz line plays at the wrong speed and pitch');
+});
+
+console.log('\n═══ FORWARDED AS IT ARRIVES ═══\n');
+
+// This endpoint emits audio AS IT IS GENERATED and we called arrayBuffer() on
+// it, which waits for the last byte — the repo's own note beside the URL
+// records `stream ttfb 1.02s / total 1.44s`, and we paid 1.44s. Posting to a
+// streaming endpoint and buffering the response is the whole cost with none of
+// the benefit.
+
+await t('raw PCM reaches the caller in chunks, before the response is finished', async () => {
+  const got = [];
+  const out = await synth({
+    text: 'stream this', lang: 'te-IN', codec: 'linear16', sampleRate: 16000,
+    onChunk: (c) => got.push(Buffer.from(c)),
+  });
+  assert.ok(got.length >= 2, `expected several chunks, got ${got.length}`);
+  assert.equal(out.streamed, true, 'the caller must be told the audio already went out');
+});
+
+await t('no chunk splits a 16-bit sample', async () => {
+  // A network chunk can end halfway through a sample. Forwarding an odd byte
+  // count shifts every sample after it by one byte, which is not a glitch —
+  // it is white noise for the rest of the phrase.
+  const got = [];
+  await synth({
+    text: 'odd boundaries', lang: 'te-IN', codec: 'linear16', sampleRate: 16000,
+    onChunk: (c) => got.push(Buffer.from(c)),
+  });
+  for (const [i, c] of got.entries()) {
+    assert.equal(c.length % 2, 0, `chunk ${i} is ${c.length} bytes — half a sample`);
+  }
+});
+
+await t('the chunks reassemble to exactly the audio that is returned', async () => {
+  // Nothing dropped by the carry, nothing duplicated. The returned buffer is
+  // what gets cached, so a mismatch means the cache and the wire disagree.
+  const got = [];
+  const out = await synth({
+    text: 'reassemble me', lang: 'te-IN', codec: 'linear16', sampleRate: 16000,
+    onChunk: (c) => got.push(Buffer.from(c)),
+  });
+  assert.deepEqual(Buffer.concat(got), Buffer.from(out.audio, 'base64'));
+});
+
+await t('MP3 is NOT streamed — a partial frame is noise, and a WAV prefix is a header', async () => {
+  const got = [];
+  const out = await synth({ text: 'browser turn', lang: 'en-IN', onChunk: (c) => got.push(c) });
+  assert.equal(out.mime, 'audio/mpeg');
+  assert.equal(got.length, 0, 'MP3 must buffer');
+  assert.notEqual(out.streamed, true);
+});
+
+await t('a cache hit reports streamed:false, because nothing was emitted', async () => {
+  // `streamed` is a fact about THIS call, not about the clip. A stored `true`
+  // surviving into a cache hit means the caller plays nothing at all.
+  const args = { text: 'cached and streamed', lang: 'te-IN', codec: 'linear16', sampleRate: 16000 };
+  await synth({ ...args, onChunk: () => {} });
+  const got = [];
+  const second = await synth({ ...args, onChunk: (c) => got.push(c) });
+  assert.equal(second.cached, true, 'the second call should hit the cache');
+  assert.equal(second.streamed, false, 'and must NOT claim the audio already went out');
+  assert.equal(got.length, 0);
+});
+
+await t('a caller whose transport has gone away does not truncate the clip', async () => {
+  // onChunk throwing must not abort the read: the buffer is what gets cached,
+  // and a half-read clip would be cached as if it were the whole phrase.
+  const out = await synth({
+    text: 'transport died', lang: 'te-IN', codec: 'linear16', sampleRate: 16000,
+    onChunk: () => { throw new Error('socket closed'); },
+  });
+  assert.equal(Buffer.from(out.audio, 'base64').length, 255 + 385);
 });
 
 console.log(`\n═══ ${pass} passed, ${fail} failed ═══\n`);

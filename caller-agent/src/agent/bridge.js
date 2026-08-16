@@ -334,12 +334,34 @@ export function createBridge(o) {
       if (ended || mine !== turnId) break;
       let audio_;
       const speakAt = Date.now();
+      // Chunks that reached the wire while synthesis was still running. The
+      // provider streams raw PCM as it is generated, so her voice starts
+      // playing at the vendor's FIRST byte rather than its last.
+      let streamedOut = 0;
       try {
-        const synthesized = await speak(phrase, lang, audio);
+        const synthesized = await speak(phrase, lang, audio, {
+          onChunk: (chunk) => {
+            // Supersession is checked HERE too, not only around the await. A
+            // barge-in mid-synthesis must stop the bytes still arriving, or
+            // she talks over the prospect with the tail of a phrase they
+            // already interrupted.
+            if (ended || mine !== turnId || !chunk?.length) return;
+            if (streamedOut === 0) {
+              // The first byte on the wire IS time-to-first-audio, and with a
+              // streaming provider that moment is now inside speak(), not
+              // after it.
+              if (acc.delivered === 0) timer.leg('tts', Date.now() - speakAt);
+              timer.firstAudio();
+              timer.phrase();
+            }
+            streamedOut++;
+            try { onAudio(chunk); } catch { /* the transport is gone */ }
+          },
+        });
         // Only the FIRST phrase counts: everything after it renders while
         // earlier audio is already playing, so adding them together would
         // describe a wait nobody experiences.
-        if (acc.delivered === 0) timer.leg('tts', Date.now() - speakAt);
+        if (acc.delivered === 0 && streamedOut === 0) timer.leg('tts', Date.now() - speakAt);
         // Existing transports return a Buffer. The composition root returns the
         // optional object form so a fallback provider can be counted honestly.
         audio_ = Buffer.isBuffer(synthesized) ? synthesized : synthesized?.audio;
@@ -358,6 +380,13 @@ export function createBridge(o) {
       // Checked AGAIN after the await: synthesis takes a second or more, and
       // she may have been interrupted while it was happening.
       if (ended || mine !== turnId) break;
+      if (streamedOut > 0) {
+        // Already on the wire, chunk by chunk. Sending the buffer as well
+        // would play the phrase twice — the failure this flag exists to
+        // prevent, and one that sounds like a stutter rather than a bug.
+        acc.delivered++;
+        continue;
+      }
       // The first byte of her reply reaching the wire IS time-to-first-audio.
       timer.firstAudio();
       timer.phrase();
