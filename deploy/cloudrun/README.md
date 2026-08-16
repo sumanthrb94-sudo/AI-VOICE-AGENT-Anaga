@@ -84,6 +84,31 @@ printf %s "NEW_KEY" | gcloud secrets versions add sarvam-key --data-file=-
 Overridable by environment variable: `SERVICE`, `REGION` (default
 `asia-south1`), `REPO`, `MIN_INSTANCES`, `PROJECT`.
 
+## Measuring latency honestly
+
+```bash
+bash deploy/cloudrun/measure.sh                       # 20 turns, te-IN
+TURNS=40 LANG_TAG=en-IN bash deploy/cloudrun/measure.sh
+```
+
+Runs the harness as a **Cloud Run Job** — same image, same region, same
+secrets — and prints the result.
+
+It exists because `node scripts/measure-latency.mjs --live` from Cloud Shell
+measures the round trip from wherever Google put that VM, usually the United
+States, to Sarvam and Deepgram in India and back. **Cloud Shell cannot be
+pinned to a region**, so the honest number is not available there at all. A
+first run measured 3665ms p50 that way; the same code beside the vendors is a
+different number, and only one of them describes what a caller experiences.
+
+The job pins itself to the tag the service is **currently serving**, so the
+measurement describes the deployment rather than whatever `:latest` is. It
+does not retry: a retried measurement is two runs averaged by accident, and a
+rate limit — the failure most worth seeing — is exactly what a retry hides.
+
+Read the failure breakdown before the percentiles. A p50 computed only from
+turns that produced audio is a percentile over survivors.
+
 ## Why not `gcloud run deploy --source .`
 
 Because it does not deploy this service. `--source .` builds a `Dockerfile` at

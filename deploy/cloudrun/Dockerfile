@@ -27,6 +27,17 @@ COPY caller-agent/flows/ ./caller-agent/flows/
 # page is served from Vercel instead.
 COPY web/ ./web/
 
+# The latency harness, so it can be run as a Cloud Run JOB in this region
+# against the same image. Not for the service — nothing serving traffic ever
+# executes it — but for the one measurement that cannot be taken anywhere else.
+#
+# A number measured from Cloud Shell is measured from wherever Google put that
+# VM, which is not asia-south1, so every vendor call crosses an ocean twice and
+# the result is a claim about a network path no prospect will ever be on. There
+# is no way to pin Cloud Shell to a region; there is a way to run this beside
+# the service. One file, and it imports only what the service already carries.
+COPY scripts/measure-latency.mjs ./scripts/measure-latency.mjs
+
 # NOT COPIED, on purpose: package.json and node_modules. The frontend's Next.js
 # and React are build-time only and nothing here imports them — CI asserts that
 # api/, caller-agent/src/ and shared/ import only relative paths and node:

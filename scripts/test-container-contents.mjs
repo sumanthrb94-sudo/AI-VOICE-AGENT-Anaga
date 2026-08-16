@@ -114,6 +114,24 @@ t('the flow and persona data are in the image', () => {
   }
 });
 
+t('the latency harness is in the image, so it can be measured in-region', () => {
+  // deploy/cloudrun/measure.sh runs this as a Cloud Run JOB on the same image,
+  // in asia-south1, because Cloud Shell cannot be pinned to a region and a
+  // number measured from the wrong continent is a claim about a network path
+  // no prospect is on. If the COPY goes stale the job fails with MODULE_NOT_FOUND
+  // after provisioning, which reads as a broken image rather than a missing file.
+  assert.ok(covered('scripts/measure-latency.mjs'),
+    'scripts/measure-latency.mjs must be copied for measure.sh to work');
+
+  // And everything IT reaches, which is a different graph from the service's.
+  const harness = importGraph(path.join(ROOT, 'scripts/measure-latency.mjs'));
+  const missing = harness
+    .map((f) => path.relative(ROOT, f))
+    .filter((rel) => !covered(rel));
+  assert.deepEqual(missing, [],
+    `\n       the harness would fail at runtime on:\n       ${missing.join('\n       ')}`);
+});
+
 t('the frontend toolchain is NOT in the image', () => {
   // A container that answers phone calls has no business carrying Next.js.
   for (const p of ['node_modules', 'app', 'components', '.next', 'out', 'package.json']) {
