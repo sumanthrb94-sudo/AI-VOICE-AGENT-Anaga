@@ -108,6 +108,24 @@ const server = createAgentServer({
     };
   },
 
+  /**
+   * An approved acknowledgement to say while the model is still thinking.
+   *
+   * Read from the flow, never generated: these are words a prospect hears, and
+   * the one spoken before the model has decided anything is the one that must
+   * commit to nothing. A random pick per turn because the same syllable four
+   * times in a row is worse than the silence it replaces.
+   *
+   * Returns null when the flow has none for this language, which is the
+   * correct degradation — an English "okay" dropped into a Telugu call is a
+   * worse outcome than a pause.
+   */
+  backchannel(lang) {
+    const lines = flow.backchannel?.[normalizeFlowLang(lang)] || [];
+    if (!lines.length) return null;
+    return lines[Math.floor(Math.random() * lines.length)];
+  },
+
   async greeting(lang, direction) {
     // APPROVED WORDING, read from the flow. Never a generation: it is the
     // sentence that makes the call legal, and it is also the most

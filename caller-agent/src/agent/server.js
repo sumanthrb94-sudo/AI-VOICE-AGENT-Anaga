@@ -199,7 +199,12 @@ export function attachTwilio(ws, o = {}) {
             if (e.type === 'ended') { try { ws.close(1000, 'done'); } catch { /* gone */ } }
           },
           think: (history, opts) => o.think(history, { lang, direction: 'inbound', ...opts }),
-          speak: (text, l, fmt) => o.speak(text, l, fmt),
+          // EVERY argument, including opts. The 4th carries onChunk, which is
+          // what lets the voice reach the wire as it is generated; a wrapper
+          // that quietly drops it turns streaming TTS back into buffered TTS
+          // with no error anywhere.
+          speak: (text, l, fmt, opts) => o.speak(text, l, fmt, opts),
+          backchannel: o.backchannel,
           isOptOut: o.isOptOut,
         });
       } catch (err) {
@@ -282,7 +287,12 @@ export function attach(ws, o = {}) {
           onAudio: (pcm) => ws.send(pcm),
           onEvent: observeAndSend,
           think: (history, opts) => o.think(history, { lang, direction, ...opts }),
-          speak: (text, l) => o.speak(text, l),
+          // Was `(text, l)`, which dropped the audio FORMAT as well as opts.
+          // It worked only because the browser's 16kHz linear16 happens to be
+          // main.js's default — a phone leg would have been silently wrong,
+          // and onChunk never arrived at all.
+          speak: (text, l, fmt, opts) => o.speak(text, l, fmt, opts),
+          backchannel: o.backchannel,
           isOptOut: o.isOptOut,
         });
       } catch (err) {

@@ -46,6 +46,11 @@ export function createBridge(o) {
   const {
     lang, direction = 'outbound', onAudio, onEvent, think, speak,
     isOptOut = () => false, openSTT = openLiveSTT,
+    // (lang) => an approved acknowledgement, or null for none. A FUNCTION
+    // rather than a list because the choice must vary per turn — the same
+    // syllable four times in a row is worse than silence — and because the
+    // words live in the versioned flow, not in this file.
+    backchannel = null,
     sttProvider = process.env.LIVE_STT_PROVIDER || 'deepgram',
     ttsProvider = process.env.TTS_PROVIDER || 'unknown',
     usageLedger = createCallUsageLedger(),
@@ -190,6 +195,37 @@ export function createBridge(o) {
     // speaking, and she was not speaking yet.
     const mine = ++turnId;
 
+    // ── THE SOUND A PERSON MAKES WHILE THEY ARE THINKING ──────────────────
+    // A human acknowledges within about 200ms. Even after overlapping the two
+    // slowest legs, measurement in asia-south1 puts first audio at 2443ms p50 —
+    // two and a half seconds of nothing, which is the single thing that makes
+    // an agent feel like a machine rather than a person.
+    //
+    // These lines carry NO information and commit to nothing, which is exactly
+    // why they can be said before the model has decided anything. They live in
+    // the flow, versioned, because they are words a prospect hears.
+    //
+    // NOT PUSHED INTO history. The transcript is the compliance record and it
+    // records the conversation, not the noises in it; "సరే" is not a turn and
+    // logging it as one would pad the record with content nobody said.
+    //
+    // ONE SPEAKER, ONE QUEUE. This and the opening phrase both want the wire,
+    // and playing them concurrently interleaves their chunks into gibberish.
+    // Everything she says this turn goes through `voice`, in order. After the
+    // first call these lines are a TTS cache hit, so the queue costs nothing.
+    let voice = Promise.resolve();
+    const enqueue = (fn) => { voice = voice.then(fn, fn); return voice; };
+
+    const filler = backchannel ? backchannel(lang) : null;
+    if (filler) {
+      speaking = true;
+      emit({ type: 'speaking', value: true });
+      emit({ type: 'backchannel', text: filler });
+      // Its own accumulator: this is not part of the line, so it must not
+      // count toward how much of the reply reached the prospect.
+      enqueue(() => speakPhrases([filler], mine, { of: 1, delivered: 0, failed: null }));
+    }
+
     // ── THE OPENING PHRASE, THE MOMENT THE MODEL HAS WRITTEN IT ───────────
     // The pipeline is think-then-speak in series, and speak only needs the
     // first few words to begin. api/_lib/llm.js has streamed those words for a
@@ -219,9 +255,13 @@ export function createBridge(o) {
           history.push({ role: 'agent', text: head });
           emit({ type: 'said', text: head, early: true });
           emit({ type: 'first_clause', ms: firstClauseMs, text: head });
-          speaking = true;
-          emit({ type: 'speaking', value: true });
-          headPlay = speakPhrases([head], mine, acc);
+          if (!speaking) {
+            speaking = true;
+            emit({ type: 'speaking', value: true });
+          }
+          // Behind the backchannel if there was one, so her acknowledgement
+          // and her answer do not arrive on the wire at the same time.
+          headPlay = enqueue(() => speakPhrases([head], mine, acc));
         },
       });
       timer.leg('llm', Date.now() - thinkAt);
@@ -235,12 +275,16 @@ export function createBridge(o) {
       });
     } catch (err) {
       thinking = false;
-      // She may already be mid-phrase when the rest of the generation fails.
-      // Let that phrase finish rather than cutting her off mid-word, and let
-      // markIfUndelivered record that the line was not completed.
-      if (headPlay) {
-        await headPlay;
+      // Let whatever is already on the wire finish rather than cutting her off
+      // mid-word — an acknowledgement, an opening phrase, or both.
+      if (headPlay || filler) {
+        await voice;
         if (mine === turnId) { speaking = false; emit({ type: 'speaking', value: false }); }
+      }
+      // Only the LINE has a delivery record. A backchannel is not part of it,
+      // so a turn that failed after nothing but "సరే" has no half-spoken
+      // sentence to annotate.
+      if (headPlay) {
         acc.failed = acc.failed || `brain: ${err?.message || 'unavailable'}`;
         acc.of = Math.max(acc.of, acc.delivered + 1);
         markIfUndelivered(acc);
@@ -249,7 +293,14 @@ export function createBridge(o) {
       return;
     }
     thinking = false;
-    if (ended || !out?.say) return;
+    if (ended || !out?.say) {
+      // She acknowledged and then had nothing to say. Release the speaker.
+      if (filler && !ended) {
+        await voice;
+        if (mine === turnId) { speaking = false; emit({ type: 'speaking', value: false }); }
+      }
+      return;
+    }
 
     let said;
     if (headPlay) {
@@ -266,7 +317,7 @@ export function createBridge(o) {
         const last = history[history.length - 1];
         if (last && last.role === 'agent' && !/…\[/.test(last.text)) last.text = out.say;
         emit({ type: 'said', text: out.say, disposition: out.disposition });
-        await speakPhrases(phrases.slice(1), mine, acc);
+        await enqueue(() => speakPhrases(phrases.slice(1), mine, acc));
       } else {
         // The guess and the splitter disagree. She has ALREADY said headText,
         // so re-speaking phrases[0] repeats her and skipping ahead drops words.
@@ -283,10 +334,19 @@ export function createBridge(o) {
       said = acc;
     } else {
       // No streaming clause — a provider without it, a disabled stream, or a
-      // line too short to cut. Exactly the old behaviour.
+      // line too short to cut. Goes through the same queue rather than
+      // play(), so a backchannel that is still speaking is not talked over.
       history.push({ role: 'agent', text: out.say });
       emit({ type: 'said', text: out.say, disposition: out.disposition });
-      said = await play(out.say, mine);
+      const phrases = splitForSpeech(out.say);
+      acc.of = phrases.length;
+      if (!speaking) {
+        speaking = true;
+        emit({ type: 'speaking', value: true });
+      }
+      await enqueue(() => speakPhrases(phrases, mine, acc));
+      if (mine === turnId) { speaking = false; emit({ type: 'speaking', value: false }); }
+      said = acc;
     }
     // Only amend if this turn is still current — a barge-in is already
     // recorded by cutOff() and must not be relabelled a voice failure.

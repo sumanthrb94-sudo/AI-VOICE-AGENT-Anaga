@@ -298,5 +298,89 @@ await t('a barge-in mid-synthesis stops the chunks still arriving', async () => 
   assert.equal(total, 4, `${total} bytes went out after the barge-in, expected only the first 4`);
 });
 
+console.log('\n═══ THE ACKNOWLEDGEMENT WHILE SHE THINKS ═══\n');
+
+await t('she acknowledges immediately, long before the model has answered', async () => {
+  const h = build({ backchannel: () => 'సరే' });
+  h.say('go on');
+  await settle();
+
+  // think() has not been released. The only thing she can have said is the
+  // acknowledgement plus whatever streamed early.
+  assert.equal(h.spoken[0], 'సరే', `spoke ${JSON.stringify(h.spoken)} first`);
+  h.release();
+  await settle();
+});
+
+await t('the acknowledgement comes BEFORE the opening phrase, never alongside it', async () => {
+  // Both want the wire. Concurrently they interleave chunk by chunk, which is
+  // not two phrases, it is gibberish.
+  const h = build({ backchannel: () => 'సరే' });
+  h.say('go on');
+  await settle();
+  h.release();
+  await settle();
+
+  assert.deepEqual(h.spoken.slice(0, 2), ['సరే', HEAD],
+    `order was ${JSON.stringify(h.spoken.slice(0, 2))}`);
+});
+
+await t('it is NOT written into the transcript', async () => {
+  // history is the compliance record. It records the conversation, not the
+  // noises in it — logging "సరే" as a turn pads the record with content
+  // nobody would call a statement.
+  const h = build({ backchannel: () => 'సరే' });
+  h.say('go on');
+  await settle();
+  h.release();
+  await settle();
+
+  const said = h.of('said').map((e) => e.text);
+  assert.ok(!said.includes('సరే'), 'the acknowledgement must not appear as a spoken line');
+  assert.equal(h.of('backchannel').length, 1, 'it should be observable as its own event');
+});
+
+await t('`speaking` still goes true once and false once across both', async () => {
+  const h = build({ backchannel: () => 'సరే' });
+  h.say('go on');
+  await settle();
+  h.release();
+  await settle();
+
+  assert.deepEqual(h.of('speaking').map((e) => e.value), [true, false]);
+});
+
+await t('a language with no approved line gets silence, not an English one', async () => {
+  // An English "okay" dropped into a Telugu call is worse than a pause.
+  const h = build({ backchannel: () => null });
+  h.say('go on');
+  await settle();
+  h.release();
+  await settle();
+
+  assert.equal(h.spoken[0], HEAD, 'nothing should precede the opening phrase');
+  assert.equal(h.of('backchannel').length, 0);
+});
+
+await t('the model failing after an acknowledgement leaves no half-spoken line in the record', async () => {
+  // She said "సరే" and nothing else. There is no sentence to annotate as
+  // partially delivered, and claiming one would invent a turn.
+  const h = build({
+    backchannel: () => 'సరే',
+    async think() {
+      await new Promise((r) => setTimeout(r, 0));
+      throw new Error('upstream 503');
+    },
+  });
+  h.say('go on');
+  await settle();
+
+  assert.deepEqual(h.spoken, ['సరే']);
+  assert.equal(h.of('not_delivered').length, 0,
+    'a backchannel is not part of the line and has no delivery record');
+  assert.deepEqual(h.of('speaking').map((e) => e.value), [true, false],
+    'and the speaker must be released');
+});
+
 console.log(`\n═══ ${pass} passed, ${fail} failed ═══\n`);
 if (fail) { failures.forEach((f) => console.log('  FAIL ' + f)); process.exit(1); }
