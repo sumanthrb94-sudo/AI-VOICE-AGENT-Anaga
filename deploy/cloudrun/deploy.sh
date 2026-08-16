@@ -144,17 +144,25 @@ gcloud builds submit --config deploy/cloudrun/cloudbuild.yaml \
   --substitutions "_IMAGE=${IMAGE},_TAG=${TAG}" .
 
 say "→ Deploying to Cloud Run (${REGION})"
+# No --platform: gcloud removed it from `run deploy`, and --region already
+# means managed. Leaving it in made the deploy fail on flag parsing AFTER a
+# successful build, which reads like a broken image and is not one.
+#
+# --set-env-vars uses the ^@^ alternate delimiter. The default separator is a
+# COMMA, and both of these values CONTAIN commas — they are provider fallback
+# chains (see api/_lib/tts.js). With the default delimiter, "sarvam,gemini"
+# parses as the variable LLM_PROVIDER=sarvam plus a nonsense bare token
+# "gemini", and gcloud rejects the lot.
 gcloud run deploy "$SERVICE" \
-  --image "$IMAGE" \
+  --image "${IMAGE}:${TAG}" \
   --region "$REGION" \
-  --platform managed \
   --allow-unauthenticated \
   --min-instances "$MIN_INSTANCES" \
   --max-instances 10 \
   --concurrency 20 \
   --cpu 1 --memory 512Mi \
   --timeout 3600 \
-  --set-env-vars "NODE_ENV=production,LLM_PROVIDER=sarvam,gemini,TTS_PROVIDER=sarvam,google" \
+  --set-env-vars "^@^NODE_ENV=production@LLM_PROVIDER=sarvam,gemini@TTS_PROVIDER=sarvam,google" \
   --set-secrets "$SECRETS" \
   --quiet
 
