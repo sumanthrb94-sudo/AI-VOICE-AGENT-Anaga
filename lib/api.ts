@@ -121,6 +121,37 @@ export const getConsoleSummary = (limit = 50) =>
 export const getCalls = (limit = 25) =>
   request<{ ok: true; calls: unknown[] }>(`/api/calls/transcript?limit=${limit}`);
 
+/* ------------------------------------------------------- demo calls */
+
+export interface DemoTurn { ttfa: number | null; ttfaFromSpeech?: number | null; llm?: number | null; tts?: number | null }
+export interface DemoCallSummary {
+  id: string; lang: string; turns: number;
+  startedAt: number | null; endedAt: number; ttfaP50: number | null;
+  by?: string | null;
+}
+
+/** Record a browser demo call against the signed-in account.
+ *
+ *  The browser sends this, not the agent: it already holds every event and the
+ *  session cookie, where the agent runs on Cloud Run with neither. */
+export const saveDemoCall = (body: {
+  lang: string;
+  startedAt: number | null;
+  history: Array<{ role: 'agent' | 'user'; text: string }>;
+  timings: DemoTurn[];
+}) =>
+  request<{ ok: true; id: string }>('/api/calls/demo', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+/** Own calls for a `demo` user; every demo call for viewer and above. */
+export const getDemoCalls = (limit = 25) =>
+  request<{ calls: DemoCallSummary[]; durable: boolean; scope: 'mine' | 'all' }>(
+    `/api/calls/demo?limit=${limit}`,
+  );
+
 export const getCall = (callId: string) =>
   request<{ ok: true; call: unknown }>(`/api/calls/transcript?callId=${encodeURIComponent(callId)}`);
 

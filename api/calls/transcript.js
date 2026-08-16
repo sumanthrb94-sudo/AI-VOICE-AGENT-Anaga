@@ -20,8 +20,15 @@ const MAX_LIMIT = 100;
 const DEFAULT_TTL = 300;
 
 export default async function handler(req, res) {
-  if (String(req.query?.action || '').toLowerCase() === 'recording') {
-    return recordingHandler(req, res);
+  const action = String(req.query?.action || '').toLowerCase();
+  if (action === 'recording') return recordingHandler(req, res);
+  // /api/calls/demo, rewritten here for the same reason /api/calls/recording
+  // is: Vercel's Hobby plan allows 12 serverless functions and this repo emits
+  // exactly 12. A thirteenth file fails the DEPLOY, after a successful build.
+  // Routes under _lib are not turned into functions, which is the whole trick.
+  if (action === 'demo') {
+    const { default: demoHandler } = await import('../_lib/routes/calls-demo.js');
+    return demoHandler(req, res);
   }
   return transcriptHandler(req, res);
 }

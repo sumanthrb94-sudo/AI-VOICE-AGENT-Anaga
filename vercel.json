@@ -46,6 +46,10 @@
       "destination": "/api/calls/transcript?action=recording"
     },
     {
+      "source": "/api/calls/demo",
+      "destination": "/api/calls/transcript?action=demo"
+    },
+    {
       "source": "/api/auth/:action",
       "destination": "/api/auth?action=:action"
     }

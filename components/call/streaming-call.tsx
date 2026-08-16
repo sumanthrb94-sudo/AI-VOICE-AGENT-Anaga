@@ -28,7 +28,7 @@
 
 import * as React from 'react';
 import { Loader2, Mic, PhoneOff, Radio, TriangleAlert } from 'lucide-react';
-import { getHealth, type AgentStatus } from '@/lib/api';
+import { getHealth, saveDemoCall, type AgentStatus } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/primitives';
 
@@ -46,6 +46,12 @@ type ServerEvent = {
   role?: string;
   final?: boolean;
   lang?: string;
+  // turn_timing. Numbers the bridge already computes, carried so the console
+  // can report what a caller waited rather than what a benchmark measured.
+  ttfa?: number;
+  ttfaFromSpeech?: number;
+  llm?: number;
+  tts?: number;
 };
 
 declare global {
@@ -74,6 +80,35 @@ export function StreamingCall() {
   const [lines, setLines] = React.useState<Line[]>([]);
   const call = React.useRef<LiveCall | null>(null);
   const tail = React.useRef<HTMLDivElement>(null);
+  // Kept in refs, not state: they are written from socket callbacks on every
+  // turn and nothing renders from them, so putting them in state would
+  // re-render the transcript on each timing event for no visible reason.
+  const startedAt = React.useRef<number | null>(null);
+  const timings = React.useRef<Array<{ ttfa: number | null; ttfaFromSpeech?: number | null; llm?: number | null; tts?: number | null }>>([]);
+  const lines_ = React.useRef<Line[]>([]);
+  const saved = React.useRef(false);
+  lines_.current = lines;
+
+  /** Write the call down, once, against the signed-in account.
+   *
+   *  Nothing recorded browser calls at all: the bridge emitted transcripts and
+   *  timings to this page and the page dropped them when the tab closed. So a
+   *  console on a deployment where calls had been held read zero of everything.
+   *
+   *  Best effort by design. A failed write must never surface as a failed
+   *  CALL — the conversation happened either way, and a signed-out visitor
+   *  gets a 401 here, which is not an error worth showing them. */
+  const persist = React.useCallback(() => {
+    if (saved.current) return;
+    const history = lines_.current
+      .filter((l) => !l.partial)
+      .map((l) => ({ role: l.who === 'anaga' ? ('agent' as const) : ('user' as const), text: l.text }));
+    if (!history.length) return;
+    saved.current = true;
+    void saveDemoCall({
+      lang, startedAt: startedAt.current, history, timings: timings.current,
+    }).catch(() => { /* not signed in, or the store is down. The call still happened. */ });
+  }, [lang]);
 
   /* Where to dial, and whether there is anywhere to dial at all. */
   React.useEffect(() => {
@@ -87,7 +122,7 @@ export function StreamingCall() {
   /* Hanging up on unmount is not optional — the microphone stays open
      otherwise, and the browser's recording indicator stays lit on a page the
      user believes they have left. */
-  React.useEffect(() => () => { call.current?.stop(); }, []);
+  React.useEffect(() => () => { call.current?.stop(); persist(); }, [persist]);
 
   React.useEffect(() => {
     tail.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
@@ -150,12 +185,29 @@ export function StreamingCall() {
       return;
     }
 
+    startedAt.current = Date.now();
+    timings.current = [];
+    saved.current = false;
+
     call.current = window.createLiveCall({
-      onEvent: record,
+      onEvent: (e) => {
+        // Numbers only, and only the ones the bridge already computes. This is
+        // what lets the console show what a caller actually waited through
+        // rather than what a benchmark said.
+        if (e.type === 'turn_timing') {
+          timings.current.push({
+            ttfa: typeof e.ttfa === 'number' ? e.ttfa : null,
+            ttfaFromSpeech: typeof e.ttfaFromSpeech === 'number' ? e.ttfaFromSpeech : null,
+            llm: typeof e.llm === 'number' ? e.llm : null,
+            tts: typeof e.tts === 'number' ? e.tts : null,
+          });
+        }
+        record(e);
+      },
       onState: (s, d) => {
         if (s === 'live') setState('live');
-        else if (s === 'closed') setState((was) => (was === 'live' ? 'ended' : was));
-        else if (s === 'error') { setState('error'); setDetail(d || 'the call failed'); }
+        else if (s === 'closed') { setState((was) => (was === 'live' ? 'ended' : was)); persist(); }
+        else if (s === 'error') { setState('error'); setDetail(d || 'the call failed'); persist(); }
       },
     });
 
@@ -169,6 +221,8 @@ export function StreamingCall() {
     call.current?.stop();
     call.current = null;
     setState('ended');
+    // stop() closes the socket locally, so onState('closed') may never fire.
+    persist();
   }
 
   /* ------------------------------------------------------------- rendering */
