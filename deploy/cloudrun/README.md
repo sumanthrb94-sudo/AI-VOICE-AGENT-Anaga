@@ -109,6 +109,40 @@ rate limit — the failure most worth seeing — is exactly what a retry hides.
 Read the failure breakdown before the percentiles. A p50 computed only from
 turns that produced audio is a percentile over survivors.
 
+### Where the time goes, and why we stopped
+
+Measured in `asia-south1`, two independent 20-turn runs:
+
+| | p50 | p95 |
+|---|---|---|
+| time to first audio | 1250–1390ms | ~1600ms |
+| first clause ready | 1005–1139ms | ~1350ms |
+| speak (first phrase) | 253–264ms | ~325ms |
+| orchestration overhead | −1471 to −1763ms | |
+
+Down from 3665ms p50 / 5126ms p95 before the pipeline overlapped its legs.
+Negative overhead is not a bug: audio reaches the wire before the sum of the
+vendor calls, because generation and synthesis run concurrently.
+
+**Synthesis is solved.** 253ms is Sarvam's first byte; there is nothing left.
+
+**The prompt is not the remaining cost, and this was tested rather than
+assumed.** `--bare` replaces the 6065-character system prompt with ~230
+characters and first-clause falls only to 843ms — a 26× smaller prompt for
+about 250ms. So roughly 800ms is fixed time-to-first-token at the vendor, and
+a realistic trim that kept every compliance rule would recover perhaps 75ms.
+That is not worth editing the disclosure wording, the opt-out triggers, or
+"you qualify, humans close", so it was not done.
+
+(The `--bare` run also reports 861ms time-to-first-audio. Ignore it: its
+`speak` p50 is 0ms because a minimal prompt produces short repetitive lines
+that all hit the TTS cache. Only `first clause ready` is comparable.)
+
+**What remains, if this ever needs to be faster:** a smaller or faster model,
+prompt caching if Sarvam offers it, or Sarvam's WebSocket TTS — though that
+last one now buys at most ~250ms and costs the provider fallback chain, since
+no fallback is possible once the first audio byte has been sent.
+
 ## Why not `gcloud run deploy --source .`
 
 Because it does not deploy this service. `--source .` builds a `Dockerfile` at
