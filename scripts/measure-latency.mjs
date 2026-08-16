@@ -36,7 +36,7 @@
 // region the service runs in, or the number describes your broadband.
 
 import { createBridge } from '../caller-agent/src/agent/bridge.js';
-import { summarise, formatSummary } from '../shared/latency.js';
+import { summarise, formatSummary, percentile } from '../shared/latency.js';
 
 const arg = (name, fallback = null) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -189,6 +189,7 @@ let sttEvents = null;
 // many calls it takes, which is also closer to what a day of dialling is.
 let ended = false;
 let calls = 0;
+const clauseMs = [];
 let bridge = null;
 
 function startCall() {
@@ -202,6 +203,11 @@ function startCall() {
     onEvent(e) {
       if (e.type === 'turn_timing') samples.push(e);
       if (e.type === 'ended') ended = true;
+      // The moment the model has written enough to START SPEAKING, which is
+      // the only part of `think` on the critical path. Without it, `think`
+      // p50 answers a question nobody is waiting on — the back half of the
+      // generation happens while she is already talking.
+      if (e.type === 'first_clause' && typeof e.ms === 'number') clauseMs.push(e.ms);
     },
     isOptOut: () => false,
     think: vendors.think,
@@ -262,6 +268,16 @@ process.stdout.write('\n');
 
 const sum = summarise(samples, attempted);
 console.log(formatSummary(sum, { title: `TURN LATENCY · ${LIVE ? 'live' : 'stub'} · ${LANG}` }));
+if (clauseMs.length) {
+  // Printed next to `think` so the split is unmissable: this is what gates
+  // her first word, and the difference between the two is what overlapping
+  // bought. Attack this number, not the other one.
+  const p = (q) => `${Math.round(percentile(clauseMs, q))}ms`;
+  console.log(`  first clause ready       ${p(50).padStart(6)}   ${p(95).padStart(6)}`
+    + `   ${String(Math.round(Math.min(...clauseMs))).padStart(4)}ms   `
+    + `${String(Math.round(Math.max(...clauseMs))).padStart(4)}ms  n=${clauseMs.length}`);
+  console.log('    …the rest of `think` above runs while she is already speaking\n');
+}
 if (calls > 1) {
   console.log(`  spread over ${calls} calls — she ends one when the lead is qualified\n`);
 }
@@ -314,6 +330,13 @@ if (sum.ttfa) {
 // The failures ride along in --json too. A run piped into a file or a CI step
 // that reports only the percentiles is reporting the turns that SUCCEEDED,
 // which is the most flattering possible sample and never says so.
-if (AS_JSON) console.log(JSON.stringify({ ...sum, failures }, null, 2));
+if (AS_JSON) {
+  const firstClause = clauseMs.length
+    ? { n: clauseMs.length, min: Math.round(Math.min(...clauseMs)),
+        p50: Math.round(percentile(clauseMs, 50)), p95: Math.round(percentile(clauseMs, 95)),
+        max: Math.round(Math.max(...clauseMs)) }
+    : null;
+  console.log(JSON.stringify({ ...sum, firstClause, calls, failures }, null, 2));
+}
 
 process.exit(sum.turns.measured === 0 ? 1 : 0);
