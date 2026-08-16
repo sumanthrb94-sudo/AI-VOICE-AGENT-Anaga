@@ -69,10 +69,18 @@ fi
 # would need --env-vars-file anyway, because both values contain commas and
 # --set-env-vars splits on those — the same trap that broke deploy.sh twice.
 #
+# --args= AND --command=, WITH THE EQUALS SIGN, NOT A SPACE.
+#
+# The args this passes START WITH A DASH — "--experimental-detect-module,…" —
+# and gcloud's parser reads a space-separated value beginning with `--` as the
+# next FLAG rather than as the value. So `--args "--experimental…"` leaves
+# --args with nothing and fails with "argument --args: expected one argument",
+# which reads as a missing argument rather than as a quoting rule.
+#
 # COMMENTS GO HERE, NOT INSIDE THE COMMAND. A `# ...` inside backticks comments
 # out its own closing backtick, so bash keeps reading the following lines
-# looking for it and swallows the flags below — which surfaced as
-# "--args: expected one argument" and looked like a gcloud problem.
+# looking for it and swallows the flags below — a separate bug that produced
+# the identical error message, which is how it hid behind this one.
 gcloud run jobs deploy "$JOB" \
   --image "${IMAGE}:${TAG}" \
   --region "$REGION" \
@@ -81,8 +89,8 @@ gcloud run jobs deploy "$JOB" \
   --max-retries 0 \
   --task-timeout 900s \
   --cpu 1 --memory 512Mi \
-  --command node \
-  --args "--experimental-detect-module,scripts/measure-latency.mjs,--live,--turns,${TURNS},--lang,${LANG_TAG}" \
+  --command=node \
+  --args="--experimental-detect-module,scripts/measure-latency.mjs,--live,--turns,${TURNS},--lang,${LANG_TAG}" \
   --quiet >/dev/null
 
 say "→ Running it (this drives ${TURNS} real turns and spends real vendor credit)"
