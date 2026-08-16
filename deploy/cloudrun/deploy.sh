@@ -130,6 +130,20 @@ if gcloud secrets describe gemini-key >/dev/null 2>&1; then
   SECRETS="${SECRETS},GEMINI_API_KEY=gemini-key:latest"
   MOUNTED+=(gemini-key)
 fi
+# The ticket secret. Without it BOTH sides fall open — the API refuses to mint
+# a token and the agent accepts a socket with none — so this is the one that
+# decides whether a stranger with the URL can spend your Sarvam and Deepgram
+# credit. Optional so an existing deployment does not break; warned about so
+# nobody mistakes its absence for protection.
+if gcloud secrets describe agent-token-secret >/dev/null 2>&1; then
+  SECRETS="${SECRETS},AGENT_TOKEN_SECRET=agent-token-secret:latest"
+  MOUNTED+=(agent-token-secret)
+else
+  echo "  ⚠ no agent-token-secret — /agent accepts ANY caller who knows the URL"
+  echo "    openssl rand -base64 32 | tr -d '\\n' | gcloud secrets create agent-token-secret --data-file=-"
+  echo "    then set the SAME value as AGENT_TOKEN_SECRET on Vercel"
+fi
+
 # Twilio's auth token is what makes /incoming-call verify its caller. The
 # endpoint FAILS CLOSED without it — an unverified caller is one the compliance
 # gate never saw — so its absence is a warning, not a silent downgrade.
