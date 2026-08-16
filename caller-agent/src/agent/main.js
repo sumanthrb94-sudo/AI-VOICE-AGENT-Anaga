@@ -82,6 +82,11 @@ const server = createAgentServer({
     const out = await synth({
       text, lang, codec, sampleRate: rate,
       onChunk: typeof opts?.onChunk === 'function' ? opts.onChunk : undefined,
+      // Chosen per call by whoever started it, already bounded in server.js.
+      // Undefined falls through to the deployment default, so a call that
+      // asks for nothing sounds exactly as it did.
+      ...(opts?.voice ? { speaker: opts.voice } : {}),
+      ...(opts?.pace ? { pace: opts.pace } : {}),
     });
     const buf = Buffer.from(out.audio, 'base64');
     const mime = String(out.mime || '');

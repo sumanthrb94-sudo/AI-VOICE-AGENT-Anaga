@@ -337,6 +337,19 @@ export function attach(ws, o = {}) {
       if (bridge) return;                       // one conversation per socket
       const lang = String(m.lang || 'en-IN');
       const direction = m.direction === 'inbound' ? 'inbound' : 'outbound';
+      // ── HER VOICE, CHOSEN PER CALL ───────────────────────────────────────
+      // A demo is where you find out that a speaker sounds wrong for a
+      // language or that she talks too fast, and redeploying to change it
+      // makes that a half-hour loop instead of a ten-second one.
+      //
+      // Per CALL, not persisted, on purpose: this arrives from a browser, and
+      // a client that could change the deployment's default voice could change
+      // it for everyone. Bounded here rather than trusted — a speaker Sarvam
+      // does not have is a 400 on every line of a live call.
+      const voice = /^[a-z][a-z0-9_-]{0,31}$/i.test(String(m.voice || '')) ? String(m.voice) : null;
+      const pace = Number.isFinite(Number(m.pace))
+        ? Math.min(1.5, Math.max(0.6, Number(m.pace)))
+        : null;
       try {
         bridge = createBridge({
           lang,
@@ -348,7 +361,7 @@ export function attach(ws, o = {}) {
           // It worked only because the browser's 16kHz linear16 happens to be
           // main.js's default — a phone leg would have been silently wrong,
           // and onChunk never arrived at all.
-          speak: (text, l, fmt, opts) => o.speak(text, l, fmt, opts),
+          speak: (text, l, fmt, opts) => o.speak(text, l, fmt, { ...opts, voice, pace }),
           backchannel: o.backchannel,
           isOptOut: o.isOptOut,
         });

@@ -35,7 +35,7 @@ import { Card } from '@/components/ui/primitives';
 /* ------------------------------------------------- live.js, typed by hand */
 
 interface LiveCall {
-  start: (lang: string, direction: string) => Promise<boolean>;
+  start: (lang: string, direction: string, tone?: { voice?: string; pace?: number }) => Promise<boolean>;
   stop: () => void;
   isLive: () => boolean;
 }
@@ -81,6 +81,21 @@ export function StreamingCall() {
   const [state, setState] = React.useState<'idle' | 'connecting' | 'live' | 'ended' | 'error'>('idle');
   const [detail, setDetail] = React.useState('');
   const [lang, setLang] = React.useState('te-IN');
+  // ── HER VOICE, PER CALL ────────────────────────────────────────────────
+  // A demo is where you discover a speaker sounds wrong for a language or
+  // that she talks too fast. Redeploying to change it makes that a half-hour
+  // loop; this makes it ten seconds. The server bounds both values, because
+  // they come from a browser.
+  const [voice, setVoice] = React.useState('');
+  const [pace, setPace] = React.useState(1);
+  const [voices, setVoices] = React.useState<string[]>([]);
+  // ── WHAT THIS CALL IS COSTING THE CALLER, LIVE ─────────────────────────
+  // The bridge emits a timing for every turn and nothing was watching. These
+  // are the same numbers the measurement harness reports, for the call
+  // happening right now — so a demo can be judged on what it actually did
+  // rather than on a figure from a different day.
+  const [turnStats, setTurnStats] = React.useState<Array<{ ttfa: number | null; llm: number | null; tts: number | null }>>([]);
+  const [bargeIns, setBargeIns] = React.useState(0);
   const [lines, setLines] = React.useState<Line[]>([]);
   const call = React.useRef<LiveCall | null>(null);
   const tail = React.useRef<HTMLDivElement>(null);
@@ -120,7 +135,15 @@ export function StreamingCall() {
   React.useEffect(() => {
     let alive = true;
     getHealth()
-      .then((h) => { if (alive) setAgent(h.agent ?? { url: null, streaming: false }); })
+      .then((h) => {
+        if (!alive) return;
+        setAgent(h.agent ?? { url: null, streaming: false });
+        // The voices the API says the deployment will ACCEPT, rather than a
+        // list hardcoded here — the drift that once had the page offering
+        // seven invented names for a model with thirty-seven real ones.
+        const tts = h.tts as { voices?: Array<{ id?: string }> } | undefined;
+        setVoices((tts?.voices ?? []).map((v) => String(v?.id || '')).filter(Boolean));
+      })
       .catch(() => { if (alive) setAgent({ url: null, streaming: false }); });
     return () => { alive = false; };
   }, []);
@@ -162,6 +185,8 @@ export function StreamingCall() {
 
     setLines([]);
     setDetail('');
+    setTurnStats([]);
+    setBargeIns(0);
     setState('connecting');
 
     // Told where to dial BEFORE the script loads: live.js reads the global at
@@ -221,7 +246,13 @@ export function StreamingCall() {
         // no balance endpoint, so spend is derived from units this pipeline
         // metered itself and the rates in CALL_COST_*.
         if (e.type === 'usage') usage.current = e.usage ?? null;
+        if (e.type === 'user_started') setBargeIns((n) => n + 1);
         if (e.type === 'turn_timing') {
+          setTurnStats((prev) => [...prev, {
+            ttfa: typeof e.ttfa === 'number' ? e.ttfa : null,
+            llm: typeof e.llm === 'number' ? e.llm : null,
+            tts: typeof e.tts === 'number' ? e.tts : null,
+          }]);
           timings.current.push({
             ttfa: typeof e.ttfa === 'number' ? e.ttfa : null,
             ttfaFromSpeech: typeof e.ttfaFromSpeech === 'number' ? e.ttfaFromSpeech : null,
@@ -240,7 +271,10 @@ export function StreamingCall() {
 
     // OUTBOUND: she speaks first, and the first thing she says is the
     // disclosure. That is the leg this product actually runs.
-    const ok = await call.current.start(lang, 'outbound');
+    const ok = await call.current.start(lang, 'outbound', {
+      voice: voice || undefined,
+      pace: pace !== 1 ? pace : undefined,
+    });
     if (!ok) setState((was) => (was === 'connecting' ? 'error' : was));
   }
 
@@ -321,6 +355,36 @@ export function StreamingCall() {
         </div>
       </fieldset>
 
+      {/* ── HER VOICE AND PACE ────────────────────────────────────────
+          Per call, never persisted. A client that could change the
+          deployment's default would change it for everyone; the server bounds
+          both values on arrival for the same reason. */}
+      <fieldset disabled={busy} className="disabled:opacity-50">
+        <legend className="mb-3 text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-faint)]">
+          Voice
+        </legend>
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            value={voice}
+            onChange={(e) => setVoice(e.target.value)}
+            className="h-10 cursor-pointer rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-elevated)] px-3 text-[length:var(--text-sm)]"
+          >
+            <option value="">Deployment default</option>
+            {voices.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+
+          <label className="flex flex-1 items-center gap-3 text-[length:var(--text-sm)] text-[var(--color-text-dim)]">
+            Pace
+            <input
+              type="range" min={0.6} max={1.5} step={0.05} value={pace}
+              onChange={(e) => setPace(Number(e.target.value))}
+              className="flex-1 cursor-pointer accent-[var(--color-accent)]"
+            />
+            <span className="tabular-nums text-[var(--color-text)]">{pace.toFixed(2)}×</span>
+          </label>
+        </div>
+      </fieldset>
+
       <div className="flex items-center gap-3">
         {state !== 'live' ? (
           <Button onClick={begin} disabled={state === 'connecting'} className="flex-1">
@@ -348,6 +412,44 @@ export function StreamingCall() {
         <p role="alert" className="text-[length:var(--text-sm)] text-[var(--color-bad)]">
           {detail || 'the call failed'}
         </p>
+      )}
+
+      {/* ── WHAT THIS CALL IS DOING, WHILE IT DOES IT ──────────────────
+          The bridge has emitted a timing for every turn since the latency
+          work and nothing watched them. Same numbers the harness reports, for
+          the call in front of you — a demo judged on what it just did rather
+          than on a figure from a different day and a different region. */}
+      {turnStats.length > 0 && (
+        <Card className="p-4">
+          <div className="mb-3 flex items-center justify-between text-[length:var(--text-xs)] uppercase tracking-[0.12em] text-[var(--color-text-faint)]">
+            <span>This call</span>
+            <span>{turnStats.length} turns{bargeIns > 0 ? ` · ${bargeIns} barge-ins` : ''}</span>
+          </div>
+          <dl className="grid grid-cols-3 gap-3">
+            {([
+              ['first audio', turnStats.map((t) => t.ttfa)],
+              ['thinking', turnStats.map((t) => t.llm)],
+              ['voice', turnStats.map((t) => t.tts)],
+            ] as const).map(([label, xs]) => {
+              // Nearest-rank median, to agree with shared/latency.js rather
+              // than quietly meaning something else by the same word.
+              const v = xs.filter((n): n is number => typeof n === 'number').sort((a, b) => a - b);
+              const p50 = v.length ? v[Math.max(0, Math.ceil(v.length * 0.5) - 1)] : null;
+              return (
+                <div key={label}>
+                  <dt className="text-[length:var(--text-xs)] text-[var(--color-text-dim)]">{label}</dt>
+                  <dd className="mt-0.5 text-[length:var(--text-lg)] font-semibold tabular-nums">
+                    {p50 === null ? '—' : `${p50}ms`}
+                  </dd>
+                </div>
+              );
+            })}
+          </dl>
+          <p className="mt-3 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-faint)]">
+            Median across this call, measured from the final transcript. It does not include the
+            recogniser deciding you had stopped talking, which a caller also waits through.
+          </p>
+        </Card>
       )}
 
       {lines.length > 0 && (

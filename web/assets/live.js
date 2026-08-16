@@ -61,7 +61,13 @@
     }
 
     /** Must be called inside a user gesture — browsers require it for audio. */
-    function start(lang, direction) {
+    /**
+     * @param {string} lang
+     * @param {string} direction
+     * @param {{voice?:string, pace?:number}} [tone]  chosen per call; the
+     *        server bounds both, because this comes from a browser.
+     */
+    function start(lang, direction, tone) {
       if (ws || closed) return Promise.resolve(false);
       if (opts.onState) opts.onState("connecting");
       global.__micLive = true;
@@ -116,7 +122,7 @@
         mute.gain.value = 0;
         capture.connect(mute).connect(ctx.destination);
 
-        return open(lang, direction);
+        return open(lang, direction, tone);
       }).catch(function (err) {
         if (opts.onState) {
           opts.onState("error", err && (err.name === "NotAllowedError" || err.name === "SecurityError")
@@ -134,13 +140,17 @@
       return u + (u.indexOf("?") < 0 ? "?" : "&") + "t=" + encodeURIComponent(t);
     }
 
-    function open(lang, direction) {
+    function open(lang, direction, tone) {
       return new Promise(function (done) {
         ws = new WebSocket(withTicket(url()));
         ws.binaryType = "arraybuffer";
 
         ws.onopen = function () {
-          ws.send(JSON.stringify({ type: "start", lang: lang, direction: direction }));
+          ws.send(JSON.stringify({
+            type: "start", lang: lang, direction: direction,
+            voice: (tone && tone.voice) || undefined,
+            pace: (tone && tone.pace) || undefined
+          }));
           // Audio only starts flowing once the socket is up. Anything captured
           // before then is dropped rather than queued: it is the moment before
           // the call connected, and replaying it makes her answer a noise from
