@@ -173,20 +173,46 @@ const samples = [];
 let attempted = 0;
 let sttEvents = null;
 
-const bridge = createBridge({
-  lang: LANG,
-  direction: 'outbound',
-  audio: AUDIO,
-  onAudio() {},
-  onEvent(e) { if (e.type === 'turn_timing') samples.push(e); },
-  isOptOut: () => false,
-  think: vendors.think,
-  speak: vendors.speak,
-  openSTT: (o) => {
-    sttEvents = o.onEvent;
-    return { send() {}, close() {} };
-  },
-});
+// ── A CALL ENDS. THE MEASUREMENT DOES NOT ───────────────────────────────────
+// Anaga qualifies the lead, books the visit, and returns end:true — at which
+// point finish() sets `ended` and every later transcript is correctly ignored.
+// This harness kept pushing transcripts into a finished call and reported the
+// resulting silence as ten failed turns, identically, every run.
+//
+// That looked like a rate limit (a run of failures after a run of successes)
+// and then like a stall (no vendor error, nothing to report). It was neither:
+// it was the product working and the measurement not knowing what "the call
+// is over" looks like. Exactly ten every time was the clue — a vendor limit
+// does not land on the same turn twice.
+//
+// So a finished call starts a new one. 20 turns of measurement across however
+// many calls it takes, which is also closer to what a day of dialling is.
+let ended = false;
+let calls = 0;
+let bridge = null;
+
+function startCall() {
+  ended = false;
+  calls++;
+  bridge = createBridge({
+    lang: LANG,
+    direction: 'outbound',
+    audio: AUDIO,
+    onAudio() {},
+    onEvent(e) {
+      if (e.type === 'turn_timing') samples.push(e);
+      if (e.type === 'ended') ended = true;
+    },
+    isOptOut: () => false,
+    think: vendors.think,
+    speak: vendors.speak,
+    openSTT: (o) => {
+      sttEvents = o.onEvent;
+      return { send() {}, close() {} };
+    },
+  });
+}
+startCall();
 
 const lines = PROSPECT[LANG] || PROSPECT['en-IN'];
 
@@ -195,8 +221,16 @@ console.log(
   + ` · ${AUDIO.sampleRate}Hz ${AUDIO.encoding}\n`,
 );
 
+let line = 0;
 for (let i = 0; i < TURNS; i++) {
-  const said = lines[i % lines.length];
+  // She has hung up. Dial again rather than talking to a call that is over.
+  if (ended) {
+    bridge.end();
+    startCall();
+    line = 0;                      // a fresh call starts from the top of the script
+    console.log(`\n  — she ended the call; starting call ${calls}`);
+  }
+  const said = lines[line++ % lines.length];
   attempted++;
 
   // An interim first, so time-from-speech-end has something to measure
@@ -216,8 +250,10 @@ for (let i = 0; i < TURNS; i++) {
     const why = failures.filter((f) => f.turn === attempted);
     console.log(why.length
       ? `  turn ${i + 1}: NO audio — ${why.map((f) => `${f.stage}: ${f.message}`).join('; ')}`
-      : `  turn ${i + 1}: NO audio — no vendor error; the turn never completed `
-        + `(timed out after 30s, or the reply was empty)`);
+      : ended
+        ? `  turn ${i + 1}: NO audio — she ended the call on this turn (not a failure)`
+        : `  turn ${i + 1}: NO audio — no vendor error; the turn never completed `
+          + `(timed out after 30s, or the reply was empty)`);
   } else process.stdout.write(`\r  ${samples.length}/${TURNS} turns`);
 }
 
@@ -226,6 +262,9 @@ process.stdout.write('\n');
 
 const sum = summarise(samples, attempted);
 console.log(formatSummary(sum, { title: `TURN LATENCY · ${LIVE ? 'live' : 'stub'} · ${LANG}` }));
+if (calls > 1) {
+  console.log(`  spread over ${calls} calls — she ends one when the lead is qualified\n`);
+}
 
 // ── WHAT WENT WRONG, GROUPED ───────────────────────────────────────────────
 // A silence rate is not a footnote next to a latency number, it is the more
