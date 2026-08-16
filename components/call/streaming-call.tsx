@@ -46,6 +46,9 @@ type ServerEvent = {
   role?: string;
   final?: boolean;
   lang?: string;
+  // The bridge's own meter, emitted once when the call ends. Numeric units
+  // only — no audio, no transcript, no phone number.
+  usage?: unknown;
   // turn_timing. Numbers the bridge already computes, carried so the console
   // can report what a caller waited rather than what a benchmark measured.
   ttfa?: number;
@@ -86,6 +89,7 @@ export function StreamingCall() {
   const startedAt = React.useRef<number | null>(null);
   const timings = React.useRef<Array<{ ttfa: number | null; ttfaFromSpeech?: number | null; llm?: number | null; tts?: number | null }>>([]);
   const lines_ = React.useRef<Line[]>([]);
+  const usage = React.useRef<unknown>(null);
   const saved = React.useRef(false);
   lines_.current = lines;
 
@@ -106,7 +110,8 @@ export function StreamingCall() {
     if (!history.length) return;
     saved.current = true;
     void saveDemoCall({
-      lang, startedAt: startedAt.current, history, timings: timings.current,
+      lang, startedAt: startedAt.current, history,
+      timings: timings.current, usage: usage.current,
     }).catch(() => { /* not signed in, or the store is down. The call still happened. */ });
   }, [lang]);
 
@@ -187,6 +192,7 @@ export function StreamingCall() {
 
     startedAt.current = Date.now();
     timings.current = [];
+    usage.current = null;
     saved.current = false;
 
     call.current = window.createLiveCall({
@@ -194,6 +200,10 @@ export function StreamingCall() {
         // Numbers only, and only the ones the bridge already computes. This is
         // what lets the console show what a caller actually waited through
         // rather than what a benchmark said.
+        // WHAT THE CALL COST, counted rather than asked for. Sarvam publishes
+        // no balance endpoint, so spend is derived from units this pipeline
+        // metered itself and the rates in CALL_COST_*.
+        if (e.type === 'usage') usage.current = e.usage ?? null;
         if (e.type === 'turn_timing') {
           timings.current.push({
             ttfa: typeof e.ttfa === 'number' ? e.ttfa : null,

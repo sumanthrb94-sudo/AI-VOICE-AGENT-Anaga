@@ -32,6 +32,7 @@ import { requireMethod } from '../integrations/http.js';
 import { limited, log, requestId } from '../guard.js';
 import { currentUser, hasRole } from '../auth.js';
 import { recordCall, recentCalls, storeBackend } from '../store.js';
+import { sanitizeCallUsage } from '../../../shared/call-usage.js';
 
 /** The turn shape the bridge emits, kept only in the forms we display. */
 function cleanHistory(raw) {
@@ -119,6 +120,18 @@ async function save(req, res) {
     // caller experienced without recomputing it on every render.
     ttfaP50: median(timings.map((t) => t.ttfa)),
     transport: 'browser',
+    // ── WHAT IT COST, COUNTED RATHER THAN ASKED FOR ──────────────────────
+    // Sarvam publishes no balance endpoint, so "how much credit is left" is
+    // not a question this system can ask. It can answer the more useful one:
+    // the ledger already meters billable UNITS per stage per provider on
+    // every call — STT minutes, TTS and LLM characters — so with the
+    // CALL_COST_* rates set, spend is derived from what actually happened,
+    // attributed per call. Without them the units are still recorded and
+    // `estimatedCost` stays null, which is honest rather than zero.
+    //
+    // Sanitized on the way in: this arrives from a browser, and it is numbers
+    // or it is nothing.
+    usage: sanitizeCallUsage(body.usage),
   };
 
   const out = await recordCall(id, call);

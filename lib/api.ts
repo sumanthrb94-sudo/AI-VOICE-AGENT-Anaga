@@ -139,6 +139,7 @@ export const saveDemoCall = (body: {
   startedAt: number | null;
   history: Array<{ role: 'agent' | 'user'; text: string }>;
   timings: DemoTurn[];
+  usage?: unknown;
 }) =>
   request<{ ok: true; id: string }>('/api/calls/demo', {
     method: 'POST',
