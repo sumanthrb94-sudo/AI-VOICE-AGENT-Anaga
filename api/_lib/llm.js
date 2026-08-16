@@ -240,10 +240,21 @@ async function generateSarvam({ system, user, json, onFirstClause }) {
       signal: controller.signal,
     });
   } catch (err) {
-    throw new Error(`LLM request failed: ${err && err.name === 'AbortError' ? 'timeout' : 'network error'}`);
-  } finally {
     clearTimeout(timeout);
+    throw new Error(`LLM request failed: ${err && err.name === 'AbortError' ? 'timeout' : 'network error'}`);
   }
+  // ── THE TIMEOUT MUST OUTLIVE THE HEADERS ────────────────────────────────
+  // This clearTimeout used to sit in a `finally` on the fetch above, which is
+  // correct for a buffered response and WRONG for a streamed one: fetch()
+  // resolves when the HEADERS arrive, so cancelling the timer there left the
+  // body read with no deadline at all. A stream that stalled mid-completion
+  // hung forever — no error, no log, nothing to retry.
+  //
+  // In a 20-turn in-region measurement that was ten dead turns reported as
+  // "no vendor error; the turn never completed". On a live call it is worse
+  // than an error: she stops mid-conversation and never speaks again, and
+  // nothing anywhere knows the turn is still waiting.
+  if (!streaming) clearTimeout(timeout);
 
   if (!resp || !resp.ok) {
     let detail = '';
@@ -253,7 +264,11 @@ async function generateSarvam({ system, user, json, onFirstClause }) {
 
   let text;
   if (streaming) {
-    text = await readStream(resp, { json, onFirstClause });
+    try {
+      text = await readStream(resp, { json, onFirstClause, controller });
+    } finally {
+      clearTimeout(timeout);
+    }
   } else {
     let data;
     try { data = await resp.json(); } catch { throw new Error('LLM upstream returned malformed JSON'); }
@@ -273,11 +288,30 @@ async function generateSarvam({ system, user, json, onFirstClause }) {
  * about the beginning of it. If anything about the early scan is wrong, the
  * caller checks it against the real splitter and discards it.
  */
-async function readStream(resp, { json, onFirstClause }) {
+async function readStream(resp, { json, onFirstClause, controller }) {
   const reader = resp.body?.getReader?.();
   if (!reader) throw new Error('LLM upstream returned no stream');
   const dec = new TextDecoder();
   let sse = '', full = '', fired = false;
+
+  // ── A STALL IS NOT A SLOW ANSWER ─────────────────────────────────────────
+  // The overall deadline above bounds the whole call. This bounds the GAP
+  // between tokens, which is the failure a total budget handles badly: a
+  // completion that is genuinely long should not be killed, and one that has
+  // produced nothing for several seconds is not coming.
+  //
+  // Re-armed on every chunk. Firing aborts the controller, which makes
+  // reader.read() reject, which is caught below and named — so it surfaces as
+  // a vendor timeout the caller can fall back from, instead of a turn that
+  // simply never ends.
+  const stallMs = Number(process.env.LLM_STREAM_STALL_MS || 6000);
+  let stall = null;
+  const arm = () => {
+    clearTimeout(stall);
+    stall = setTimeout(() => { try { controller?.abort(); } catch { /* already gone */ } }, stallMs);
+  };
+  const disarm = () => clearTimeout(stall);
+  arm();
 
   const look = (done) => {
     if (fired || !onFirstClause) return;
@@ -294,8 +328,21 @@ async function readStream(resp, { json, onFirstClause }) {
   };
 
   for (;;) {
-    const { value, done } = await reader.read();
+    let value, done;
+    try {
+      ({ value, done } = await reader.read());
+    } catch (err) {
+      disarm();
+      // A stall that produced SOMETHING is not a total loss: the caller may
+      // already be speaking the opening phrase, and a partial line is better
+      // than a turn that never ends. It is still an error — the transcript
+      // must not claim she said a sentence the model never finished.
+      throw new Error(err?.name === 'AbortError'
+        ? `LLM stream stalled after ${full.length} characters`
+        : `LLM stream failed: ${err?.message || 'read error'}`);
+    }
     if (done) break;
+    arm();
     sse += dec.decode(value, { stream: true });
     // SSE frames are separated by a blank line; a chunk can split one in half.
     let cut;
@@ -314,6 +361,7 @@ async function readStream(resp, { json, onFirstClause }) {
       look(false);
     }
   }
+  disarm();
   look(true);
   return full.trim();
 }

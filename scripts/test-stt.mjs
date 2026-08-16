@@ -763,6 +763,70 @@ await t('a stream that never yields a clause still answers', async () => {
   assert.deepEqual(seen, ['Yes'], 'the whole short line is its own first phrase');
 });
 
+await t('A STALLED STREAM ENDS THE TURN INSTEAD OF HANGING FOREVER', async () => {
+  // THE BUG THIS EXISTS FOR, found by an in-region measurement: ten of twenty
+  // turns produced no audio and no error, reported as "the turn never
+  // completed". clearTimeout() sat in a `finally` on the fetch, and fetch()
+  // resolves when the HEADERS arrive — so on a STREAMED response the body read
+  // had no deadline at all. A stream that stopped mid-completion hung forever.
+  //
+  // On a measurement that is a missing sample. On a live call it is worse than
+  // an error: she stops mid-conversation and never speaks again, and nothing
+  // knows the turn is still waiting.
+  reset(); clearEnv();
+  process.env.SARVAM_API_KEY = 'k';
+  process.env.LLM_STREAM_STALL_MS = '120';        // so the test is not slow
+
+  const enc = new TextEncoder();
+  routes.push({
+    match: /chat\/completions/,
+    reply: () => ({
+      ok: true, status: 200,
+      headers: { get: () => 'text/event-stream' },
+      body: {
+        getReader: () => {
+          let sent = false;
+          return {
+            read: (opts) => {
+              if (!sent) {
+                sent = true;
+                return Promise.resolve({
+                  value: enc.encode('data: {"choices":[{"delta":{"content":"{\\"say\\":\\"Hello there, "}}]}\n\n'),
+                  done: false,
+                });
+              }
+              // Then nothing, ever — the stall this must survive.
+              return new Promise((_, reject) => {
+                setTimeout(() => {
+                  const e = new Error('aborted');
+                  e.name = 'AbortError';
+                  reject(e);
+                }, 400);
+              });
+            },
+          };
+        },
+      },
+    }),
+  });
+
+  const began = Date.now();
+  let threw = null;
+  try {
+    await llm.generate({ user: 'go', json: true, onFirstClause: () => {} });
+  } catch (err) { threw = err; }
+
+  assert.ok(threw, 'a stalled stream must throw, not resolve and not hang');
+  // The chain wraps it as llm_unavailable — correct, a stalled provider is one
+  // to fall past — but the REASON has to survive, or this is indistinguishable
+  // in a log from a missing key.
+  assert.match(String(threw.detail || ''), /stall/i,
+    `the reason must name the stall, got detail: ${threw.detail}`);
+  assert.ok(Date.now() - began < 3000,
+    'it must give up in about the stall window, not wait for a caller to time out');
+  delete process.env.LLM_STREAM_STALL_MS;
+});
+
 // ===========================================================================
 section('§6 the backchannel — what she says while she is thinking');
 // ===========================================================================
