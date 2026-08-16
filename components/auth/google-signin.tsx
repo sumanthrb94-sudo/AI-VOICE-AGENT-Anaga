@@ -92,6 +92,13 @@ const MAX_W = 400;
 const SCALE = 1.1;
 
 /**
+ * How long to wait after renderButton() before concluding that Google refused
+ * to draw. Their markup lands in well under a second on a cold connection; a
+ * container still empty after this has been rejected, not delayed.
+ */
+const DRAW_GRACE_MS = 2000;
+
+/**
  * One in-flight load, shared. Two components mounting at once must not append
  * two <script> tags, and a failed load must be retryable — hence clearing the
  * cached promise on rejection.
@@ -172,6 +179,15 @@ export function GoogleSignIn({
   const wrapRef = React.useRef<HTMLDivElement | null>(null);
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const drawnKey = React.useRef<string>('');
+  const graceTimer = React.useRef<number | null>(null);
+  const mounted = React.useRef(true);
+  React.useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (graceTimer.current !== null) window.clearTimeout(graceTimer.current);
+    };
+  }, []);
 
   const [phase, setPhase] = React.useState<Phase>('preparing');
   const [error, setError] = React.useState<string | null>(null);
@@ -209,6 +225,52 @@ export function GoogleSignIn({
       logo_alignment: 'left',
       width,
     });
+
+    // THE SILENT FAILURE THIS EXISTS TO CATCH.
+    //
+    // Google restricts a client id by authorised JavaScript ORIGIN. When the
+    // page is served from an origin the OAuth client does not list, NOTHING
+    // here fails: the script loads, initialize() returns, renderButton()
+    // returns — and Google draws nothing at all, logging the reason only to
+    // the devtools console. Every state machine above stays on 'ready', so the
+    // person gets a blank rectangle where the button should be and no reason.
+    //
+    // That is not a rare edge. It is what happens on EVERY preview URL, whose
+    // hostname is different from production and is therefore never on the
+    // list. So: if the container is still empty after the grace period, say
+    // which origin was refused, because the fix is to paste that exact string
+    // into the Google console and nothing else.
+    if (graceTimer.current !== null) window.clearTimeout(graceTimer.current);
+
+    // Cancel the moment Google's markup actually lands, so a slow render is
+    // never mistaken for a refused one. The timer is the fallback for the case
+    // where nothing ever lands, which is the case we are here for.
+    const landed = new MutationObserver(() => {
+      if (host.childElementCount === 0) return;
+      landed.disconnect();
+      if (graceTimer.current !== null) {
+        window.clearTimeout(graceTimer.current);
+        graceTimer.current = null;
+      }
+    });
+    landed.observe(host, { childList: true });
+
+    graceTimer.current = window.setTimeout(() => {
+      graceTimer.current = null;
+      landed.disconnect();
+      if (!mounted.current) return;
+      // A backgrounded tab can defer third-party rendering; the observer below
+      // redraws when it comes back, so leaving it alone is the safe read.
+      if (document.visibilityState === 'hidden') return;
+      if (host.childElementCount > 0) return;
+
+      drawnKey.current = ''; // a Retry must redraw, not no-op on the same key
+      setPhase('unavailable');
+      setError('Google will not show a sign-in button on this address.');
+      setHint(
+        `This deployment is served from ${window.location.origin}, which is not one of the OAuth client's Authorised JavaScript origins — so Google silently refuses to render. Add that exact origin (scheme and host, no trailing slash) in Google Cloud Console → APIs & Services → Credentials → your OAuth 2.0 Client ID, then retry. Preview and production are different hostnames and each needs listing.`,
+      );
+    }, DRAW_GRACE_MS);
   }, []);
 
   /* --- the credential comes back here ----------------------------------- */
