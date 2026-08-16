@@ -132,9 +132,16 @@ else
   echo "  ⚠ no twilio-auth-token secret — /incoming-call will refuse every call (by design)"
 fi
 
-say "→ Building ${IMAGE}"
+# The commit becomes the second image tag, so a rollback can name a build
+# rather than "the one before the bad one". NOT $SHORT_SHA — Cloud Build only
+# sets that for builds it triggers from a commit, and on a manual submit it is
+# empty, producing the tag `image:` and a parse error minutes into the upload.
+TAG="$(git rev-parse --short HEAD 2>/dev/null || echo manual)"
+git diff --quiet HEAD 2>/dev/null || TAG="${TAG}-dirty"
+
+say "→ Building ${IMAGE}:${TAG}"
 gcloud builds submit --config deploy/cloudrun/cloudbuild.yaml \
-  --substitutions "_IMAGE=${IMAGE}" .
+  --substitutions "_IMAGE=${IMAGE},_TAG=${TAG}" .
 
 say "→ Deploying to Cloud Run (${REGION})"
 gcloud run deploy "$SERVICE" \

@@ -6,6 +6,18 @@
 # finds Next.js, and cheerfully deploys the FRONTEND as the call service.
 #
 # `--config` takes an explicit path, so there is nothing to guess.
+#
+# ── WHY _TAG AND NOT $SHORT_SHA ──────────────────────────────────────────────
+# SHORT_SHA is only set for builds Cloud Build TRIGGERS from a git commit. A
+# manual `gcloud builds submit` has no commit to read, so it expands to the
+# empty string and the tag becomes `image:` — which fails as
+# `could not parse reference`, after the upload, minutes in.
+#
+# deploy.sh passes the commit as _TAG instead. The default below keeps this
+# config runnable on its own.
+substitutions:
+  _TAG: manual
+
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
@@ -14,12 +26,12 @@ steps:
       - --tag=${_IMAGE}:latest
       # Tagged with the commit as well, so a rollback names a revision rather
       # than "the one before the bad one".
-      - --tag=${_IMAGE}:${SHORT_SHA}
+      - --tag=${_IMAGE}:${_TAG}
       - .
 
 images:
   - ${_IMAGE}:latest
-  - ${_IMAGE}:${SHORT_SHA}
+  - ${_IMAGE}:${_TAG}
 
 options:
   logging: CLOUD_LOGGING_ONLY
