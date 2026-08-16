@@ -382,5 +382,51 @@ await t('the model failing after an acknowledgement leaves no half-spoken line i
     'and the speaker must be released');
 });
 
+console.log('\n═══ NO ADAPTER MAY SWALLOW onChunk ═══\n');
+
+await t('every speak adapter forwards all four arguments', async () => {
+  // THE SAME MISTAKE, THREE TIMES.
+  //
+  //   server.js browser leg   (text, l)          — dropped format AND opts
+  //   server.js twilio leg    (text, l, fmt)     — dropped opts
+  //   measure-latency live()  (text, lang, fmt)  — dropped opts
+  //
+  // opts carries onChunk, which is what lets her voice reach the wire as it is
+  // generated. Dropping it turns streaming TTS back into buffered TTS with no
+  // error anywhere: in server.js it made real calls slower than the
+  // measurement, and in the harness it made the measurement slower than real
+  // calls. Neither showed up as a failure, only as a number.
+  //
+  // Checked at the source, because the failure is an argument list written out
+  // by hand instead of passed through, and that is a shape, not a behaviour.
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const url = await import('node:url');
+  const ROOT = path.join(path.dirname(url.fileURLToPath(import.meta.url)), '..');
+
+  const files = [
+    'caller-agent/src/agent/server.js',
+    'scripts/measure-latency.mjs',
+  ];
+  const bad = [];
+  for (const rel of files) {
+    const src = fs.readFileSync(path.join(ROOT, rel), 'utf8')
+      // Comments describe; they do not forward. A JSDoc line naming the old
+      // signature is worth fixing, but it is not the bug.
+      .split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+
+    // `speak: (a, b, c) =>` and `async speak(a, b, c) {`, but NOT
+    // `speak: someIdentifier,` which forwards the whole function untouched.
+    for (const m of src.matchAll(/(?:async\s+)?speak\s*(?::\s*(?:async\s*)?\(|\()([^)]*)\)\s*(?:=>|\{)/g)) {
+      const params = m[1].split(',').map((s) => s.trim()).filter(Boolean);
+      // A stub taking only the text is a test double, not a transport adapter.
+      if (params.length <= 1) continue;
+      if (params.length < 4) bad.push(`${rel}: speak(${params.join(', ')})`);
+    }
+  }
+  assert.deepEqual(bad, [],
+    `\n       these drop opts, so onChunk never arrives:\n       ${bad.join('\n       ')}`);
+});
+
 console.log(`\n═══ ${pass} passed, ${fail} failed ═══\n`);
 if (fail) { failures.forEach((f) => console.log('  FAIL ' + f)); process.exit(1); }

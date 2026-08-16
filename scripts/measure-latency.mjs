@@ -134,12 +134,30 @@ async function live() {
         disposition: TURN_DISPOSITIONS.includes(out.disposition) ? out.disposition : 'qualifying',
       };
     },
-    async speak(text, lang, format) {
+    // ⚠ THIS MUST MIRROR caller-agent/src/agent/main.js EXACTLY.
+    //
+    // It is a copy of the composition root, and a copy drifts. It has now done
+    // so twice in the same way: a wrapper that omitted `opts` silently dropped
+    // onChunk, so the harness measured BUFFERED synthesis while the service
+    // streamed — reporting a slower pipeline than the one that ships, which is
+    // the flattering direction to be wrong in only if you never notice.
+    //
+    // server.js had the identical bug in the other direction, where it made a
+    // real call slower than the measurement. Both are the same mistake: an
+    // argument list written out by hand rather than passed through.
+    async speak(text, lang, format, opts) {
       const codec = format?.encoding === 'mulaw' ? 'mulaw' : 'linear16';
       const rate = Number(format?.sampleRate) || AUDIO.sampleRate;
-      const out = await synth({ text, lang, codec, sampleRate: rate });
+      const out = await synth({
+        text, lang, codec, sampleRate: rate,
+        onChunk: typeof opts?.onChunk === 'function' ? opts.onChunk : undefined,
+      });
       const buf = Buffer.from(out.audio, 'base64');
-      return { audio: unwrapFor(buf, out.mime, { encoding: codec, sampleRate: rate }), provider: out.provider };
+      return {
+        audio: unwrapFor(buf, out.mime, { encoding: codec, sampleRate: rate }),
+        provider: out.provider,
+        streamed: out.streamed === true,
+      };
     },
   };
 }

@@ -79,7 +79,11 @@ function serveStatic(pathname, res) {
 /**
  * @param {object} o
  * @param {function} o.think    (history, ctx) => Promise<{say,end,disposition}>
- * @param {function} o.speak    (text, lang)   => Promise<Buffer>
+ * @param {function} o.speak    (text, lang, format, opts) => Promise<Buffer|{audio,streamed}>
+ *   `format` is the transport's own encoding and rate; `opts.onChunk` receives
+ *   audio AS IT IS GENERATED. Both were missing from this line and from the
+ *   wrappers below, and a wrapper that omits them turns streaming TTS back
+ *   into buffered TTS with no error anywhere.
  * @param {function} o.greeting (lang, direction) => Promise<string>
  * @param {function} [o.isOptOut]
  */
