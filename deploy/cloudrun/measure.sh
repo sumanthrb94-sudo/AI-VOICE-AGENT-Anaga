@@ -97,11 +97,27 @@ say "→ Running it (this drives ${TURNS} real turns and spends real vendor cred
 gcloud run jobs execute "$JOB" --region "$REGION" --wait --quiet >/dev/null \
   || echo "  (the job reported a failure — the output below still says why)"
 
-say "→ Output"
-# The job's stdout, oldest first, which is the order the harness printed it in.
-gcloud logging read \
-  "resource.type=cloud_run_job AND resource.labels.job_name=${JOB}" \
-  --limit 200 --freshness=20m --format='value(textPayload)' --order=asc
+# THIS run, not every run in the last twenty minutes. A time-based filter
+# reprints every previous execution above the current one, and the numbers are
+# similar enough that reading the wrong table is easy and silent.
+EXEC="$(gcloud run jobs executions list --job "$JOB" --region "$REGION" \
+  --limit 1 --format='value(metadata.name)' 2>/dev/null)"
+FILTER="resource.type=cloud_run_job AND resource.labels.job_name=${JOB}"
+[ -n "$EXEC" ] && FILTER="${FILTER} AND labels.\"run.googleapis.com/execution_name\"=${EXEC}"
+
+say "→ Output${EXEC:+ (${EXEC})}"
+# ── WAIT FOR THE LOGS, NOT JUST FOR THE JOB ─────────────────────────────────
+# `execute --wait` returns when the CONTAINER exits. Cloud Logging ingests a
+# few seconds behind that, so reading immediately printed the run's first line
+# and nothing else — a completed measurement that looked like a hung one.
+# Poll for the line the harness prints last.
+for _ in $(seq 1 20); do
+  OUT="$(gcloud logging read "$FILTER" --limit 200 \
+    --freshness=30m --format='value(textPayload)' --order=asc 2>/dev/null)"
+  case "$OUT" in *'TURN LATENCY'*) break;; esac
+  sleep 3
+done
+printf '%s\n' "$OUT"
 
 cat <<EOF
 
