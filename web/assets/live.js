@@ -77,7 +77,12 @@
           processorOptions: { targetRate: SAMPLE_RATE }
         });
         playback = new AudioWorkletNode(ctx, "anaga-playback", {
-          outputChannelCount: [1]
+          outputChannelCount: [1],
+          // THE STREAM'S RATE, WHICH IS NOT THIS DEVICE'S RATE. Omitting this
+          // is what made her speak three times too fast: the worklet wrote
+          // 16kHz samples one per frame into an output rendered at 48kHz.
+          // Capture has always been told its target; playback was not.
+          processorOptions: { sourceRate: SAMPLE_RATE }
         });
         ctx.createMediaStreamSource(stream).connect(capture);
         playback.connect(ctx.destination);

@@ -164,6 +164,14 @@ jobs:
         # agent rather than a failed provider, and nothing reported it.
         run: node --experimental-detect-module scripts/test-wav.mjs
 
+      - name: Playback rate (the bug that made her talk 3x too fast)
+        # Capture was told its target rate and resampled 48kHz->16kHz. Playback
+        # was told nothing and resampled not at all, so 16kHz samples went one
+        # per frame into a graph the browser renders at the device rate. No
+        # error, no log line — she just spoke three times too fast, which
+        # sounds like a worse product rather than a bug.
+        run: node --experimental-detect-module scripts/test-worklet-rate.mjs
+
       - name: TTS format honesty (the bug that hung up a deployed call)
         # viaSarvam's streaming branch labelled every response audio/mpeg. MP3
         # is only the stream endpoint's DEFAULT — the call leg sends
