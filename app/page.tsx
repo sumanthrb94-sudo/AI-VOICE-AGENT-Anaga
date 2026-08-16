@@ -71,7 +71,18 @@ const NOSCRIPT_REVEAL =
 function CtaPair({ className }: { className?: string }) {
   return (
     <div className={cn('flex flex-wrap items-center gap-3', className)}>
-      <Link href="/call" className={CTA_PRIMARY}>
+      {/* /call/live, NOT /call. The button said "Hear a live call" and opened
+          the turn-by-turn HTTP demo: record the whole utterance, POST it, wait.
+          None of the streaming work reaches that page — not the opening clause
+          handed to synthesis while the model is still writing, not the audio
+          forwarded as it is generated, not the acknowledgement that covers the
+          gap. Everyone arriving at the front door met the slowest path this
+          product has and judged the product by it.
+
+          /call/live degrades honestly when no agent is deployed: it says so
+          rather than silently falling back, which is why it can be the
+          default. The HTTP demo is still linked from there. */}
+      <Link href="/call/live" className={CTA_PRIMARY}>
         <Phone aria-hidden size={17} strokeWidth={2} />
         Hear a live call
       </Link>

@@ -24,7 +24,7 @@ export default function LiveCallPage() {
   return (
     <main id="main" className="mx-auto flex min-h-dvh w-full max-w-lg flex-col px-5 pb-8 pt-6">
       <Link
-        href="/call"
+        href="/"
         className="mb-5 inline-flex w-fit items-center gap-1.5 text-[length:var(--text-sm)] text-[var(--color-text-dim)] transition-colors hover:text-[var(--color-text)]"
       >
         <ArrowLeft className="h-4 w-4" aria-hidden />
@@ -44,6 +44,13 @@ export default function LiveCallPage() {
       <div className="mt-7">
         <StreamingCall />
       </div>
+
+      <Link
+        href="/call"
+        className="mt-6 w-fit text-[length:var(--text-sm)] text-[var(--color-text-dim)] underline underline-offset-4 transition-colors hover:text-[var(--color-text)]"
+      >
+        The turn-by-turn version, for comparison
+      </Link>
 
       <p className="mt-6 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-faint)]">
         Your microphone stays open for the whole call, and audio is sent to the recogniser as it is

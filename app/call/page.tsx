@@ -256,7 +256,7 @@ export default function CallPage() {
         href="/call/live"
         className="mt-6 text-[length:var(--text-sm)] text-[var(--color-accent)] underline underline-offset-4 transition-opacity hover:opacity-80 [body.in-call_&]:hidden"
       >
-        Try the streaming version — she replies while you are still talking
+        Try the streaming version — she replies while you are still talking (this is the fast one)
       </Link>
     </main>
   );
