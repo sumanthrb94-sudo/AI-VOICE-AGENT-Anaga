@@ -69,6 +69,16 @@ jobs:
           fi
           echo "backend dependency-free: OK"
 
+      - name: The frontend type-checks
+        # THE GAP THIS CLOSES. `demo` was added to the Role union in lib/api.ts
+        # and one of the two rank maps was not updated. Nothing here noticed —
+        # every backend suite passed — and the failure surfaced on VERCEL, at
+        # deploy time, on a branch that CI had already called green.
+        #
+        # `next build` runs tsc, but only on a deploy. This runs it on a push,
+        # which is where it belongs: a type error is not a deployment event.
+        run: pnpm exec tsc --noEmit
+
       - name: Unit + integration tests
         run: node --experimental-detect-module scripts/test-integrations.mjs
 

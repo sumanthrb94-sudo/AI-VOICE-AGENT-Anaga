@@ -72,8 +72,18 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, Skeleton } from '@/components/ui/primitives';
 
-/** owner ⊇ operator ⊇ viewer — the same ranking the server enforces. */
-const RANK: Record<Role, number> = { viewer: 1, operator: 2, owner: 3 };
+/** owner ⊇ operator ⊇ viewer ⊃ demo — the same ranking the server enforces.
+ *
+ *  `demo` is 0 and every console route asks for `viewer`, so a demo session is
+ *  turned away here for the same reason the API turns it away: it ranks below
+ *  the floor, not because anything checks for it by name.
+ *
+ *  Typed as Record<Role, …> deliberately. Adding a role to lib/api.ts without
+ *  ranking it here is then a BUILD failure rather than a runtime one — which is
+ *  exactly what happened: `demo` shipped to the API, this map was not updated,
+ *  and the deploy stopped rather than silently ranking an unknown role as
+ *  undefined and letting comparisons against it quietly return false. */
+const RANK: Record<Role, number> = { demo: 0, viewer: 1, operator: 2, owner: 3 };
 
 type GateState =
   | { phase: 'checking' }
