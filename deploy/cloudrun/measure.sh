@@ -62,16 +62,22 @@ fi
 # --max-retries 0 is deliberate. A retried measurement is two runs averaged by
 # accident, and the failure this harness most needs to report — a rate limit —
 # is exactly the one a retry would paper over.
+#
+# No LLM_PROVIDER/TTS_PROVIDER: the code defaults are `sarvam,gemini` and
+# `sarvam,google,...`, the same chains the service is deployed with, since
+# every provider past the first is inert without its own key. Passing them
+# would need --env-vars-file anyway, because both values contain commas and
+# --set-env-vars splits on those — the same trap that broke deploy.sh twice.
+#
+# COMMENTS GO HERE, NOT INSIDE THE COMMAND. A `# ...` inside backticks comments
+# out its own closing backtick, so bash keeps reading the following lines
+# looking for it and swallows the flags below — which surfaced as
+# "--args: expected one argument" and looked like a gcloud problem.
 gcloud run jobs deploy "$JOB" \
   --image "${IMAGE}:${TAG}" \
   --region "$REGION" \
   --set-secrets "$SECRETS" \
   --set-env-vars "NODE_ENV=production" \
-  `# No LLM_PROVIDER/TTS_PROVIDER: the code defaults are sarvam,gemini and` \
-  `# sarvam,google,... — the same chains the service is deployed with, since` \
-  `# every provider past the first is inert without its own key. Passing them` \
-  `# would also need --env-vars-file, because both values contain commas and` \
-  `# --set-env-vars splits on those. Same trap as deploy.sh.` \
   --max-retries 0 \
   --task-timeout 900s \
   --cpu 1 --memory 512Mi \
