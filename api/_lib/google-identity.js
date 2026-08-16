@@ -159,6 +159,18 @@ export async function verifyGoogleIdToken(idToken, { clientId = process.env.GOOG
  * account only for an address named here, because the alternative — anyone with
  * a Google account gets in and is then downgraded to viewer — means the whole
  * internet has a record in the user store and a page they can load.
+ *
+ * ── AND THEN THERE IS `demo` ─────────────────────────────────────────────
+ * DEMO_SIGNIN=open lets ANY verified Google account sign in as `demo`, which
+ * ranks BELOW viewer: it unlocks the live demo call and that account's own
+ * call history, and nothing else. No console, no other people's calls, no
+ * settings. See hasRole() in auth.js for the ranking that enforces it.
+ *
+ * It is OFF by default and must be turned on deliberately, because turning it
+ * on has a cost that is easy to miss: every demo call spends real Sarvam and
+ * Deepgram credit, and "anyone with a Google account" is not a small set. The
+ * paragraph above is still true of the ADMIN list — opening demo sign-up does
+ * not make the admin allowlist a filter, it adds a second, lower door.
  */
 export function allowedRole(email) {
   const raw = String(process.env.ADMIN_EMAILS || '');
@@ -170,7 +182,12 @@ export function allowedRole(email) {
       return ['owner', 'operator', 'viewer'].includes(role) ? role : 'operator';
     }
   }
-  return null;
+  return demoSignInOpen() ? 'demo' : null;
+}
+
+/** Whether a Google account that is NOT an admin may sign in at all. */
+export function demoSignInOpen() {
+  return String(process.env.DEMO_SIGNIN || '').trim().toLowerCase() === 'open';
 }
 
 /** True when Google sign-in is wired at all. Health and the UI both ask. */

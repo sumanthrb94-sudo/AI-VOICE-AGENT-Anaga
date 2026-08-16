@@ -48,7 +48,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 /* ------------------------------------------------------------------- types */
 
-export type Role = 'owner' | 'operator' | 'viewer';
+/** `demo` ranks BELOW viewer: a signed-in stranger who may hold a demo call
+ *  and read their own call history, and reach nothing in the console. */
+export type Role = 'owner' | 'operator' | 'viewer' | 'demo';
 
 export interface SessionUser {
   email: string;

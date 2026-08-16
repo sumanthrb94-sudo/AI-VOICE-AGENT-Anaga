@@ -33,7 +33,11 @@ const DIGEST = 'sha256';
 export const SESSION_HOURS = Number(process.env.SESSION_HOURS || 12);
 const COOKIE = 'anaga_session';
 
-export const ROLES = ['owner', 'operator', 'viewer'];
+// `demo` is deliberately last and deliberately lowest. It is not a smaller
+// admin: it is a signed-in stranger who may hold a demo call and read their
+// OWN call history, and nothing else. Everything that guards the console asks
+// for `viewer` or above, so adding it here cannot widen anything by accident.
+export const ROLES = ['owner', 'operator', 'viewer', 'demo'];
 
 /** Secret for signing sessions. Fails closed — no secret, no logins. */
 function sessionSecret() {
@@ -207,7 +211,10 @@ export async function requireUser(req, res, { role = null } = {}) {
 
 /** Roles are ranked: owner does everything an operator can, and so on. */
 export function hasRole(user, need) {
-  const rank = { viewer: 0, operator: 1, owner: 2 };
+  // demo sits BELOW viewer, so hasRole(demoUser, 'viewer') is false and every
+  // console endpoint — which defaults to requiring viewer — refuses it without
+  // any of them having to know demo exists.
+  const rank = { demo: 0, viewer: 1, operator: 2, owner: 3 };
   return (rank[user?.role] ?? -1) >= (rank[need] ?? 99);
 }
 
