@@ -45,9 +45,13 @@ function isOptOut(text) {
 }
 
 const server = createAgentServer({
-  async think(history, { lang, direction }) {
+  async think(history, { lang, direction, onFirstClause }) {
     const { system, user } = turnPrompt(history, { lang, direction });
-    const out = await generate({ system, user, json: true });
+    // onFirstClause is what turns think-then-speak into think-while-speaking.
+    // llm.js has streamed the opening phrase for a while and the HTTP path has
+    // used it for a while; passing it here is what finally gives the STREAMING
+    // path the same head start, and it was the larger half of the wait.
+    const out = await generate({ system, user, json: true, onFirstClause });
     const say = typeof out?.say === 'string' ? out.say.trim() : '';
     if (!say) throw new Error('empty completion');
     return {

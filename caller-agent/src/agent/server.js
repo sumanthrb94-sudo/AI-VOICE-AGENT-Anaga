@@ -198,7 +198,7 @@ export function attachTwilio(ws, o = {}) {
             if (e.type === 'usage') logUsage(e.usage, { direction: 'inbound', transport: 'twilio' });
             if (e.type === 'ended') { try { ws.close(1000, 'done'); } catch { /* gone */ } }
           },
-          think: (history) => o.think(history, { lang, direction: 'inbound' }),
+          think: (history, opts) => o.think(history, { lang, direction: 'inbound', ...opts }),
           speak: (text, l, fmt) => o.speak(text, l, fmt),
           isOptOut: o.isOptOut,
         });
@@ -281,7 +281,7 @@ export function attach(ws, o = {}) {
           direction,
           onAudio: (pcm) => ws.send(pcm),
           onEvent: observeAndSend,
-          think: (history) => o.think(history, { lang, direction }),
+          think: (history, opts) => o.think(history, { lang, direction, ...opts }),
           speak: (text, l) => o.speak(text, l),
           isOptOut: o.isOptOut,
         });

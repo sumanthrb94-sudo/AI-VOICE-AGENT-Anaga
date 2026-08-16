@@ -119,9 +119,13 @@ async function live() {
   const { unwrapFor } = await import('../shared/wav.js');
 
   return {
-    async think(history) {
+    async think(history, opts) {
       const { system, user } = turnPrompt(history, { lang: LANG, direction: 'outbound' });
-      const out = await generate({ system, user, json: true });
+      // Passed through, or this harness would measure a pipeline the service
+      // does not run — the most flattering kind of wrong measurement is the
+      // one that measures a SLOWER path than production, but a measurement of
+      // a different path is useless in either direction.
+      const out = await generate({ system, user, json: true, onFirstClause: opts?.onFirstClause });
       const say = typeof out?.say === 'string' ? out.say.trim() : '';
       if (!say) throw new Error('empty completion');
       return {

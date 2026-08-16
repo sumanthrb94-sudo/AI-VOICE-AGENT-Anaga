@@ -181,10 +181,49 @@ export function createBridge(o) {
     thinking = true;
     history.push({ role: 'user', text: heard });
 
+    // CLAIM THE TURN BEFORE THINKING, NOT AFTER.
+    //
+    // She now starts speaking the opening phrase while the model is still
+    // writing the rest of the line, so that audio needs an identity to be
+    // superseded by. It also fixes a real gap: a barge-in during thinking used
+    // to be unable to stop anything, because cutOff() only acts when she is
+    // speaking, and she was not speaking yet.
+    const mine = ++turnId;
+
+    // ── THE OPENING PHRASE, THE MOMENT THE MODEL HAS WRITTEN IT ───────────
+    // The pipeline is think-then-speak in series, and speak only needs the
+    // first few words to begin. api/_lib/llm.js has streamed those words for a
+    // while and api/anaga/turn.js — the HTTP path — has used them for a while.
+    // THIS path, the streaming one, the one that exists to be fast, waited for
+    // the whole completion before it made a sound. On the first live
+    // measurement that was 2476ms of the 3665ms a caller waited.
+    const acc = { of: 0, delivered: 0, failed: null };
+    let headText = null;
+    let headPlay = null;
+    let firstClauseMs = null;
+
     let out;
     const thinkAt = Date.now();
     try {
-      out = await think(history);
+      out = await think(history, {
+        onFirstClause: (clause) => {
+          // Once only, and never for a turn that has already been superseded.
+          if (ended || headPlay || mine !== turnId) return;
+          const head = String(clause || '').trim();
+          if (!head) return;
+          firstClauseMs = Date.now() - thinkAt;
+          headText = head;
+          // Recorded BEFORE it is spoken, in the same order as the
+          // non-streaming path, so cutOff() has an entry to annotate if she is
+          // interrupted mid-phrase.
+          history.push({ role: 'agent', text: head });
+          emit({ type: 'said', text: head, early: true });
+          emit({ type: 'first_clause', ms: firstClauseMs, text: head });
+          speaking = true;
+          emit({ type: 'speaking', value: true });
+          headPlay = speakPhrases([head], mine, acc);
+        },
+      });
       timer.leg('llm', Date.now() - thinkAt);
       // The composition root can return the provider that actually served the
       // turn. The bridge accepts "unknown" for test doubles and legacy callers;
@@ -196,16 +235,59 @@ export function createBridge(o) {
       });
     } catch (err) {
       thinking = false;
+      // She may already be mid-phrase when the rest of the generation fails.
+      // Let that phrase finish rather than cutting her off mid-word, and let
+      // markIfUndelivered record that the line was not completed.
+      if (headPlay) {
+        await headPlay;
+        if (mine === turnId) { speaking = false; emit({ type: 'speaking', value: false }); }
+        acc.failed = acc.failed || `brain: ${err?.message || 'unavailable'}`;
+        acc.of = Math.max(acc.of, acc.delivered + 1);
+        markIfUndelivered(acc);
+      }
       emit({ type: 'error', text: `brain: ${err?.message || 'unavailable'}` });
       return;
     }
     thinking = false;
     if (ended || !out?.say) return;
 
-    history.push({ role: 'agent', text: out.say });
-    emit({ type: 'said', text: out.say, disposition: out.disposition });
-    const mine = ++turnId;
-    const said = await play(out.say, mine);
+    let said;
+    if (headPlay) {
+      await headPlay;
+
+      // THE SPLITTER IS THE AUTHORITY, and the guess is checked against it.
+      const phrases = splitForSpeech(out.say);
+      acc.of = Math.max(acc.of, phrases.length);
+      const norm = (s) => String(s).replace(/\s+/g, ' ').trim();
+
+      if (norm(phrases[0] || '') === norm(headText)) {
+        // The designed path. firstClauseOf() implements the splitter's own
+        // runt and head rules precisely so this is the normal case.
+        const last = history[history.length - 1];
+        if (last && last.role === 'agent' && !/…\[/.test(last.text)) last.text = out.say;
+        emit({ type: 'said', text: out.say, disposition: out.disposition });
+        await speakPhrases(phrases.slice(1), mine, acc);
+      } else {
+        // The guess and the splitter disagree. She has ALREADY said headText,
+        // so re-speaking phrases[0] repeats her and skipping ahead drops words.
+        // On a call whose transcript is the compliance record neither is
+        // acceptable, so the turn stops here and says so — the same treatment
+        // a failed phrase gets, and markIfUndelivered writes it into history.
+        // The HTTP path can simply re-synthesize on a mismatch because nothing
+        // has been heard yet; here it has.
+        emit({ type: 'clause_mismatch', head: headText, splitter: phrases[0] || '' });
+        acc.failed = 'the early clause disagreed with the splitter';
+      }
+
+      if (mine === turnId) { speaking = false; emit({ type: 'speaking', value: false }); }
+      said = acc;
+    } else {
+      // No streaming clause — a provider without it, a disabled stream, or a
+      // line too short to cut. Exactly the old behaviour.
+      history.push({ role: 'agent', text: out.say });
+      emit({ type: 'said', text: out.say, disposition: out.disposition });
+      said = await play(out.say, mine);
+    }
     // Only amend if this turn is still current — a barge-in is already
     // recorded by cutOff() and must not be relabelled a voice failure.
     if (mine === turnId) markIfUndelivered(said);
@@ -231,8 +313,23 @@ export function createBridge(o) {
     speaking = true;
     emit({ type: 'speaking', value: true });
     const phrases = splitForSpeech(text);
-    let delivered = 0;
-    let failed = null;
+    const acc = { of: phrases.length, delivered: 0, failed: null };
+    await speakPhrases(phrases, mine, acc);
+    if (mine === turnId) {
+      speaking = false;
+      emit({ type: 'speaking', value: false });
+    }
+    return acc;
+  }
+
+  /**
+   * The phrase loop itself, split out of play() so a turn can be spoken in more
+   * than one instalment — the opening phrase while the model is still writing,
+   * then the remainder — WITHOUT emitting `speaking` twice or resetting the
+   * delivery count that the compliance record is built from. `acc` is carried
+   * across the instalments; `speaking` is owned by the caller.
+   */
+  async function speakPhrases(phrases, mine, acc) {
     for (const phrase of phrases) {
       if (ended || mine !== turnId) break;
       let audio_;
@@ -242,7 +339,7 @@ export function createBridge(o) {
         // Only the FIRST phrase counts: everything after it renders while
         // earlier audio is already playing, so adding them together would
         // describe a wait nobody experiences.
-        if (delivered === 0) timer.leg('tts', Date.now() - speakAt);
+        if (acc.delivered === 0) timer.leg('tts', Date.now() - speakAt);
         // Existing transports return a Buffer. The composition root returns the
         // optional object form so a fallback provider can be counted honestly.
         audio_ = Buffer.isBuffer(synthesized) ? synthesized : synthesized?.audio;
@@ -254,8 +351,8 @@ export function createBridge(o) {
           cached: synthesized?.cached === true,
         });
       } catch (err) {
-        failed = String(err?.message || 'unavailable');
-        emit({ type: 'error', text: `voice: ${failed}` });
+        acc.failed = String(err?.message || 'unavailable');
+        emit({ type: 'error', text: `voice: ${acc.failed}` });
         break;
       }
       // Checked AGAIN after the await: synthesis takes a second or more, and
@@ -265,13 +362,9 @@ export function createBridge(o) {
       timer.firstAudio();
       timer.phrase();
       try { onAudio(audio_); } catch { /* the transport is gone */ }
-      delivered++;
+      acc.delivered++;
     }
-    if (mine === turnId) {
-      speaking = false;
-      emit({ type: 'speaking', value: false });
-    }
-    return { of: phrases.length, delivered, failed };
+    return acc;
   }
 
   /**
