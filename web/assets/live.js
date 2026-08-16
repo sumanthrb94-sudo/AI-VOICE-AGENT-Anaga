@@ -23,6 +23,15 @@
    --------------------
    window.ANAGA_AGENT_URL = "wss://anaga-agent-xxxx.a.run.app/agent"
    ...before this file loads. Locally: "ws://localhost:8080/agent".
+
+   A TICKET, WHEN THE AGENT WANTS ONE
+   ----------------------------------
+   window.ANAGA_AGENT_TICKET = "<token from /api/auth/agent-token>"
+
+   The agent refuses the upgrade without it once AGENT_TOKEN_SECRET is set,
+   which is what stops a stranger with the URL spending vendor credit. It goes
+   in the query string because a browser WebSocket cannot set a header — hence
+   its short life, since a query string reaches access logs and screen shares.
    =================================================================== */
 (function (global) {
   "use strict";
@@ -118,9 +127,16 @@
       });
     }
 
+    /** The socket URL, carrying a ticket if the page was given one. */
+    function withTicket(u) {
+      var t = global.ANAGA_AGENT_TICKET;
+      if (!t) return u;
+      return u + (u.indexOf("?") < 0 ? "?" : "&") + "t=" + encodeURIComponent(t);
+    }
+
     function open(lang, direction) {
       return new Promise(function (done) {
-        ws = new WebSocket(url());
+        ws = new WebSocket(withTicket(url()));
         ws.binaryType = "arraybuffer";
 
         ws.onopen = function () {

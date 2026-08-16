@@ -25,6 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { upgrade, isUpgrade } from '../media/ws.js';
+import { verifyAgentToken, agentTokenConfigured } from '../../../shared/agent-token.js';
 import { createBridge } from './bridge.js';
 import {
   TWILIO_FORMAT, twiml, validSignature, parseTwilio, mediaFrame, clearFrame,
@@ -139,8 +140,31 @@ export function createAgentServer(o = {}) {
     const path_ = String(req.url || '').split('?')[0];
     if (!isUpgrade(req)) { socket.destroy(); return; }
     if (path_ === '/agent') {
+      // ── THE ONE THING PROTECTING VENDOR SPEND ──────────────────────────
+      // --allow-unauthenticated is required for a browser to reach this at
+      // all, so until now anyone with the URL could open a socket and burn
+      // Sarvam and Deepgram credit. The mitigations printed on every deploy —
+      // "keep the URL unpublished", a max-instances ceiling — bound the bill
+      // rather than preventing it.
+      //
+      // A ticket minted by the API for a signed-in user closes that. It is
+      // checked BEFORE the upgrade, so a rejected caller never gets a socket
+      // and never reaches a vendor.
+      //
+      // OPEN WHEN UNCONFIGURED, and loudly. A deployment without the secret
+      // behaves exactly as it did — this must not silently break a working
+      // agent — but it says so on every connection rather than looking safe.
+      const gate = checkAgentTicket(req);
+      if (!gate.ok) {
+        console.error(JSON.stringify({ event: 'agent_socket_refused', reason: gate.reason }));
+        // 1008 = policy violation. Refused during the handshake, so no
+        // WebSocket is ever created for the caller to send audio into.
+        socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
+      }
       const ws = upgrade(req, socket, head);
-      if (ws) attach(ws, o);
+      if (ws) attach(ws, { ...o, caller: gate.user });
       return;
     }
     if (path_ === '/twilio') {
@@ -255,6 +279,35 @@ export function attachTwilio(ws, o = {}) {
   ws.on('close', () => { if (bridge) bridge.end(); });
   ws.on('error', () => { if (bridge) bridge.end(); });
   return { get bridge() { return bridge; }, get streamSid() { return streamSid; } };
+}
+
+/**
+ * May this socket be opened at all?
+ *
+ * Returns ok with no user when AGENT_TOKEN_SECRET is unset — the pre-existing
+ * behaviour, kept so configuring this is a deliberate act rather than a
+ * breaking one, and warned about every time so it cannot be mistaken for
+ * protection that is already there.
+ */
+function checkAgentTicket(req) {
+  if (!agentTokenConfigured()) {
+    console.error(JSON.stringify({
+      event: 'agent_socket_unauthenticated',
+      detail: 'AGENT_TOKEN_SECRET is not set — anyone with this URL can open a '
+            + 'socket and spend vendor credit. Set it here and on the API.',
+    }));
+    return { ok: true, user: null };
+  }
+  // The token rides in the query string because a browser WebSocket cannot set
+  // a header. That is why it is short-lived: a query string ends up in access
+  // logs, proxies and screen shares.
+  let token = '';
+  try { token = new URL(req.url, 'http://x').searchParams.get('t') || ''; } catch { token = ''; }
+  if (!token) return { ok: false, reason: 'no_ticket' };
+
+  const v = verifyAgentToken(token);
+  if (!v.ok) return { ok: false, reason: v.reason };
+  return { ok: true, user: v.user };
 }
 
 /** Wire one client socket to one conversation. Exported for tests. */

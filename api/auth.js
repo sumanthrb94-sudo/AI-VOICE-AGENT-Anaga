@@ -22,6 +22,7 @@ import logoutHandler from './_lib/routes/auth-logout.js';
 import meHandler from './_lib/routes/auth-me.js';
 import bootstrapHandler from './_lib/routes/auth-bootstrap.js';
 import googleHandler from './_lib/routes/auth-google.js';
+import agentTokenHandler from './_lib/routes/auth-agent-token.js';
 
 const ROUTES = {
   login: loginHandler,
@@ -31,6 +32,10 @@ const ROUTES = {
   // A second front door, not a second auth system: it mints the same session
   // the password route does, so nothing downstream can tell them apart.
   google: googleHandler,
+  // A ticket to open ONE call socket. Here rather than under /api/calls
+  // because it answers "who is this", which is what this function is for —
+  // and because the Hobby plan's 12-function ceiling is already exactly met.
+  'agent-token': agentTokenHandler,
 };
 
 export default async function handler(req, res) {

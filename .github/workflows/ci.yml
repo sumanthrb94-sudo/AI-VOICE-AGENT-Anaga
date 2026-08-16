@@ -164,6 +164,15 @@ jobs:
         # agent rather than a failed provider, and nothing reported it.
         run: node --experimental-detect-module scripts/test-wav.mjs
 
+      - name: Agent ticket (the thing standing between a stranger and your bill)
+        # /agent is --allow-unauthenticated because a browser has no shared
+        # secret to sign with. A forged ticket here is not a bug, it is
+        # somebody else's invoice — so the suite is about what must be REFUSED:
+        # a tampered payload with the old signature, another secret's ticket,
+        # an expiry read before the signature, and an empty secret that would
+        # sign a token every attacker could also mint.
+        run: node --experimental-detect-module scripts/test-agent-token.mjs
+
       - name: Early clause (she speaks before the model has finished)
         # The largest saving in the pipeline, and the change most able to break
         # a call in ways that are hard to HEAR: the same phrase twice, a word

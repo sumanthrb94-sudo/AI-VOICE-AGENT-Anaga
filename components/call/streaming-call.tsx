@@ -28,7 +28,7 @@
 
 import * as React from 'react';
 import { Loader2, Mic, PhoneOff, Radio, TriangleAlert } from 'lucide-react';
-import { getHealth, saveDemoCall, type AgentStatus } from '@/lib/api';
+import { getAgentTicket, getHealth, saveDemoCall, type AgentStatus } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/primitives';
 
@@ -60,6 +60,7 @@ type ServerEvent = {
 declare global {
   interface Window {
     ANAGA_AGENT_URL?: string;
+    ANAGA_AGENT_TICKET?: string;
     createLiveCall?: (o: {
       onEvent?: (e: ServerEvent) => void;
       onState?: (s: string, detail?: string) => void;
@@ -167,6 +168,22 @@ export function StreamingCall() {
     // connect time, but setting it first means a reload of this component can
     // never race the script tag.
     window.ANAGA_AGENT_URL = url;
+
+    // A TICKET, IF THIS DEPLOYMENT USES THEM. The agent refuses the upgrade
+    // without one when AGENT_TOKEN_SECRET is set, which is what stops a
+    // stranger with the URL spending vendor credit.
+    //
+    // A failure here is NOT fatal, deliberately: 503 means the agent has no
+    // secret either and still accepts an unticketed socket, and 401 means the
+    // visitor is not signed in — which the agent, not this page, should be the
+    // one to refuse. Blocking here would break every deployment that has not
+    // configured it yet.
+    try {
+      const t = await getAgentTicket();
+      window.ANAGA_AGENT_TICKET = t.token;
+    } catch {
+      delete window.ANAGA_AGENT_TICKET;
+    }
 
     if (!window.createLiveCall) {
       try {

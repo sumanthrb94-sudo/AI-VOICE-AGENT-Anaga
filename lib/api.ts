@@ -147,6 +147,15 @@ export const saveDemoCall = (body: {
     body: JSON.stringify(body),
   });
 
+/** A short-lived ticket to open ONE call socket.
+ *
+ *  The agent runs on a different origin and cannot see the session cookie, so
+ *  the API vouches for the caller and the browser carries the answer. 503 when
+ *  AGENT_TOKEN_SECRET is unset — which the call page treats as "connect
+ *  without one", because an unconfigured agent still accepts that. */
+export const getAgentTicket = () =>
+  request<{ token: string; expiresInMs: number }>('/api/auth/agent-token');
+
 /** Own calls for a `demo` user; every demo call for viewer and above. */
 export const getDemoCalls = (limit = 25) =>
   request<{ calls: DemoCallSummary[]; durable: boolean; scope: 'mine' | 'all' }>(
