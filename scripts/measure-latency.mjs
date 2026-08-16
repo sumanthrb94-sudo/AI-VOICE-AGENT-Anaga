@@ -30,6 +30,9 @@
 //   --lang X      te-IN | hi-IN | en-IN            (default en-IN)
 //   --phone       measure the 8kHz mu-law phone leg rather than the browser
 //   --json        emit the summary as JSON as well
+//   --bare        DIAGNOSTIC: replace the system prompt with a minimal one, to
+//                 find out how much of first-clause latency is prefill. Strips
+//                 every compliance rule. Never a deployment mode.
 //
 // ── WHY THIS IS NOT A BENCHMARK OF THE VENDORS ────────────────────────────
 // It measures ONE deployment from ONE machine on ONE network. Run it from the
@@ -50,6 +53,10 @@ const LIVE = Boolean(arg('live', false));
 const LANG = String(arg('lang', 'en-IN'));
 const PHONE = Boolean(arg('phone', false));
 const AS_JSON = Boolean(arg('json', false));
+// A DIAGNOSTIC, not a mode. See think() below: it answers whether
+// first-clause latency is prefill or a fixed vendor cost, and it strips every
+// compliance rule to do it, so it must never be how anything is deployed.
+const BARE = Boolean(arg('bare', false));
 
 const AUDIO = PHONE
   ? { encoding: 'mulaw', sampleRate: 8000 }
@@ -120,7 +127,28 @@ async function live() {
 
   return {
     async think(history, opts) {
-      const { system, user } = turnPrompt(history, { lang: LANG, direction: 'outbound' });
+      let { system, user } = turnPrompt(history, { lang: LANG, direction: 'outbound' });
+      // ── --bare, A DIAGNOSTIC AND NOT A MODE ────────────────────────────
+      // first-clause is 1005ms p50 and the real system prompt is 6065
+      // characters, about 1700 tokens. Two very different things produce that
+      // number and they are indistinguishable from outside: PREFILL, which
+      // scales with the prompt, or a fixed time-to-first-token at the vendor,
+      // which does not.
+      //
+      // This replaces the prompt with the smallest thing that still yields the
+      // same JSON shape, purely to find the floor. If first-clause barely
+      // moves, the prompt is not the cost and the compliance rules stay
+      // exactly as they are — which is the outcome to hope for, because those
+      // rules are the disclosure wording, the opt-out triggers and "humans
+      // close", and trading any of them for milliseconds is a bad trade.
+      //
+      // NEVER ship this. It is not a faster Anaga, it is a different one with
+      // none of her obligations.
+      if (BARE) {
+        system = 'You are a polite Indian real-estate voice agent. Reply with JSON: '
+          + '{"say": "<one short sentence, in the caller\'s language>", "end": false, '
+          + '"disposition": "qualifying"}. "say" MUST be the first key.';
+      }
       // Passed through, or this harness would measure a pipeline the service
       // does not run — the most flattering kind of wrong measurement is the
       // one that measures a SLOWER path than production, but a measurement of
@@ -242,7 +270,9 @@ const lines = PROSPECT[LANG] || PROSPECT['en-IN'];
 
 console.log(
   `\ndriving ${TURNS} turns · ${LIVE ? 'LIVE vendors' : 'stub vendors'} · ${LANG}`
-  + ` · ${AUDIO.sampleRate}Hz ${AUDIO.encoding}\n`,
+  + ` · ${AUDIO.sampleRate}Hz ${AUDIO.encoding}`
+  + (BARE ? '\n  ⚠ --bare: MINIMAL PROMPT, no compliance rules. A diagnostic number only.' : '')
+  + '\n',
 );
 
 let line = 0;
