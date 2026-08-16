@@ -74,6 +74,11 @@ gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
 say "→ Making sure Cloud Build's service account can actually build"
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')"
 BUILD_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+# The same account, deliberately named twice: it is the identity Cloud Build
+# runs AS, and — because `run deploy` below passes no --service-account — the
+# identity the REVISION runs as too. The two need different roles, and reading
+# `$RUNTIME_SA` at the secret grants is clearer than reading `$BUILD_SA` there.
+RUNTIME_SA="$BUILD_SA"
 
 if gcloud projects get-iam-policy "$PROJECT" --flatten="bindings[].members" \
      --filter="bindings.role=roles/cloudbuild.builds.builder AND bindings.members:${BUILD_SA}" \
@@ -119,17 +124,54 @@ if [ ${#MISSING[@]} -gt 0 ]; then
 fi
 
 SECRETS="SARVAM_API_KEY=sarvam-key:latest,DEEPGRAM_API_KEY=deepgram-key:latest"
+MOUNTED=(sarvam-key deepgram-key)
 # Optional, so a deployment without it still works.
 if gcloud secrets describe gemini-key >/dev/null 2>&1; then
   SECRETS="${SECRETS},GEMINI_API_KEY=gemini-key:latest"
+  MOUNTED+=(gemini-key)
 fi
 # Twilio's auth token is what makes /incoming-call verify its caller. The
 # endpoint FAILS CLOSED without it — an unverified caller is one the compliance
 # gate never saw — so its absence is a warning, not a silent downgrade.
 if gcloud secrets describe twilio-auth-token >/dev/null 2>&1; then
   SECRETS="${SECRETS},TWILIO_AUTH_TOKEN=twilio-auth-token:latest"
+  MOUNTED+=(twilio-auth-token)
 else
   echo "  ⚠ no twilio-auth-token secret — /incoming-call will refuse every call (by design)"
+fi
+
+# ── LETTING THE SERVICE READ THEM ────────────────────────────────────────────
+# A DIFFERENT role from the build one, and a different moment. Cloud Build needs
+# cloudbuild.builds.builder to produce the image; the REVISION needs
+# secretmanager.secretAccessor to read a mounted secret when it starts. Having
+# one does not imply the other, and the failure arrives at the very end —
+# "Creating Revision...failed" after a successful build and push.
+#
+# Granted PER SECRET rather than project-wide. The default compute service
+# account has no business reading every secret this project will ever hold, and
+# the project-level grant is the one people reach for because it is shorter.
+say "→ Letting the service read those secrets"
+for s in "${MOUNTED[@]}"; do
+  if gcloud secrets get-iam-policy "$s" --flatten="bindings[].members" \
+       --filter="bindings.role=roles/secretmanager.secretAccessor AND bindings.members:${RUNTIME_SA}" \
+       --format='value(bindings.role)' 2>/dev/null | grep -q .; then
+    echo "  ✓ ${s}"
+  else
+    gcloud secrets add-iam-policy-binding "$s" \
+      --member="serviceAccount:${RUNTIME_SA}" \
+      --role="roles/secretmanager.secretAccessor" --quiet >/dev/null \
+      || die "could not grant secretAccessor on ${s} to ${RUNTIME_SA}"
+    echo "  granted secretAccessor on ${s}"
+    GRANTED_SECRET=1
+  fi
+done
+# IAM is eventually consistent, and the revision reads the secret the instant
+# it starts. Deploying immediately after a fresh grant can still be denied.
+# An `if`, not `[ ... ] && ...`: under `set -e` a false test would exit the
+# script, and "nothing to grant" is the SUCCESS case.
+if [ -n "${GRANTED_SECRET:-}" ]; then
+  echo "  waiting 30s for the grants to propagate"
+  sleep 30
 fi
 
 # The commit becomes the second image tag, so a rollback can name a build
