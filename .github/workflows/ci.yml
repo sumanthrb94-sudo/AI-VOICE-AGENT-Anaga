@@ -164,6 +164,15 @@ jobs:
         # agent rather than a failed provider, and nothing reported it.
         run: node --experimental-detect-module scripts/test-wav.mjs
 
+      - name: TTS format honesty (the bug that hung up a deployed call)
+        # viaSarvam's streaming branch labelled every response audio/mpeg. MP3
+        # is only the stream endpoint's DEFAULT — the call leg sends
+        # output_audio_codec and gets that codec back — so correct raw PCM was
+        # handed on as MP3, unwrapFor refused it, the disclosure could not be
+        # spoken, and the call failed closed on its first sentence. Every suite
+        # in the repo passed while that shipped, because none asserted the mime.
+        run: node --experimental-detect-module scripts/test-tts-mime.mjs
+
       - name: Latency measurement (the harness itself)
         # Every failure mode here is a way of turning a bad run into a
         # good-looking number: a silent turn counted as fast, a p95 over four

@@ -392,6 +392,13 @@ function cacheKey(text, opts) {
     // suddenly saw no vendor call at all.
     process.env.SARVAM_STREAM === '0' ? 'batch' : 'stream',
     process.env.SARVAM_SAMPLE_RATE || '',
+    // THE FORMAT IS PART OF THE IDENTITY OF THE BYTES. Without these two, a
+    // browser turn (MP3, 24kHz) and a call turn (linear16, 16kHz) share a key,
+    // so whichever spoke the sentence first wins and the other gets audio it
+    // cannot play. That is the same failure as the mime bug below, arriving
+    // intermittently instead of always — which is worse to diagnose.
+    opts.codec || '',
+    opts.sampleRate || '',
   ]);
 }
 
@@ -917,10 +924,33 @@ async function viaSarvam(text, opts) {
   const gender = SARVAM_MALE_SPEAKERS.includes(spk) ? 'male' : 'female';
 
   if (streaming) {
-    // Raw MP3 bytes, not JSON.
+    // Raw bytes, not JSON.
     const buf = Buffer.from(await res.arrayBuffer());
     if (!buf.length) throw new Error('sarvam_tts_empty');
-    return { audio: buf.toString('base64'), mime: 'audio/mpeg', provider: 'sarvam', voice: spk, gender };
+    // ── SAY WHAT WE ASKED FOR, NOT WHAT THE DEFAULT USED TO BE ─────────────
+    // This line read `mime: 'audio/mpeg'` unconditionally. MP3 is only the
+    // stream endpoint's DEFAULT; the moment we send output_audio_codec it
+    // returns that codec instead — and the call leg always sends one.
+    //
+    // So the bytes were correct raw PCM and we labelled them MP3. main.js
+    // hands mime and bytes to unwrapFor(), which has no WAV header to read on
+    // raw PCM and therefore trusts the label, and correctly refused to play
+    // "MP3" as samples. The whole call then failed closed on a disclosure it
+    // could not speak:
+    //
+    //   event=disclosure_not_delivered lang=te-IN
+    //   reason=voice returned audio/mpeg, which is not PCM
+    //
+    // A vendor-shaped failure that was entirely ours. Prefer what the response
+    // actually declares; fall back to what we requested; MP3 only when we
+    // requested nothing, which is the browser path where it is still right.
+    const declared = String(res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    const asked = String(body.output_audio_codec || '').toLowerCase();
+    const mime = /audio|octet-stream/.test(declared) ? declared
+      : asked === 'linear16' ? 'audio/L16'
+      : asked === 'mulaw' ? 'audio/basic'
+      : 'audio/mpeg';
+    return { audio: buf.toString('base64'), mime, provider: 'sarvam', voice: spk, gender };
   }
 
   const data = await res.json();
