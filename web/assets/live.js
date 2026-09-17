@@ -38,6 +38,37 @@
 
   var SAMPLE_RATE = 16000;
 
+  /* HALF-DUPLEX — WHY THE MICROPHONE CLOSES WHILE SHE TALKS
+     ------------------------------------------------------
+     `echoCancellation: true` is requested below and is NOT enough. Her audio is
+     played through a Web Audio graph into ctx.destination, and Chrome's echo
+     canceller does not reliably take that as its reference signal — so on
+     anything but earphones her voice reaches the microphone essentially
+     uncancelled.
+
+     Downstream, Deepgram cannot tell her voice from the prospect's. It hears
+     her, fires speech_start, the bridge reads that as barge-in and calls
+     cutOff(). She interrupts herself, mid-sentence, every sentence — which is
+     indistinguishable from "the microphone is interrupting everything".
+
+     web/assets/app.js already learned this on the older path and wrote it down:
+     real echo arrived as "calling" and "wonderful thank you" and both were
+     committed as caller turns. Text filtering cannot fix it; both are under any
+     sane threshold. Closing the microphone makes the echo PHYSICALLY
+     IMPOSSIBLE rather than probabilistically filtered.
+
+     Barge-in is not lost, it becomes explicit: interrupt() opens the mic mid
+     sentence, which is the same gesture as talking over someone on a phone
+     call. With earphones there is no acoustic path at all, so pass
+     halfDuplex:false and open-mic barge-in works as before. */
+
+  /** Her audio is out of the speaker but still in the air and in the buffer. */
+  var HOLD_MS = 280;
+
+  /** If a `speaking:false` is ever lost, the mic must not stay shut forever —
+      that is a dead call with no error. Longer than any single utterance. */
+  var MAX_MUTE_MS = 20000;
+
   /**
    * @param {object} o
    * @param {function} o.onEvent   server messages, for the transcript UI
@@ -47,6 +78,57 @@
     var opts = o || {};
     var ws = null, ctx = null, stream = null, capture = null, playback = null;
     var closed = false;
+
+    // Default ON: it is safe on every device, including the speakerphone in a
+    // meeting room. Only earphones can afford to turn it off.
+    var halfDuplex = opts.halfDuplex !== false;
+    var muted = false;          // mic gated because she is speaking
+    var resumeTimer = null;
+    var deadman = null;
+
+    function clearTimers() {
+      if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null; }
+      if (deadman) { clearTimeout(deadman); deadman = null; }
+    }
+
+    function setMuted(on) {
+      if (muted === on) return;
+      muted = on;
+      if (opts.onMic) opts.onMic(!on);
+    }
+
+    /** Driven by the server's `speaking` event. */
+    function onSpeaking(on) {
+      if (!halfDuplex) return;
+      clearTimers();
+      if (on) {
+        setMuted(true);
+        deadman = setTimeout(function () { deadman = null; setMuted(false); }, MAX_MUTE_MS);
+      } else {
+        // Not instant: the tail of her last word is still leaving the speaker,
+        // and reopening on the same tick captures it as the prospect talking.
+        resumeTimer = setTimeout(function () { resumeTimer = null; setMuted(false); }, HOLD_MS);
+      }
+    }
+
+    /**
+     * Cut her off deliberately — the button version of talking over someone.
+     *
+     * Two things, in this order. The local buffer is dropped so she stops in
+     * the same tick rather than after everything already sent finishes playing;
+     * then the microphone opens, so the speech that follows reaches Deepgram,
+     * fires speech_start, and the bridge performs a REAL barge-in — amending
+     * the transcript with "…[cut off]" exactly as an acoustic one would. No new
+     * server message: the existing path already does the right thing once it
+     * can hear.
+     */
+    function interrupt() {
+      if (!ws || ws.readyState !== 1) return false;
+      clearTimers();
+      if (playback) playback.port.postMessage("clear");
+      setMuted(false);
+      return true;
+    }
 
     function url() {
       // VAAK_AGENT_URL is the pre-rename name. A phone that has the old page
@@ -156,6 +238,9 @@
           // the call connected, and replaying it makes her answer a noise from
           // before she was listening.
           capture.port.onmessage = function (e) {
+            // DROPPED, never queued. Queuing would replay her own echo into the
+            // recogniser a moment later, which is the bug with a delay on it.
+            if (muted) return;
             if (ws && ws.readyState === 1) {
               ws.send(e.data);
               global.__sentBytes = (global.__sentBytes || 0) + e.data.byteLength;
@@ -176,6 +261,7 @@
           // BARGE-IN reaches the speaker before it reaches the UI. Everything
           // already buffered is dropped in the same tick.
           if (m.type === "clear") playback.port.postMessage("clear");
+          if (m.type === "speaking") onSpeaking(Boolean(m.value));
           if (opts.onEvent) opts.onEvent(m);
           if (m.type === "ended") stop();
         };
@@ -188,6 +274,7 @@
     function stop() {
       if (closed) return;
       closed = true;
+      clearTimers();
       try { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "stop" })); } catch (e) {}
       try { if (ws) ws.close(); } catch (e) {}
       if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
@@ -199,6 +286,15 @@
     return {
       start: start,
       stop: stop,
+      interrupt: interrupt,
+      /** True while the mic is closed because she is speaking. */
+      isMuted: function () { return muted; },
+      /** Earphones only — see the HALF-DUPLEX note at the top. */
+      setHalfDuplex: function (on) {
+        halfDuplex = Boolean(on);
+        if (!halfDuplex) { clearTimers(); setMuted(false); }
+      },
+      isHalfDuplex: function () { return halfDuplex; },
       isLive: function () { return Boolean(ws) && ws.readyState === 1; },
       /** Test seam: what the page would connect to. */
       _url: url

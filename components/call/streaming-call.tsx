@@ -27,7 +27,7 @@
    =========================================================================== */
 
 import * as React from 'react';
-import { Loader2, Mic, PhoneOff, Radio, TriangleAlert } from 'lucide-react';
+import { Hand, Loader2, Mic, MicOff, PhoneOff, Radio, TriangleAlert } from 'lucide-react';
 import { getAgentTicket, getHealth, saveDemoCall, type AgentStatus } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/primitives';
@@ -37,6 +37,11 @@ import { Card } from '@/components/ui/primitives';
 interface LiveCall {
   start: (lang: string, direction: string, tone?: { voice?: string; pace?: number }) => Promise<boolean>;
   stop: () => void;
+  /** Cut her off deliberately — the mic is closed while she speaks. */
+  interrupt: () => boolean;
+  isMuted: () => boolean;
+  setHalfDuplex: (on: boolean) => void;
+  isHalfDuplex: () => boolean;
   isLive: () => boolean;
 }
 
@@ -64,6 +69,8 @@ declare global {
     createLiveCall?: (o: {
       onEvent?: (e: ServerEvent) => void;
       onState?: (s: string, detail?: string) => void;
+      onMic?: (open: boolean) => void;
+      halfDuplex?: boolean;
     }) => LiveCall;
   }
 }
@@ -96,6 +103,15 @@ export function StreamingCall() {
   // rather than on a figure from a different day.
   const [turnStats, setTurnStats] = React.useState<Array<{ ttfa: number | null; llm: number | null; tts: number | null }>>([]);
   const [bargeIns, setBargeIns] = React.useState(0);
+  // ── WHO HOLDS THE FLOOR ────────────────────────────────────────────────
+  // The microphone is CLOSED while she speaks, because her voice reaching it
+  // is read downstream as the prospect interrupting and cuts her off mid
+  // sentence. That is a real state the person in front of the laptop needs to
+  // see, or they talk into a mic that is not listening and conclude the demo
+  // is broken. `earphones` turns the gate off, which is only safe when there
+  // is no acoustic path from speaker to mic.
+  const [micOpen, setMicOpen] = React.useState(true);
+  const [earphones, setEarphones] = React.useState(false);
   const [lines, setLines] = React.useState<Line[]>([]);
   const call = React.useRef<LiveCall | null>(null);
   const tail = React.useRef<HTMLDivElement>(null);
@@ -237,7 +253,10 @@ export function StreamingCall() {
     usage.current = null;
     saved.current = false;
 
+    setMicOpen(true);
     call.current = window.createLiveCall({
+      halfDuplex: !earphones,
+      onMic: (open) => setMicOpen(open),
       onEvent: (e) => {
         // Numbers only, and only the ones the bridge already computes. This is
         // what lets the console show what a caller actually waited through
@@ -408,10 +427,66 @@ export function StreamingCall() {
         )}
       </div>
 
+      {/* ── WHO HOLDS THE FLOOR ────────────────────────────────────────
+          The mic is shut while she speaks, so her voice cannot come back in
+          and be read as the prospect interrupting. Without this line a person
+          talks into a closed mic and concludes the product is broken, so the
+          state is shown rather than merely enforced — and the interruption is
+          offered as a button, which is the same gesture as talking over
+          someone on a phone. aria-live so it is announced, not just drawn. */}
+      {state === 'live' && (
+        <div className="flex flex-wrap items-center gap-3">
+          <span
+            aria-live="polite"
+            className={[
+              'inline-flex items-center gap-2 rounded-[var(--radius-md)] border px-3 py-1.5 text-[length:var(--text-sm)]',
+              micOpen
+                ? 'border-[var(--color-good-500)]/40 bg-[var(--color-good-500)]/10 text-[var(--color-text)]'
+                : 'border-[var(--color-line)] bg-[var(--color-elevated)] text-[var(--color-text-dim)]',
+            ].join(' ')}
+          >
+            {micOpen ? <Mic className="h-4 w-4" aria-hidden /> : <MicOff className="h-4 w-4" aria-hidden />}
+            {micOpen ? 'Your turn — speak now' : 'Anaga is speaking'}
+          </span>
+
+          {!micOpen && (
+            <Button
+              variant="secondary"
+              onClick={() => { call.current?.interrupt(); setMicOpen(true); }}
+            >
+              <Hand className="h-4 w-4" aria-hidden />
+              Interrupt
+            </Button>
+          )}
+        </div>
+      )}
+
       {state === 'error' && (
         <p role="alert" className="text-[length:var(--text-sm)] text-[var(--color-bad)]">
           {detail || 'the call failed'}
         </p>
+      )}
+
+      {/* Only offered before dialling: flipping the acoustic assumption
+          mid-call would reopen the mic into a speaker that is already
+          playing. Earphones are the one case with no path from her voice
+          back into the microphone, so open-mic barge-in is safe there. */}
+      {state === 'idle' && (
+        <label className="flex cursor-pointer items-start gap-2.5 text-[length:var(--text-sm)] text-[var(--color-text-dim)]">
+          <input
+            type="checkbox"
+            checked={earphones}
+            onChange={(e) => setEarphones(e.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-[var(--color-accent)]"
+          />
+          <span>
+            I am wearing earphones
+            <span className="block text-[length:var(--text-xs)] text-[var(--color-text-faint)]">
+              Keeps the mic open while she talks so you can cut in by voice. On speakers this
+              makes her interrupt herself — leave it unticked.
+            </span>
+          </span>
+        </label>
       )}
 
       {/* ── WHAT THIS CALL IS DOING, WHILE IT DOES IT ──────────────────

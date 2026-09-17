@@ -479,3 +479,14 @@ jobs:
           ocr delegate preview \
             --exclude '.claude/**,.claude-flow/**,.agents/**,graphify-out/**,public/**,design-system/**' \
             || true
+
+      - name: Half-duplex (the bug that made the mic interrupt everything)
+        # live.js streamed the microphone continuously, including while she was
+        # speaking. Her voice left the speaker, returned to the mic, and
+        # Deepgram — which cannot tell her from the prospect — fired
+        # speech_start, so the bridge read it as barge-in and cut her off. She
+        # interrupted herself every sentence. echoCancellation:true does not
+        # prevent it: playback goes through ctx.destination, which Chrome's
+        # canceller does not reliably use as its reference. The assertion is
+        # about bytes, not scores: while she speaks, nothing reaches the socket.
+        run: node --experimental-detect-module scripts/test-half-duplex.mjs
