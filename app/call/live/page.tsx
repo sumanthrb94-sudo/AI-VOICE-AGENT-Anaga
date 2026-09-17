@@ -53,9 +53,13 @@ export default function LiveCallPage() {
       </Link>
 
       <p className="mt-6 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-faint)]">
-        Your microphone stays open for the whole call, and audio is sent to the recogniser as it is
-        captured. Nothing is stored by this page. Say “don’t call me” at any point — the opt-out is
-        taken before anything else in the turn, and it overrides whatever she was about to do next.
+        Your microphone closes while Anaga is speaking and reopens the moment she stops, so a
+        laptop speaker cannot feed her own voice back and make her interrupt herself. The panel
+        shows which way the floor is pointing, and <em>Interrupt</em> cuts her off mid-sentence.
+        On earphones there is no echo path at all — tick the box and the mic stays open the whole
+        call, so you can talk over her. Nothing is stored by this page. Say “don’t call me” at any
+        point — the opt-out is taken before anything else in the turn, and it overrides whatever
+        she was about to do next.
       </p>
     </main>
   );

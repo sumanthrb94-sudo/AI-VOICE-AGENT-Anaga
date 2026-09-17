@@ -199,6 +199,23 @@ export function StreamingCall() {
     const url = typeof agent === 'object' && agent ? agent.url : null;
     if (!url) return;
 
+    // ONE CALL AT A TIME, ENFORCED HERE.
+    //
+    // The button is only disabled while `connecting`, so a second click from
+    // `error` or `ended` — or a click after a socket dropped without the state
+    // catching up — used to build a SECOND engine: another WebSocket, another
+    // AudioContext, another getUserMedia stream, another playback node. The
+    // previous one was overwritten in the ref and never stopped, so it kept
+    // streaming and kept playing. Two Anagas talking over each other, two mics
+    // open, each one feeding the other's voice back to the recogniser.
+    //
+    // stop() is idempotent and safe on a call that never connected, so this
+    // costs nothing in the normal path.
+    if (call.current) {
+      try { call.current.stop(); } catch { /* already gone */ }
+      call.current = null;
+    }
+
     setLines([]);
     setDetail('');
     setTurnStats([]);

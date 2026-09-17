@@ -60,14 +60,37 @@
      Barge-in is not lost, it becomes explicit: interrupt() opens the mic mid
      sentence, which is the same gesture as talking over someone on a phone
      call. With earphones there is no acoustic path at all, so pass
-     halfDuplex:false and open-mic barge-in works as before. */
+     halfDuplex:false and open-mic barge-in works as before.
 
-  /** Her audio is out of the speaker but still in the air and in the buffer. */
-  var HOLD_MS = 280;
+     WHY THE `speaking` EVENT IS NOT THE GATE
+     ----------------------------------------
+     It was, and it was not enough. One turn emits `speaking` true→false→true→
+     false several times over: the backchannel ("సరే") is one instalment, the
+     opening clause is the next, the remainder is the next. Gating on the event
+     alone reopened the microphone in the GAPS BETWEEN HER OWN INSTALMENTS,
+     while she was mid-answer — so the echo came straight back and she cut
+     herself off exactly as before, just a beat later.
+
+     cutOff() compounds it: barge-in emits `clear` and never emits
+     `speaking:false` at all, so the event stream alone cannot even tell you
+     she has stopped.
+
+     So the gate measures HER AUDIO instead of trusting a flag. Every frame is
+     Int16 mono at SAMPLE_RATE, so its byte length IS its duration, and the
+     moment her voice finishes leaving the speaker is arithmetic rather than a
+     guess. Frames arrive faster than real time, which is what makes this work:
+     by the time a gap appears in the event stream, playoutEndsAt is already
+     far enough ahead to cover it. */
+
+  /** Reverb in the room, plus the worklet's own latency. */
+  var HOLD_MS = 350;
 
   /** If a `speaking:false` is ever lost, the mic must not stay shut forever —
       that is a dead call with no error. Longer than any single utterance. */
   var MAX_MUTE_MS = 20000;
+
+  /** Int16 mono: two bytes a sample. Duration of a frame, in milliseconds. */
+  function frameMs(bytes) { return (bytes / 2) / SAMPLE_RATE * 1000; }
 
   /**
    * @param {object} o
@@ -82,13 +105,14 @@
     // Default ON: it is safe on every device, including the speakerphone in a
     // meeting room. Only earphones can afford to turn it off.
     var halfDuplex = opts.halfDuplex !== false;
-    var muted = false;          // mic gated because she is speaking
-    var resumeTimer = null;
-    var deadman = null;
+    var muted = false;            // mic gated because she still holds the floor
+    var serverSpeaking = false;   // the flag — necessary, not sufficient
+    var speakingSince = 0;        // for the deadman
+    var playoutEndsAt = 0;        // when her audio stops leaving the speaker
+    var gateTimer = null;
 
     function clearTimers() {
-      if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null; }
-      if (deadman) { clearTimeout(deadman); deadman = null; }
+      if (gateTimer) { clearTimeout(gateTimer); gateTimer = null; }
     }
 
     function setMuted(on) {
@@ -97,35 +121,69 @@
       if (opts.onMic) opts.onMic(!on);
     }
 
-    /** Driven by the server's `speaking` event. */
-    function onSpeaking(on) {
+    /**
+     * THE GATE. Recomputed on every event that can change the answer — a
+     * speaking flag, an audio frame, a clear, or its own timer — so there is
+     * one rule in one place rather than a mute path and an unmute path that
+     * can disagree.
+     */
+    function regate() {
       if (!halfDuplex) return;
       clearTimers();
-      if (on) {
-        setMuted(true);
-        deadman = setTimeout(function () { deadman = null; setMuted(false); }, MAX_MUTE_MS);
-      } else {
-        // Not instant: the tail of her last word is still leaving the speaker,
-        // and reopening on the same tick captures it as the prospect talking.
-        resumeTimer = setTimeout(function () { resumeTimer = null; setMuted(false); }, HOLD_MS);
-      }
+      var now = Date.now();
+
+      // A lost `speaking:false` must not shut the microphone for the rest of
+      // the call. That failure is silent, and a silent dead call is the worst
+      // shape this bug can take.
+      if (serverSpeaking && now - speakingSince > MAX_MUTE_MS) serverSpeaking = false;
+
+      var quietAt = playoutEndsAt + HOLD_MS;
+      var shut = serverSpeaking || now < quietAt;
+      setMuted(shut);
+      if (!shut) return;
+
+      // Wake exactly when the answer could change, and no sooner.
+      var next = serverSpeaking
+        ? Math.max(50, (speakingSince + MAX_MUTE_MS) - now)
+        : Math.max(50, quietAt - now);
+      gateTimer = setTimeout(function () { gateTimer = null; regate(); }, next);
+    }
+
+    /** Her voice, arriving. The byte length is the duration. */
+    function noteAudio(bytes) {
+      var now = Date.now();
+      // max(): frames arrive faster than real time, so the queue builds a lead.
+      playoutEndsAt = Math.max(playoutEndsAt, now) + frameMs(bytes);
+      regate();
+    }
+
+    /** Everything buffered has been dropped — she is silent from this instant. */
+    function noteCleared() {
+      playoutEndsAt = 0;
+      serverSpeaking = false;
+      regate();
+    }
+
+    function onSpeaking(on) {
+      serverSpeaking = on;
+      if (on) speakingSince = Date.now();
+      regate();
     }
 
     /**
      * Cut her off deliberately — the button version of talking over someone.
      *
-     * Two things, in this order. The local buffer is dropped so she stops in
-     * the same tick rather than after everything already sent finishes playing;
-     * then the microphone opens, so the speech that follows reaches Deepgram,
-     * fires speech_start, and the bridge performs a REAL barge-in — amending
-     * the transcript with "…[cut off]" exactly as an acoustic one would. No new
-     * server message: the existing path already does the right thing once it
-     * can hear.
+     * The local buffer is dropped so she stops in the same tick rather than
+     * after everything already sent finishes playing; then the microphone
+     * opens, so the speech that follows reaches Deepgram, fires speech_start,
+     * and the bridge performs a REAL barge-in — amending the transcript with
+     * "…[cut off]" exactly as an acoustic one would. No new server message:
+     * the existing path already does the right thing once it can hear.
      */
     function interrupt() {
       if (!ws || ws.readyState !== 1) return false;
-      clearTimers();
       if (playback) playback.port.postMessage("clear");
+      noteCleared();
       setMuted(false);
       return true;
     }
@@ -252,7 +310,12 @@
 
         ws.onmessage = function (e) {
           if (typeof e.data !== "string") {
-            global.__gotAudio = (global.__gotAudio || 0) + e.data.byteLength;
+            var n = e.data.byteLength;
+            global.__gotAudio = (global.__gotAudio || 0) + n;
+            // Counted BEFORE the transfer: postMessage neuters the buffer and
+            // byteLength reads 0 afterwards, which would silently gate on
+            // nothing at all.
+            noteAudio(n);
             playback.port.postMessage(e.data, [e.data]);
             return;
           }
@@ -260,7 +323,9 @@
           try { m = JSON.parse(e.data); } catch (err) { return; }
           // BARGE-IN reaches the speaker before it reaches the UI. Everything
           // already buffered is dropped in the same tick.
-          if (m.type === "clear") playback.port.postMessage("clear");
+          // cutOff() emits `clear` and NO `speaking:false`, so this is the
+          // only signal that a barge-in ended her turn.
+          if (m.type === "clear") { playback.port.postMessage("clear"); noteCleared(); }
           if (m.type === "speaking") onSpeaking(Boolean(m.value));
           if (opts.onEvent) opts.onEvent(m);
           if (m.type === "ended") stop();
@@ -289,6 +354,8 @@
       interrupt: interrupt,
       /** True while the mic is closed because she is speaking. */
       isMuted: function () { return muted; },
+      /** Diagnostics for the test harness and the console. */
+      _gate: function () { return { serverSpeaking: serverSpeaking, playoutEndsAt: playoutEndsAt, muted: muted }; },
       /** Earphones only — see the HALF-DUPLEX note at the top. */
       setHalfDuplex: function (on) {
         halfDuplex = Boolean(on);
