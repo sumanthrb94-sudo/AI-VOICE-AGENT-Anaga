@@ -45,11 +45,19 @@ export default function LiveCallPage() {
         <StreamingCall />
       </div>
 
+      {/* THE TRAPDOOR, CLOSED.
+          /call is the older request/response engine: Web Speech, an open mic
+          through her whole turn, and the echo that follows from it. It is kept
+          for comparison, but it is NOT the product — and a plain link to it
+          one tap below the live demo is how somebody ends up judging Anaga on
+          the engine we replaced. vercel.json now redirects /call to here, so
+          an old tab or bookmark lands on the real thing; ?legacy=1 is the way
+          back for a deliberate comparison. */}
       <Link
-        href="/call"
-        className="mt-6 w-fit text-[length:var(--text-sm)] text-[var(--color-text-dim)] underline underline-offset-4 transition-colors hover:text-[var(--color-text)]"
+        href="/call?legacy=1"
+        className="mt-6 w-fit text-[length:var(--text-xs)] text-[var(--color-text-faint)] underline underline-offset-4 transition-colors hover:text-[var(--color-text-dim)]"
       >
-        The turn-by-turn version, for comparison
+        The older turn-by-turn engine, for comparison — not the live demo
       </Link>
 
       <p className="mt-6 text-[length:var(--text-xs)] leading-relaxed text-[var(--color-text-faint)]">

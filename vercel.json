@@ -40,6 +40,14 @@
       ]
     }
   ],
+  "redirects": [
+    {
+      "source": "/call",
+      "missing": [{ "type": "query", "key": "legacy" }],
+      "destination": "/call/live",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/calls/recording",
