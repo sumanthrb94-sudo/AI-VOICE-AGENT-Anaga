@@ -1093,23 +1093,35 @@ await t('the deferral is what she is shown instead', async () => {
   assert.match(hi, /सेल्स मैनेजर/, 'Hindi needs an example of deferring to a human');
 });
 
-await t('the browser ships the same gendered pair', async () => {
+await t('the persona file carries the same gendered pair', async () => {
+  // This used to read web/assets/app.js as a text fixture — a duplicate copy
+  // of these lines in a page nothing loads. The gendered disclosure is
+  // authored ONCE, in the file the call itself speaks from; testing the dead
+  // copy meant a real edit here could drift silently with no test noticing.
   const fs = await import('node:fs');
-  const src = fs.readFileSync(new URL('../web/assets/app.js', import.meta.url), 'utf8');
-  assert.match(src, /ANAGA_LINES_BY_GENDER/);
-  assert.match(src, /बात कर सकती हूँ/, 'feminine Hindi greeting missing');
-  assert.match(src, /बात कर सकता हूँ/, 'masculine Hindi greeting missing');
+  const persona = JSON.parse(
+    fs.readFileSync(new URL('../caller-agent/flows/anaga.persona.json', import.meta.url), 'utf8'),
+  );
+  assert.match(persona.disclosure['hi-IN'], /बात कर सकती हूँ/, 'feminine Hindi disclosure missing');
+  assert.match(persona.disclosure.male['hi-IN'], /बात कर सकता हूँ/, 'masculine Hindi disclosure missing');
+  // The possessive marks gender too, not just the verb — the note beside these
+  // lines calls this out by name as the mistake that is easy to miss.
+  assert.match(persona.disclosure['hi-IN'], /मॉडकॉन बिल्डर्स की/, 'feminine possessive (की) missing');
+  assert.match(persona.disclosure.male['hi-IN'], /मॉडकॉन बिल्डर्स का/, 'masculine possessive (का) missing');
 });
 
 await t('translation is never pointed at the disclosure', async () => {
   const fs = await import('node:fs');
-  const app = fs.readFileSync(new URL('../web/assets/app.js', import.meta.url), 'utf8');
-  // The disclosure is spoken from the versioned line, so it must reach
-  // speakText directly rather than through TranslateKit.out().
-  assert.match(app, /speakText\(anagaLine\(/,
-    'the sample disclosure must be spoken from the versioned line');
+  // The disclosure's wording lives in the persona file, marked explicitly —
+  // never generated at call time by a translation call that can return
+  // anything, in a language nobody on the team reads.
+  const persona = fs.readFileSync(new URL('../caller-agent/flows/anaga.persona.json', import.meta.url), 'utf8');
+  assert.match(persona, /NEVER machine-translated/,
+    'the disclosure must be marked as fixed, versioned data — not a translation target');
   const lib = fs.readFileSync(new URL('../api/_lib/translate.js', import.meta.url), 'utf8');
   assert.match(lib, /disclosure/i, 'the rule must be written down where someone will read it');
+  assert.match(lib, /Fixed lines come\s*\n?\/\/ from the persona file/,
+    'translate.js must point back at the persona file as the source of truth');
 });
 
 globalThis.fetch = realFetch;
